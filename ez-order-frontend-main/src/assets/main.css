@@ -1,0 +1,13 @@
+@import 'tailwindcss';
+
+/* Eliminar outline por defecto de los inputs */
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none !important;
+}
+
+/* Asegurar que solo se use el ring de Tailwind */
+*:focus {
+  outline: none !important;
+}
