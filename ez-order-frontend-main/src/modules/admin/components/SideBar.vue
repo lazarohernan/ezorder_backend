@@ -148,7 +148,7 @@ const props = defineProps({
 const emit = defineEmits(['toggle', 'logout']);
 
 const route = useRoute();
-const { hasPermission } = usePermissions();
+const { hasPermission, hasRestaurant } = usePermissions();
 const authStore = useAuthStore();
 
 // Watcher para forzar la reactividad cuando userInfo cambie
@@ -262,12 +262,19 @@ const allMenuItems: MenuItem[] = [
   },
 ];
 
-// Computed para filtrar elementos del menú basado en permisos
+// Computed para filtrar elementos del menú basado en permisos y restaurante
 const menuItems = computed(() => {
   return allMenuItems
     .filter(item => {
-      // Si no requiere permiso, mostrar siempre
-      if (!item.permission) return true;
+      // Si no requiere permiso, verificar solo restaurante
+      if (!item.permission) {
+        return hasRestaurant.value;
+      }
+      
+      // Verificar primero que tenga restaurante asignado (excepto Super Admin y Admin)
+      if (!hasRestaurant.value) {
+        return false;
+      }
       
       // Verificar si tiene el permiso requerido
       return hasPermission(item.permission).value;
@@ -276,8 +283,15 @@ const menuItems = computed(() => {
       // Si tiene submenú, filtrar también los subelementos
       if (item.submenu) {
         const filteredSubmenu = item.submenu.filter(subitem => {
-          // Si no requiere permiso, mostrar siempre
-          if (!subitem.permission) return true;
+          // Si no requiere permiso, verificar restaurante
+          if (!subitem.permission) {
+            return hasRestaurant.value;
+          }
+          
+          // Verificar primero que tenga restaurante asignado
+          if (!hasRestaurant.value) {
+            return false;
+          }
           
           // Verificar si tiene el permiso requerido
           return hasPermission(subitem.permission).value;
@@ -296,7 +310,7 @@ const menuItems = computed(() => {
       if (!item.submenu) return true;
       
       // Si tiene submenú, mostrarlo si tiene subelementos o si el principal tiene permiso
-      const hasMainPermission = !item.permission || hasPermission(item.permission).value;
+      const hasMainPermission = !item.permission || (hasRestaurant.value && hasPermission(item.permission).value);
       return hasMainPermission && (item.submenu && item.submenu.length > 0);
     });
 });

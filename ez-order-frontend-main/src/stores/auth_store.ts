@@ -98,14 +98,14 @@ export const useAuthStore = defineStore('auth', () => {
       if (response.data.ok && response.data.session?.access_token) {
         // Programar la próxima renovación
         scheduleTokenRefresh(response.data.session.access_token);
-
         return true;
       } else {
         console.warn('No se pudo renovar el token');
         return false;
       }
     } catch (err) {
-      console.error('Error al renovar el token:', err);
+      // No es crítico si falla el refresh, continuar con getUserInfo
+      console.warn('Error al renovar el token (continuando con getUserInfo):', err);
       return false;
     }
   };
@@ -307,6 +307,10 @@ export const useAuthStore = defineStore('auth', () => {
   // Refrescar información del usuario (útil después de actualizar roles/permisos)
   const refreshUserInfo = async () => {
     try {
+      // Primero refrescar el token para obtener los nuevos permisos del JWT si están disponibles
+      await refreshAuthToken();
+      
+      // Luego obtener la información actualizada del usuario desde la API
       const fetchedUserInfo = await AuthService.getUserInfo();
       if (fetchedUserInfo) {
         userInfo.value = fetchedUserInfo;

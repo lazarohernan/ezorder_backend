@@ -19,6 +19,8 @@ export interface Menu {
   activo: boolean;
   es_exento: boolean;
   es_exonerado: boolean;
+  requiere_inventario?: boolean;
+  ingredientes?: string;
   restaurantes?: Restaurante;
 }
 
@@ -39,6 +41,8 @@ export interface CreateMenuDTO {
   activo?: boolean;
   es_exento?: boolean;
   es_exonerado?: boolean;
+  requiere_inventario?: boolean;
+  ingredientes?: string;
 }
 
 /**
@@ -58,6 +62,8 @@ export interface UpdateMenuDTO {
   activo?: boolean;
   es_exento?: boolean;
   es_exonerado?: boolean;
+  requiere_inventario?: boolean;
+  ingredientes?: string;
 }
 
 /**

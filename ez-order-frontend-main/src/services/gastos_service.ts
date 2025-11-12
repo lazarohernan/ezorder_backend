@@ -1,5 +1,6 @@
 import axios from '../plugins/axios';
 import type { Gasto, GastoCreate, GastoUpdate, GastoResumenCategoria, GastoTotal } from '../interfaces/Gasto';
+import { formatCurrencyHNL } from '../utils/currency';
 
 export const gastosService = {
   // Obtener todos los gastos de un restaurante
@@ -126,12 +127,7 @@ export const gastosService = {
 
   // Formatear moneda
   formatMoneda(monto: number): string {
-    const formatter = new Intl.NumberFormat('es-HN', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-
-    return `L ${formatter.format(monto)}`;
+    return formatCurrencyHNL(monto);
   },
 
   // Obtener fecha de inicio del mes actual
@@ -165,5 +161,3 @@ export const gastosService = {
     return f.toISOString();
   }
 };
-
-

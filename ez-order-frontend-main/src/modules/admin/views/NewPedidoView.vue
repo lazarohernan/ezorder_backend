@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useRouter } from 'vue-router';
-import { ArrowLeftIcon, TrashIcon, InformationCircleIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/outline';
+import { 
+  ArrowLeftIcon, 
+  TrashIcon, 
+  InformationCircleIcon, 
+  MagnifyingGlassIcon,
+  BuildingStorefrontIcon,
+  TruckIcon,
+  ShoppingBagIcon
+} from '@heroicons/vue/24/outline';
 import { useAuthStore } from '@/stores/auth_store';
 import type { Menu } from '@/interfaces/Menu';
 import type { Cliente } from '@/interfaces/Cliente';
@@ -13,23 +21,31 @@ import PedidoItemService from '@/services/pedidoItem_service';
 import ClientesService from '@/services/clientes_service';
 import RestaurantesService from '@/services/restaurantes_service';
 import metodoPagoService from '@/services/metodo_pago_services';
+import { CategoriasService, type CategoriaMenu } from '@/services/categorias_service';
 import PDFService, { type InvoiceData } from '@/services/pdf_service';
+import { inventarioService } from '@/services/inventario_service';
+import { useToast } from 'vue-toastification';
 import MenuItemInformationModal from '../components/MenuItemInformationModal.vue';
 import ConfirmarPedidoModal from '../components/ConfirmarPedidoModal.vue';
 import foodPlaceholder from '@/assets/food-placeholder.svg';
 import CustomSelect from '@/components/ui/CustomSelect.vue';
+import { cajaService } from '@/services/caja_service';
+import { formatCurrencyHNL } from '@/utils/currency';
 
 const router = useRouter();
 const authStore = useAuthStore();
+const toast = useToast();
 
 // State
 const isLoading = ref(false);
 const menus = ref<Menu[]>([]);
 const clientes = ref<Cliente[]>([]);
+const categorias = ref<CategoriaMenu[]>([]);
 const searchMenu = ref('');
 const selectedMenuForInfo = ref<Menu | null>(null);
 const isInfoModalOpen = ref(false);
 const isConfirmModalOpen = ref(false);
+const selectedCategoria = ref<string | null>(null);
 
 // Formulario del pedido
 const formData = ref<CreatePedidoDTO>({
@@ -59,7 +75,7 @@ interface PedidoItemLocal extends CreatePedidoItemDTO {
 
 const pedidoItems = ref<PedidoItemLocal[]>([]);
 
-const confirmarPedidoModal = ref<any>(null);
+const confirmarPedidoModal = ref<InstanceType<typeof ConfirmarPedidoModal> | null>(null);
 
 // Layout state for resizable panels (only applied on pantallas grandes)
 const layoutContainer = ref<HTMLElement | null>(null);
@@ -72,15 +88,21 @@ const isDraggingDivider = ref(false);
 const minLeftWidth = 55;
 const maxLeftWidth = 75;
 
+// Estado del acordeón de información del pedido
+const isOrderInfoCollapsed = ref<boolean>(false);
+
 const leftPanelStyle = computed(() => ({ flexBasis: `${leftPanelWidth.value}%` }));
 const rightPanelStyle = computed(() => ({ flexBasis: `${100 - leftPanelWidth.value}%` }));
 
 const tipoPedidoOptions = [
-  { label: 'Local', value: 'local' as TipoPedido },
-  { label: 'Domicilio', value: 'domicilio' as TipoPedido },
-  { label: 'Para llevar', value: 'recoger' as TipoPedido },
+  { label: 'Local', value: 'local' as TipoPedido, icon: BuildingStorefrontIcon },
+  { label: 'Domicilio', value: 'domicilio' as TipoPedido, icon: TruckIcon },
+  { label: 'Para llevar', value: 'recoger' as TipoPedido, icon: ShoppingBagIcon },
   { label: 'Mesa', value: 'mesa' as TipoPedido }
 ];
+
+// Primeros 3 tipos para mostrar como chips (con iconos)
+const tipoPedidoChips = tipoPedidoOptions.slice(0, 3);
 
 const clienteOptions = computed(() => [
   { label: 'Sin cliente', value: null },
@@ -92,12 +114,23 @@ const clienteOptions = computed(() => [
 
 // Computed
 const filteredMenus = computed(() => {
-  if (!searchMenu.value) return menus.value;
-  return menus.value.filter(
-    (menu) =>
-      menu.nombre.toLowerCase().includes(searchMenu.value.toLowerCase()) ||
-      menu.descripcion?.toLowerCase().includes(searchMenu.value.toLowerCase()),
-  );
+  let filtered = menus.value;
+
+  // Filtrar por búsqueda de texto
+  if (searchMenu.value) {
+    filtered = filtered.filter(
+      (menu) =>
+        menu.nombre.toLowerCase().includes(searchMenu.value.toLowerCase()) ||
+        menu.descripcion?.toLowerCase().includes(searchMenu.value.toLowerCase()),
+    );
+  }
+
+  // Filtrar por categoría seleccionada
+  if (selectedCategoria.value) {
+    filtered = filtered.filter((menu) => menu.categoria_id === selectedCategoria.value);
+  }
+
+  return filtered;
 });
 
 const subtotal = computed(() => {
@@ -175,6 +208,15 @@ const fetchClientes = async () => {
   }
 };
 
+const fetchCategorias = async () => {
+  try {
+    const response = await CategoriasService.getAll();
+    categorias.value = response.data.data || [];
+  } catch (error) {
+    console.error('Error al cargar las categorías:', error);
+  }
+};
+
 const handleImageError = (event: Event) => {
   const img = event.target as HTMLImageElement;
   if (img) {
@@ -192,7 +234,32 @@ const closeInfoModal = () => {
   selectedMenuForInfo.value = null;
 };
 
-const agregarMenuItem = (menu: Menu) => {
+const agregarMenuItem = async (menu: Menu) => {
+  // Si el producto requiere inventario, verificar stock
+  if (menu.requiere_inventario) {
+    try {
+      const existingItemIndex = pedidoItems.value.findIndex((item) => item.menu_id === menu.id);
+      const cantidadSolicitada = existingItemIndex !== -1 ? pedidoItems.value[existingItemIndex].cantidad + 1 : 1;
+      
+      const { ok, disponible, stock_actual } = await inventarioService.verificarStockDisponible(
+        menu.id,
+        cantidadSolicitada
+      );
+
+      if (ok && !disponible) {
+        toast.error(
+          `Stock insuficiente. Disponible: ${stock_actual}. Solicitado: ${cantidadSolicitada}`
+        );
+        return;
+      }
+    } catch (error) {
+      console.error('Error al verificar stock:', error);
+      toast.error('Error al verificar disponibilidad de stock');
+      return;
+    }
+  }
+
+  // Agregar item al pedido
   const existingItemIndex = pedidoItems.value.findIndex((item) => item.menu_id === menu.id);
 
   if (existingItemIndex !== -1) {
@@ -222,7 +289,31 @@ const agregarMenuItem = (menu: Menu) => {
   }
 };
 
-const aumentarCantidad = (index: number) => {
+const aumentarCantidad = async (index: number) => {
+  const item = pedidoItems.value[index];
+  const menu = menus.value.find(m => m.id === item.menu_id);
+  
+  // Si el producto requiere inventario, verificar stock
+  if (menu?.requiere_inventario) {
+    try {
+      const { ok, disponible, stock_actual } = await inventarioService.verificarStockDisponible(
+        item.menu_id,
+        item.cantidad + 1
+      );
+
+      if (ok && !disponible) {
+        toast.error(
+          `Stock insuficiente. Disponible: ${stock_actual}. Solicitado: ${item.cantidad + 1}`
+        );
+        return;
+      }
+    } catch (error) {
+      console.error('Error al verificar stock:', error);
+      toast.error('Error al verificar disponibilidad de stock');
+      return;
+    }
+  }
+
   pedidoItems.value[index].cantidad++;
 };
 
@@ -340,14 +431,17 @@ const crearPedido = async (
   metodoPagoId: number,
   deliveryMethod: string,
   estadoPedido: string,
+  ticketNumber: number,
   whatsappNumber?: string,
 ) => {
   isLoading.value = true;
 
   try {
-    // Asignar el método de pago y estado seleccionados
+
+    // Asignar el método de pago, estado y número de ticket seleccionados
     formData.value.metodo_pago_id = metodoPagoId;
     formData.value.estado_pedido = estadoPedido as EstadoPedido;
+    formData.value.numero_ticket = ticketNumber;
 
     // Si el estado es confirmado, marcar como pagado
     if (estadoPedido === 'confirmado') {
@@ -398,11 +492,12 @@ const crearPedido = async (
       );
       limpiarPedido();
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error al crear el pedido:', error);
+    const errorMessage = error?.response?.data?.message || error?.message || 'Error al crear el pedido. Por favor, intente nuevamente.';
     confirmarPedidoModal.value?.handleConfirmationResult(
       false,
-      'Error al crear el pedido. Por favor, intente nuevamente.',
+      errorMessage,
     );
   } finally {
     isLoading.value = false;
@@ -411,6 +506,14 @@ const crearPedido = async (
 
 const goBack = () => {
   router.push({ name: 'orders' });
+};
+
+const toggleOrderInfo = () => {
+  isOrderInfoCollapsed.value = !isOrderInfoCollapsed.value;
+};
+
+const selectCategoria = (categoriaId: string | null) => {
+  selectedCategoria.value = categoriaId;
 };
 
 // Divider handlers
@@ -449,6 +552,7 @@ const startDragging = (event: MouseEvent) => {
 onMounted(() => {
   fetchMenus();
   fetchClientes();
+  fetchCategorias();
   window.addEventListener('mousemove', handleMouseMove);
   window.addEventListener('mouseup', stopDragging);
 });
@@ -494,31 +598,70 @@ onBeforeUnmount(() => {
       ref="layoutContainer"
       class="flex flex-col gap-6 xl:flex-row xl:items-stretch"
     >
-      <!-- Formulario y Menús -->
-      <div
-        class="space-y-6 xl:flex xl:flex-col"
-        :style="leftPanelStyle"
-      >
-        <div class="rounded-2xl border border-gray-100 bg-white/90 p-6 backdrop-blur">
-          <div class="mb-5 flex items-center justify-between">
-            <h2 class="text-xl font-semibold text-gray-900">Información del Pedido</h2>
-            <span class="text-xs font-medium text-gray-400">Completa los datos principales</span>
-          </div>
+        <!-- Formulario y Menús -->
+        <div
+          class="space-y-6 xl:flex xl:flex-col"
+          :style="leftPanelStyle"
+        >
+          <div class="rounded-2xl border border-gray-100 bg-white/90 p-6 backdrop-blur">
+            <div class="mb-5 flex items-center justify-between">
+              <h2 class="text-xl font-semibold text-gray-900">Información del Pedido</h2>
+              <div class="flex items-center gap-3">
+                <span class="text-xs font-medium text-gray-400">Completa los datos principales</span>
+                <button
+                  @click="toggleOrderInfo"
+                  class="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-600 transition hover:border-orange-300 hover:text-orange-700"
+                >
+                  <svg 
+                    class="h-4 w-4 transition-transform duration-200" 
+                    :class="{ 'rotate-180': isOrderInfoCollapsed }"
+                    fill="none" 
+                    viewBox="0 0 24 24" 
+                    stroke="currentColor"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                  {{ isOrderInfoCollapsed ? 'Mostrar' : 'Ocultar' }}
+                </button>
+              </div>
+            </div>
 
-          <form @submit.prevent class="space-y-6">
+            <!-- Transición para el formulario -->
+            <transition
+              enter-active-class="transition-all duration-300 ease-out"
+              enter-from-class="opacity-0 max-h-0"
+              enter-to-class="opacity-100 max-h-screen"
+              leave-active-class="transition-all duration-300 ease-in"
+              leave-from-class="opacity-100 max-h-screen"
+              leave-to-class="opacity-0 max-h-0"
+            >
+              <form v-show="!isOrderInfoCollapsed" @submit.prevent class="space-y-6 overflow-visible">
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <!-- Tipo de Pedido -->
               <div class="space-y-2">
                 <label class="text-sm font-semibold text-gray-700">Tipo de Pedido</label>
-                <CustomSelect
-                  v-model="formData.tipo_pedido"
-                  :options="tipoPedidoOptions"
-                  placeholder="Selecciona un tipo"
-                />
+                <!-- Chips para los primeros 3 tipos con iconos -->
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    v-for="option in tipoPedidoChips"
+                    :key="option.value"
+                    type="button"
+                    @click="formData.tipo_pedido = option.value"
+                    :class="[
+                      'inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all duration-200',
+                      formData.tipo_pedido === option.value
+                        ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg'
+                        : 'bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100 hover:border-orange-300'
+                    ]"
+                  >
+                    <component :is="option.icon" class="h-5 w-5" />
+                    <span>{{ option.label }}</span>
+                  </button>
+                </div>
               </div>
 
               <!-- Cliente (opcional) -->
-              <div class="space-y-2">
+              <div class="relative z-[100] space-y-2">
                 <label class="text-sm font-semibold text-gray-700">Cliente (Opcional)</label>
                 <CustomSelect
                   v-model="formData.cliente_id"
@@ -562,8 +705,9 @@ onBeforeUnmount(() => {
                 class="w-full rounded-xl border border-gray-200 bg-white/70 px-3 py-2 text-sm text-gray-700 transition focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-200"
               ></textarea>
             </div>
-          </form>
-        </div>
+              </form>
+            </transition>
+          </div>
 
         <!-- Menús Disponibles -->
         <div class="rounded-2xl border border-gray-100 bg-white/90 p-6 backdrop-blur">
@@ -587,6 +731,39 @@ onBeforeUnmount(() => {
                 placeholder="Buscar por nombre o descripción..."
                 class="w-full rounded-xl border border-gray-200 bg-white/70 py-2 pl-10 pr-3 text-sm text-gray-700 transition focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-200"
               />
+            </div>
+          </div>
+
+          <!-- Carrusel de Categorías -->
+          <div class="mb-6">
+            <div class="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+              <!-- Chip "Todas" -->
+              <button
+                @click="selectCategoria(null)"
+                :class="[
+                  'flex-shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition-all duration-200',
+                  selectedCategoria === null
+                    ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg'
+                    : 'bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100 hover:border-orange-300'
+                ]"
+              >
+                Todas
+              </button>
+              
+              <!-- Chips de categorías -->
+              <button
+                v-for="categoria in categorias"
+                :key="categoria.id"
+                @click="selectCategoria(categoria.id)"
+                :class="[
+                  'flex-shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition-all duration-200',
+                  selectedCategoria === categoria.id
+                    ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg'
+                    : 'bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100 hover:border-orange-300'
+                ]"
+              >
+                {{ categoria.nombre }}
+              </button>
             </div>
           </div>
 
@@ -616,7 +793,7 @@ onBeforeUnmount(() => {
                 <div class="min-w-0 flex-1">
                   <h3 class="truncate text-sm font-semibold text-gray-900">{{ menu.nombre }}</h3>
                   <p class="mt-1 line-clamp-2 text-xs text-gray-500">{{ menu.descripcion }}</p>
-                  <p class="mt-3 text-sm font-semibold text-orange-600">L {{ menu.precio?.toFixed(2) }}</p>
+                  <p class="mt-3 text-sm font-semibold text-orange-600">{{ formatCurrencyHNL(menu.precio || 0) }}</p>
                 </div>
 
                 <!-- Botones de acción -->
@@ -677,7 +854,7 @@ onBeforeUnmount(() => {
               >
                 <div class="flex-1 pr-3">
                   <h4 class="text-sm font-semibold text-gray-900">{{ item.nombre_menu }}</h4>
-                  <p class="text-xs text-gray-500">L {{ item.precio_unitario.toFixed(2) }} c/u</p>
+                  <p class="text-xs text-gray-500">{{ formatCurrencyHNL(item.precio_unitario || 0) }} c/u</p>
                 </div>
                 <div class="flex items-center gap-2">
                   <button
@@ -711,15 +888,15 @@ onBeforeUnmount(() => {
             <div class="mt-6 space-y-3 rounded-xl border border-orange-100 bg-white/70 p-4 text-sm text-gray-600">
               <div class="flex justify-between">
                 <span>Subtotal</span>
-                <span class="font-semibold text-gray-900">L {{ subtotal.toFixed(2) }}</span>
+                <span class="font-semibold text-gray-900">{{ formatCurrencyHNL(subtotal) }}</span>
               </div>
               <div class="flex justify-between">
                 <span class="text-orange-600">Importe Exonerado</span>
-                <span class="font-semibold text-orange-600">L {{ importeExonerado.toFixed(2) }}</span>
+                <span class="font-semibold text-orange-600">{{ formatCurrencyHNL(importeExonerado) }}</span>
               </div>
               <div class="flex justify-between">
                 <span class="text-orange-500">Importe Exento</span>
-                <span class="font-semibold text-orange-500">L {{ importeExento.toFixed(2) }}</span>
+                <span class="font-semibold text-orange-500">{{ formatCurrencyHNL(importeExento) }}</span>
               </div>
               <div class="flex items-center justify-between gap-3">
                 <label for="descuento-general" class="text-gray-600">Descuento general</label>
@@ -738,7 +915,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="flex justify-between">
                 <span class="text-gray-600">Importe Gravado</span>
-                <span class="font-semibold text-gray-900">L {{ importeGravado.toFixed(2) }}</span>
+                <span class="font-semibold text-gray-900">{{ formatCurrencyHNL(importeGravado) }}</span>
               </div>
               <div class="rounded-lg border border-orange-100 bg-orange-50 p-3 text-xs text-orange-700">
                 <p class="font-semibold">Sistema Fiscal Honduras</p>
@@ -750,11 +927,11 @@ onBeforeUnmount(() => {
               </div>
               <div class="flex justify-between">
                 <span>Impuestos</span>
-                <span class="font-semibold text-gray-900">L {{ totalImpuestos.toFixed(2) }}</span>
+                <span class="font-semibold text-gray-900">{{ formatCurrencyHNL(totalImpuestos) }}</span>
               </div>
               <div class="flex justify-between border-t border-orange-100 pt-3 text-base font-semibold text-orange-600">
                 <span>Total</span>
-                <span>L {{ total.toFixed(2) }}</span>
+                <span>{{ formatCurrencyHNL(total) }}</span>
               </div>
             </div>
           </div>
@@ -819,5 +996,14 @@ onBeforeUnmount(() => {
   -webkit-box-orient: vertical;
   line-clamp: 2;
   overflow: hidden;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }
 </style>

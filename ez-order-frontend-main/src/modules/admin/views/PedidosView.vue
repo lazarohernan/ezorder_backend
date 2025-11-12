@@ -49,13 +49,24 @@
 
     <!-- Filters -->
     <div class="relative z-40 rounded-3xl border border-orange-100 bg-white/80 p-6 backdrop-blur">
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-4">
+      <div :class="isAdmin ? 'grid grid-cols-1 gap-4 md:grid-cols-3' : 'grid grid-cols-1 gap-4 md:grid-cols-2'">
+        <!-- Filtro por Restaurante (solo si es admin) -->
+        <div v-if="isAdmin" class="space-y-2">
+          <label class="block text-sm font-semibold text-gray-700">Filtrar por Restaurante</label>
+          <CustomSelect
+            v-model="filters.restaurante"
+            :options="restauranteOptions"
+            placeholder="Todos los restaurantes"
+            @change="aplicarFiltros"
+          />
+        </div>
         <div class="space-y-2">
           <label class="block text-sm font-semibold text-gray-700">Filtro de Estado</label>
           <CustomSelect
             v-model="filters.estado"
             :options="estadoOptions"
             placeholder="Seleccione un estado"
+            @change="aplicarFiltros"
           />
         </div>
         <!-- Add more filter fields as needed -->
@@ -63,10 +74,38 @@
     </div>
 
     <!-- Orders Table -->
-    <div class="overflow-hidden rounded-3xl border border-gray-100 bg-white/90 backdrop-blur">
+    <div v-if="filteredPedidos.length === 0" class="px-6 py-16">
+      <div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 py-16 text-center">
+        <div class="flex flex-col items-center gap-3">
+          <ShoppingBag class="h-10 w-10 text-gray-300" stroke-width="1.5" />
+          <h3 class="text-sm font-semibold text-gray-700">No hay pedidos registrados</h3>
+          <p class="text-xs text-gray-500 max-w-sm">
+            Cuando se registren pedidos, aparecerán listados aquí.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div v-else class="overflow-hidden rounded-3xl border border-gray-100 bg-white/90 backdrop-blur">
       <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-200">
-          <thead class="bg-gray-50/90">
+          <thead class="bg-gray-50/90 sticky top-0 z-10">
+            <tr>
+              <th
+                v-for="header in tableHeaders"
+                :key="header.key"
+                scope="col"
+                class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-600 align-middle"
+              >
+                {{ header.label }}
+              </th>
+            </tr>
+          </thead>
+        </table>
+      </div>
+      <div class="max-h-[360px] overflow-y-auto overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="sr-only">
             <tr>
               <th
                 v-for="header in tableHeaders"
@@ -80,8 +119,8 @@
           </thead>
           <tbody class="divide-y divide-gray-200 bg-white">
             <tr v-for="pedido in filteredPedidos" :key="pedido.id" class="transition hover:bg-orange-50/60">
-              <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500 align-middle">
-                #{{ pedido.id.substring(0, 8) }}
+              <td class="whitespace-nowrap px-6 py-4 text-sm font-semibold text-gray-700 align-middle">
+                #{{ pedido.numero_ticket || pedido.id.substring(0, 8) }}
               </td>
               <td class="whitespace-nowrap px-6 py-4 align-middle">
                 <div class="text-sm font-semibold text-gray-900">
@@ -130,12 +169,12 @@
                     <RefreshCcw class="h-4 w-4" />
                   </button>
                   <button
-                    @click="editOrder(pedido)"
-                    v-permission="'pedidos.editar'"
-                    class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-500 transition hover:border-orange-300 hover:text-orange-600"
-                    title="Editar"
+                    @click="confirmDelete(pedido)"
+                    v-permission="'pedidos.eliminar'"
+                    class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-200 text-red-500 transition hover:border-red-300 hover:text-red-600"
+                    title="Eliminar"
                   >
-                    <Pencil class="h-4 w-4" />
+                    <Trash2 class="h-4 w-4" />
                   </button>
                 </div>
               </td>
@@ -160,6 +199,80 @@
       @close="closeStatusModal"
       @updated="handleStatusChange"
     />
+
+    <!-- Delete Confirmation Modal -->
+    <div v-if="showDeleteDialog" class="fixed inset-0 z-50 overflow-y-auto">
+      <div class="flex min-h-screen items-center justify-center px-4 py-6 text-center">
+        <!-- Overlay con backdrop blur -->
+        <div class="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity" @click="showDeleteDialog = false"></div>
+
+        <!-- Modal Container -->
+        <div class="relative inline-block w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl transform transition-all z-[60]">
+          <!-- Header con gradiente de advertencia -->
+          <div class="bg-gradient-to-br from-red-50 via-white to-red-100 px-6 py-4 border-b border-red-100">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 bg-gradient-to-br from-red-500 to-red-600 rounded-2xl flex items-center justify-center shadow-lg">
+                  <Trash2 class="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <h3 class="text-lg font-semibold text-gray-900">Eliminar Pedido</h3>
+                  <p class="text-xs font-medium text-gray-600">Esta acción no se puede deshacer</p>
+                </div>
+              </div>
+              <button
+                @click="showDeleteDialog = false"
+                class="w-9 h-9 bg-white rounded-xl border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors duration-200"
+              >
+                <svg class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Content -->
+          <div class="px-8 py-6">
+            <!-- Icono de advertencia -->
+            <div class="flex justify-center mb-4">
+              <div class="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center">
+                <Trash2 class="h-8 w-8 text-orange-600" />
+              </div>
+            </div>
+
+            <!-- Mensaje -->
+            <div class="text-center">
+              <h3 class="text-lg font-semibold text-gray-900 mb-2">¿Eliminar pedido?</h3>
+              <p class="text-gray-600 text-sm">
+                Esta acción no se puede deshacer. El pedido <strong>#{{ selectedOrder?.numero_ticket || selectedOrder?.id.substring(0, 8) }}</strong> será eliminado permanentemente.
+              </p>
+            </div>
+          </div>
+
+          <!-- Footer con botones -->
+          <div class="bg-gray-50 px-8 py-4 border-t border-gray-200">
+            <div class="flex justify-end space-x-3">
+              <button
+                @click="showDeleteDialog = false"
+                class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-gray-500 to-gray-600 px-6 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:from-gray-600 hover:to-gray-700"
+              >
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Cancelar
+              </button>
+              <button
+                @click="deletePedido"
+                class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-red-500 to-red-600 px-6 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:from-red-600 hover:to-red-700 shadow-lg"
+              >
+                <Trash2 class="h-5 w-5" />
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -169,12 +282,12 @@ import { useRouter } from 'vue-router';
 import {
   Plus,
   Eye,
-  Pencil,
   RefreshCcw,
   Clock3,
   Cog,
   CheckCircle,
   ShoppingBag,
+  Trash2,
 } from 'lucide-vue-next';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -184,20 +297,29 @@ import OrderDetailsModal from '../components/OrderDetailsModal.vue';
 import CambioEstadoPedido from '../components/CambioEstadoPedido.vue';
 import { useAuthStore } from '@/stores/auth_store';
 import CustomSelect from '@/components/ui/CustomSelect.vue';
+import { cajaService } from '@/services/caja_service';
+import { useToast } from 'vue-toastification';
+import { formatCurrencyHNL } from '@/utils/currency';
+import { RestaurantesService } from '@/services/restaurantes_service';
+import type { Restaurante } from '@/interfaces/Restaurante';
 
 const authStore = useAuthStore();
 const router = useRouter();
+const toast = useToast();
 
 // State
 const pedidos = ref<Pedido[]>([]);
 const selectedOrder = ref<Pedido | null>(null);
 const isDetailsModalOpen = ref(false);
 const isStatusModalOpen = ref(false);
+const showDeleteDialog = ref<boolean>(false);
+const restaurantes = ref<Restaurante[]>([]);
 
 // Filters
 const filters = ref({
   estado: '',
   tipo: '',
+  restaurante: '',
   fechaDesde: '',
   fechaHasta: '',
   search: '',
@@ -205,7 +327,7 @@ const filters = ref({
 
 // Table headers
 const tableHeaders = [
-  { key: 'id', label: 'ID' },
+  { key: 'id', label: 'Ticket' },
   { key: 'cliente', label: 'Cliente' },
   { key: 'restaurante', label: 'Restaurante' },
   { key: 'estado', label: 'Estado' },
@@ -221,6 +343,35 @@ const stats = ref([
   { title: 'Listos', value: 0, icon: CheckCircle, color: 'green' as const },
   { title: 'Entregados', value: 0, icon: ShoppingBag, color: 'indigo' as const },
 ]);
+
+// Verificar si el usuario es administrador
+const isAdmin = computed(() => {
+  const rolId = authStore.userInfo?.rol_id;
+  return rolId === 1 || rolId === 2 || authStore.userInfo?.es_super_admin === true;
+});
+
+// Computed para obtener restaurante principal
+const restauranteId = computed(() => {
+  return authStore.userInfo?.restaurante_id || '';
+});
+
+// Computed para opciones de restaurantes con badge de principal
+const restauranteOptions = computed(() => {
+  const options: Array<{ label: string; value: string; badge?: string }> = [
+    { label: 'Todos los restaurantes', value: '' }
+  ];
+  
+  restaurantes.value.forEach(restaurante => {
+    const isPrincipal = restaurante.id === restauranteId.value;
+    options.push({
+      label: restaurante.nombre_restaurante,
+      value: restaurante.id || '',
+      badge: isPrincipal ? 'Principal' : undefined
+    });
+  });
+  
+  return options;
+});
 
 const estadoOptions = computed(() => [
   { label: 'Todos', value: '' },
@@ -292,22 +443,63 @@ const filteredPedidos = computed(() => {
     if (filters.value.tipo && pedido.tipo_pedido !== filters.value.tipo) {
       return false;
     }
+    if (filters.value.restaurante && pedido.restaurante_id !== filters.value.restaurante) {
+      return false;
+    }
     // Add more filter conditions as needed
     return true;
   });
 });
 
+// Cargar restaurantes para el filtro
+const cargarRestaurantes = async () => {
+  if (!isAdmin.value) return;
+  
+  try {
+    const response = await RestaurantesService.getAll();
+    if (response.data.success) {
+      restaurantes.value = response.data.data || [];
+    }
+  } catch (err) {
+    console.error('Error cargando restaurantes:', err);
+  }
+};
+
 // Methods
 const fetchPedidos = async () => {
   try {
-    const response = await PedidoService.getByRestauranteId(
+    let response;
+    
+    // Si es admin y hay filtro de restaurante, usar getByRestauranteId
+    if (isAdmin.value && filters.value.restaurante) {
+      response = await PedidoService.getByRestauranteId(filters.value.restaurante);
+    } else if (isAdmin.value && !filters.value.restaurante) {
+      // Admin sin filtro: obtener todos los pedidos y filtrar por restaurantes del admin
+      response = await PedidoService.getAll();
+      // Filtrar solo los pedidos de los restaurantes del administrador
+      if (response.data.success && response.data.data && restaurantes.value.length > 0) {
+        const restauranteIds = restaurantes.value.map(r => r.id);
+        response.data.data = response.data.data.filter((pedido: Pedido) => 
+          restauranteIds.includes(pedido.restaurante_id)
+        );
+      }
+    } else {
+      // Usuario normal: usar getByRestauranteId con su restaurante
+      response = await PedidoService.getByRestauranteId(
       authStore.userInfo?.restaurante_id ?? '',
     );
-    pedidos.value = response.data.data;
+    }
+    
+    pedidos.value = response.data.data || [];
     updateStats();
   } catch (error) {
     console.error('Error al cargar los pedidos:', error);
   }
+};
+
+// Aplicar filtros
+const aplicarFiltros = () => {
+  fetchPedidos();
 };
 
 const updateStats = () => {
@@ -344,13 +536,49 @@ const viewOrderDetails = (pedido: Pedido) => {
   isDetailsModalOpen.value = true;
 };
 
-const openNewOrderModal = () => {
-  router.push({ name: 'new-order' });
+const openNewOrderModal = async () => {
+  // Validar que la caja esté abierta antes de navegar a crear pedido
+  if (!authStore.userInfo?.restaurante_id) {
+    toast.error('No se pudo identificar el restaurante. Por favor, recarga la página.');
+    return;
+  }
+
+  try {
+    console.log('🔍 Verificando caja abierta para restaurante:', authStore.userInfo.restaurante_id);
+    const cajaAbierta = await cajaService.verificarCajaAbierta(authStore.userInfo.restaurante_id);
+    console.log('📊 Resultado verificación caja:', cajaAbierta);
+    
+    if (!cajaAbierta) {
+      console.log('❌ Caja cerrada, bloqueando navegación a nuevo pedido');
+      toast.error('No se puede crear un pedido. La caja debe estar abierta para realizar pedidos.');
+      return;
+    }
+
+    console.log('✅ Caja abierta confirmada, navegando a nuevo pedido');
+    router.push({ name: 'new-order' });
+  } catch (error) {
+    console.error('❌ Error al verificar caja abierta:', error);
+    toast.error('Error al verificar el estado de la caja. Por favor, intenta nuevamente.');
+  }
 };
 
-const editOrder = (pedido: Pedido) => {
+const confirmDelete = (pedido: Pedido) => {
   selectedOrder.value = pedido;
-  // Implement edit functionality
+  showDeleteDialog.value = true;
+};
+
+const deletePedido = async () => {
+  if (!selectedOrder.value) return;
+
+  try {
+    await PedidoService.delete(selectedOrder.value.id);
+    await fetchPedidos();
+    showDeleteDialog.value = false;
+    selectedOrder.value = null;
+  } catch (error) {
+    console.error('Error al eliminar el pedido:', error);
+    alert('Error al eliminar el pedido. Por favor, intente nuevamente.');
+  }
 };
 
 const changeOrderStatus = (pedido: Pedido) => {
@@ -389,11 +617,7 @@ const formatDate = (dateString: string) => {
 };
 
 const formatCurrency = (amount: number) => {
-  const formatter = new Intl.NumberFormat('es-HN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  return `L ${formatter.format(amount ?? 0)}`;
+  return formatCurrencyHNL(amount);
 };
 
 const formatEstado = (estado: string) => {
@@ -449,7 +673,8 @@ const getStatStyle = (title: string) => {
 };
 
 // Lifecycle
-onMounted(() => {
-  fetchPedidos();
+onMounted(async () => {
+  await cargarRestaurantes();
+  await fetchPedidos();
 });
 </script>

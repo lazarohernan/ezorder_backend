@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { usePagination } from '@/composables/usePagination';
 import UsuariosService from '@/services/usuarios_service';
 import type {
@@ -13,8 +13,13 @@ import type { AxiosResponse } from 'axios';
 import RolesPersonalizadosService, { type RolPersonalizado } from '@/services/roles_personalizados_service';
 import type { Restaurante } from '@/interfaces/Restaurante';
 import restaurantesService from '@/services/restaurantes_service';
-import { CheckCircle, XCircle, AlertCircle, Info, X, Users } from 'lucide-vue-next';
+import { Users, CheckCircle } from 'lucide-vue-next';
 import CustomSelect from '@/components/ui/CustomSelect.vue';
+import { useAuthStore } from '@/stores/auth_store';
+import { useToast } from 'vue-toastification';
+
+const authStore = useAuthStore();
+const toast = useToast();
 
 // Adecuar la función de paginación al formato esperado por el composable
 const fetchPaginatedUsers = async (params: {
@@ -42,6 +47,7 @@ const {
   currentPage,
   totalPages,
   totalItems,
+  itemsPerPage,
   isLoading,
   error,
   hasPreviousPage,
@@ -50,6 +56,8 @@ const {
   goToPreviousPage,
   goToNextPage,
   goToLastPage,
+  goToPage,
+  changeItemsPerPage,
   refresh,
 } = usePagination<UsuarioWithInfo>(fetchPaginatedUsers);
 
@@ -57,94 +65,76 @@ const {
 const showViewModal = ref(false);
 const showEditModal = ref(false);
 const showDeleteModal = ref(false);
+const showInfoModal = ref(false);
 const isCreating = ref(false);
 const isSubmitting = ref(false);
 const selectedUser = ref<UsuarioWithInfo | null>(null);
 const userToDeleteId = ref<string | null>(null);
+const newUserEmail = ref<string>('');
 const rolesPersonalizados = ref<RolPersonalizado[]>([]);
 const restaurantes = ref<Restaurante[]>([]);
 
-// Sistema de notificaciones
-const notifications = ref<Array<{
-  id: number;
-  type: 'success' | 'error' | 'warning' | 'info';
-  message: string;
-  duration?: number;
-}>>([]);
-let notificationId = 0;
-
-function showNotification(type: 'success' | 'error' | 'warning' | 'info', message: string, duration = 5000) {
-  const id = ++notificationId;
-  notifications.value.push({
-    id,
-    type,
-    message,
-    duration
-  });
-
-  // Auto-remover después de la duración
-  setTimeout(() => {
-    removeNotification(id);
-  }, duration);
-}
-
-function removeNotification(id: number) {
-  const index = notifications.value.findIndex(n => n.id === id);
-  if (index > -1) {
-    notifications.value.splice(index, 1);
+// Helper function para mostrar notificaciones usando vue-toastification
+function showNotification(type: 'success' | 'error' | 'warning' | 'info', message: string) {
+  switch (type) {
+    case 'success':
+      toast.success(message);
+      break;
+    case 'error':
+      toast.error(message);
+      break;
+    case 'warning':
+      toast.warning(message);
+      break;
+    case 'info':
+      toast.info(message);
+      break;
   }
 }
 
-// Funciones helper para notificaciones
-function getNotificationClasses(type: string): string {
-  const classes: Record<string, string> = {
-    success: 'bg-green-50 border-green-200',
-    error: 'bg-red-50 border-red-200',
-    warning: 'bg-yellow-50 border-yellow-200',
-    info: 'bg-blue-50 border-blue-200'
-  };
-  return classes[type] || classes.info;
-}
-
-function getNotificationIcon(type: string) {
-  const icons = {
-    success: CheckCircle,
-    error: XCircle,
-    warning: AlertCircle,
-    info: Info
-  };
-  return icons[type as keyof typeof icons] || icons.info;
-}
-
-function getNotificationIconColor(type: string): string {
-  const colors: Record<string, string> = {
-    success: 'text-green-400',
-    error: 'text-red-400',
-    warning: 'text-yellow-400',
-    info: 'text-blue-400'
-  };
-  return colors[type] || colors.info;
-}
-
-function getNotificationTextColor(type: string): string {
-  const colors: Record<string, string> = {
-    success: 'text-green-800',
-    error: 'text-red-800',
-    warning: 'text-yellow-800',
-    info: 'text-blue-800'
-  };
-  return colors[type] || colors.info;
-}
-
-function getNotificationTitle(type: string): string {
-  const titles: Record<string, string> = {
-    success: 'Éxito',
-    error: 'Error',
-    warning: 'Advertencia',
-    info: 'Información'
-  };
-  return titles[type] || titles.info;
-}
+// Función para generar números de página con elipsis
+const getPageNumbers = (): (number | string)[] => {
+  if (totalPages.value <= 0) return [];
+  
+  const page = currentPage.value;
+  const pages = totalPages.value;
+  const pageNumbers: (number | string)[] = [];
+  
+  if (pages <= 7) {
+    // Si hay 7 o menos páginas, mostrar todas
+    for (let i = 1; i <= pages; i++) {
+      pageNumbers.push(i);
+    }
+  } else {
+    // Si hay más de 7 páginas, mostrar con elipsis
+    if (page <= 3) {
+      // Al inicio: 1 2 3 4 ... última
+      for (let i = 1; i <= 4; i++) {
+        pageNumbers.push(i);
+      }
+      pageNumbers.push('...');
+      pageNumbers.push(pages);
+    } else if (page >= pages - 2) {
+      // Al final: 1 ... (últimas 4)
+      pageNumbers.push(1);
+      pageNumbers.push('...');
+      for (let i = pages - 3; i <= pages; i++) {
+        pageNumbers.push(i);
+      }
+    } else {
+      // En el medio: 1 ... (actual-1) (actual) (actual+1) ... última
+      pageNumbers.push(1);
+      pageNumbers.push('...');
+      for (let i = page - 1; i <= page + 1; i++) {
+        pageNumbers.push(i);
+      }
+      pageNumbers.push('...');
+      pageNumbers.push(pages);
+    }
+  }
+  
+  return pageNumbers;
+};
 
 // Opciones para formularios de usuario
 const rolesPersonalizadosOptions = computed(() => [
@@ -157,13 +147,22 @@ const rolesPersonalizadosOptions = computed(() => [
     }))
 ]);
 
-const restaurantesOptions = computed(() => [
-  { value: null, label: 'Seleccione un restaurante' },
-  ...restaurantes.value.map(restaurante => ({
-    value: restaurante.id || null,
-    label: restaurante.nombre_restaurante
-  }))
-]);
+const restaurantesOptions = computed(() => {
+  const options = [
+    { value: null, label: 'Seleccione un restaurante' }
+  ];
+  
+  restaurantes.value.forEach(restaurante => {
+    const isPrincipal = restaurante.id === authStore.userInfo?.restaurante_id;
+    options.push({
+      value: restaurante.id || null,
+      label: restaurante.nombre_restaurante,
+      badge: isPrincipal ? 'Principal' : undefined
+    });
+  });
+  
+  return options;
+});
 
 // Formulario para crear/editar usuario
 const userForm = reactive<CreateUsuarioInfoDTO & { 
@@ -185,6 +184,19 @@ const userForm = reactive<CreateUsuarioInfoDTO & {
   rol_id: null,
   rol_personalizado_id: null,
   restaurante_id: null,
+});
+
+// Verificar si se puede asignar rol personalizado (debe tener restaurante)
+const canAssignRolPersonalizado = computed(() => {
+  return !!userForm.restaurante_id;
+});
+
+// Watcher para limpiar rol_personalizado_id si se quita el restaurante
+watch(() => userForm.restaurante_id, (newRestauranteId, oldRestauranteId) => {
+  if (!newRestauranteId && oldRestauranteId) {
+    // Si se quitó el restaurante, limpiar el rol personalizado
+    userForm.rol_personalizado_id = null;
+  }
 });
 
 
@@ -306,11 +318,15 @@ const saveUser = async () => {
       const res = await UsuariosService.invite(inviteData);
       console.log('Respuesta de invitación:', res);
 
-      // Cerrar modal y refrescar datos
+      // Guardar el email del nuevo usuario para el modal informativo
+      newUserEmail.value = userForm.email!;
+
+      // Cerrar modal de creación y refrescar datos
       showEditModal.value = false;
       refresh();
 
-      showNotification('success', '¡Invitación enviada! El usuario recibirá un email para establecer su contraseña. Podrás asignarle un rol y restaurante desde la vista de edición.');
+      // Mostrar modal informativo
+      showInfoModal.value = true;
     } else {
       // Actualizar usuario existente
       if (!userForm.id) {
@@ -327,6 +343,11 @@ const saveUser = async () => {
 
       await UsuariosService.update(userForm.id, updateData);
       showNotification('success', 'Usuario actualizado con éxito');
+      
+      // Si el usuario actualizado es el mismo que está logueado, refrescar su información
+      if (userForm.id === authStore.user?.id) {
+        await authStore.refreshUserInfo();
+      }
     }
 
     // Cerrar modal y refrescar datos
@@ -384,6 +405,13 @@ const proceedDelete = async () => {
 const formatPhoneNumber = (event: Event) => {
   const input = event.target as HTMLInputElement;
   let value = input.value.replace(/\D/g, ''); // Solo números
+  
+  // Si está vacío, permitir que se mantenga vacío
+  if (!value) {
+    input.value = '';
+    userForm.telefono = '';
+    return;
+  }
   
   // Limitar a 8 dígitos
   if (value.length > 8) {
@@ -700,133 +728,92 @@ const formatPhoneNumber = (event: Event) => {
         Desplaza horizontalmente para ver más información o pulsa Ver para detalles
       </div>
 
-      <!-- Paginación mejorada -->
-      <div class="bg-white px-4 py-3 flex items-center justify-between border-t">
-        <div class="flex-1 flex justify-between sm:hidden">
-          <button
-            @click="goToPreviousPage"
-            :disabled="!hasPreviousPage"
-            :class="[
-              !hasPreviousPage ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50',
-              'relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white',
-            ]"
-          >
-            Anterior
-          </button>
-          <button
-            @click="goToNextPage"
-            :disabled="!hasNextPage"
-            :class="[
-              !hasNextPage ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50',
-              'ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white',
-            ]"
-          >
-            Siguiente
-          </button>
-        </div>
-        <div class="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-          <div>
-            <p class="text-sm text-gray-700">
-              Mostrando <span class="font-medium">{{ usuarios.length }}</span> de
-              <span class="font-medium">{{ totalItems }}</span> usuarios
-            </p>
+      <!-- Paginación Optimizada -->
+      <div v-if="totalItems > 0" class="px-8 py-4 border-t border-gray-200 bg-white">
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
+          <!-- Información de resultados -->
+          <div class="flex items-center gap-4 text-sm text-gray-600">
+            <span>
+              Mostrando <span class="font-semibold text-gray-900">{{ (currentPage - 1) * itemsPerPage + 1 }}</span> a
+              <span class="font-semibold text-gray-900">{{ Math.min(currentPage * itemsPerPage, totalItems) }}</span> de
+              <span class="font-semibold text-gray-900">{{ totalItems }}</span> resultados
+            </span>
+            <div class="flex items-center gap-2">
+              <label class="text-sm text-gray-600">Mostrar:</label>
+              <select
+                :value="itemsPerPage"
+                @change="(e) => { changeItemsPerPage(Number((e.target as HTMLSelectElement).value)); }"
+                class="px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+              >
+                <option :value="10">10</option>
+                <option :value="25">25</option>
+                <option :value="50">50</option>
+                <option :value="100">100</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <nav
-              class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px"
-              aria-label="Pagination"
+
+          <!-- Controles de paginación -->
+          <div class="flex items-center gap-2">
+            <!-- Botón Primera página -->
+            <button
+              @click="goToFirstPage"
+              :disabled="!hasPreviousPage || isLoading"
+              class="px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              title="Primera página"
             >
-              <button
-                @click="goToFirstPage"
-                :disabled="!hasPreviousPage"
-                class="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-                :class="{ 'opacity-50 cursor-not-allowed': !hasPreviousPage }"
-              >
-                <span class="sr-only">Primera página</span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-5 w-5"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
+              ««
+            </button>
+
+            <!-- Botón Anterior -->
+            <button
+              @click="goToPreviousPage"
+              :disabled="!hasPreviousPage || isLoading"
+              class="px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              title="Página anterior"
+            >
+              ← Anterior
+            </button>
+
+            <!-- Números de página -->
+            <div class="flex items-center gap-1">
+              <template v-for="pageNum in getPageNumbers()" :key="pageNum">
+                <button
+                  v-if="pageNum !== '...'"
+                  @click="goToPage(pageNum as number)"
+                  :disabled="isLoading"
+                  :class="[
+                    'px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200',
+                    pageNum === currentPage
+                      ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white border border-orange-500'
+                      : 'text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed'
+                  ]"
                 >
-                  <path
-                    fill-rule="evenodd"
-                    d="M15.707 15.707a1 1 0 01-1.414 0l-5-5a1 1 0 010-1.414l5-5a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 010 1.414zm-6 0a1 1 0 01-1.414 0l-5-5a1 1 0 010-1.414l5-5a1 1 0 011.414 1.414L5.414 10l4.293 4.293a1 1 0 010 1.414z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
-              </button>
-              <button
-                @click="goToPreviousPage"
-                :disabled="!hasPreviousPage"
-                class="relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-                :class="{ 'opacity-50 cursor-not-allowed': !hasPreviousPage }"
-              >
-                <span class="sr-only">Anterior</span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-5 w-5"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
-              </button>
-              <span
-                class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700"
-              >
-                Página {{ currentPage }} de {{ totalPages }}
-              </span>
-              <button
-                @click="goToNextPage"
-                :disabled="!hasNextPage"
-                class="relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-                :class="{ 'opacity-50 cursor-not-allowed': !hasNextPage }"
-              >
-                <span class="sr-only">Siguiente</span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-5 w-5"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
-              </button>
-              <button
-                @click="goToLastPage"
-                :disabled="!hasNextPage"
-                class="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-                :class="{ 'opacity-50 cursor-not-allowed': !hasNextPage }"
-              >
-                <span class="sr-only">Última página</span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-5 w-5"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M10.293 15.707a1 1 0 010-1.414L14.586 10l-4.293-4.293a1 1 0 111.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0z"
-                    clip-rule="evenodd"
-                  />
-                  <path
-                    fill-rule="evenodd"
-                    d="M4.293 15.707a1 1 0 010-1.414L8.586 10 4.293 5.707a1 1 0 011.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
-              </button>
-            </nav>
+                  {{ pageNum }}
+                </button>
+                <span v-else class="px-2 text-gray-400">...</span>
+              </template>
+            </div>
+
+            <!-- Botón Siguiente -->
+            <button
+              @click="goToNextPage"
+              :disabled="!hasNextPage || isLoading"
+              class="px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              title="Página siguiente"
+            >
+              Siguiente →
+            </button>
+
+            <!-- Botón Última página -->
+            <button
+              @click="goToLastPage"
+              :disabled="!hasNextPage || isLoading"
+              class="px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              title="Última página"
+            >
+              »»
+            </button>
           </div>
         </div>
       </div>
@@ -1046,7 +1033,9 @@ const formatPhoneNumber = (event: Event) => {
 
                     <!-- Teléfono (solo en creación) -->
                     <div v-if="isCreating">
-                      <label class="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">Teléfono</label>
+                      <label class="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
+                        Teléfono <span class="text-gray-400 font-normal normal-case">(opcional)</span>
+                      </label>
                       <div class="relative">
                         <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                           <span class="text-gray-500 text-sm">+504</span>
@@ -1055,23 +1044,37 @@ const formatPhoneNumber = (event: Event) => {
                           v-model="userForm.telefono"
                           type="tel"
                           class="w-full pl-12 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
-                          placeholder="3192-3654"
-                          pattern="[0-9]{4}-[0-9]{4}"
+                          placeholder="Número de teléfono"
                           maxlength="9"
                           @input="formatPhoneNumber"
                         />
                       </div>
+                      <p class="text-xs text-gray-500 mt-1">Número de teléfono opcional para contacto</p>
                     </div>
 
                   </div>
                 </div>
 
-                <div v-if="!isCreating" class="bg-gray-50 p-4 rounded-lg">
+                <div v-if="!isCreating" class="bg-gray-50 p-4 rounded-lg relative">
                   <h4 class="text-sm font-semibold text-gray-700 mb-3">Configuración del Usuario</h4>
                   <div class="space-y-3">
 
-                    <!-- Rol Personalizado (solo en edición) -->
-                    <div>
+                    <!-- Restaurante (solo en edición) - PRIMERO -->
+                    <div class="relative z-[50]">
+                      <label class="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
+                        Restaurante
+                        <span class="text-orange-600 ml-1">*</span>
+                      </label>
+                      <CustomSelect
+                        v-model="userForm.restaurante_id"
+                        :options="restaurantesOptions"
+                        placeholder="Seleccionar restaurante"
+                      />
+                      <p class="text-xs text-gray-500 mt-1">Asigna primero el restaurante al usuario</p>
+                    </div>
+
+                    <!-- Rol Personalizado (solo en edición) - DESPUÉS -->
+                    <div class="relative z-[40]">
                       <label class="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                         Rol Personalizado
                         <span class="text-orange-600 ml-1">✨</span>
@@ -1079,19 +1082,13 @@ const formatPhoneNumber = (event: Event) => {
                       <CustomSelect
                         v-model="userForm.rol_personalizado_id"
                         :options="rolesPersonalizadosOptions"
+                        :disabled="!canAssignRolPersonalizado"
                         placeholder="Seleccionar rol personalizado"
                       />
-                      <p class="text-xs text-gray-500 mt-1">Roles con permisos personalizados</p>
-                    </div>
-
-                    <!-- Restaurante (solo en edición) -->
-                    <div>
-                      <label class="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">Restaurante</label>
-                      <CustomSelect
-                        v-model="userForm.restaurante_id"
-                        :options="restaurantesOptions"
-                        placeholder="Seleccionar restaurante"
-                      />
+                      <p v-if="!canAssignRolPersonalizado" class="text-xs text-orange-600 mt-1">
+                        ⚠️ Primero debes asignar un restaurante
+                      </p>
+                      <p v-else class="text-xs text-gray-500 mt-1">Roles con permisos personalizados</p>
                     </div>
 
                     <!-- Estado (solo en edición) -->
@@ -1147,6 +1144,110 @@ const formatPhoneNumber = (event: Event) => {
                     Guardando...
                   </span>
                   <span v-else>{{ isCreating ? 'Crear Usuario' : 'Guardar Cambios' }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Modal Informativo - Próximos Pasos después de crear usuario -->
+    <Teleport to="body">
+      <div v-if="showInfoModal" class="fixed inset-0 z-50 overflow-y-auto">
+        <div class="flex min-h-screen items-center justify-center px-4 py-6 text-center">
+          <!-- Overlay con backdrop blur -->
+          <div class="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity" @click="showInfoModal = false"></div>
+
+          <!-- Modal Container -->
+          <div class="relative inline-block w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl transform transition-all z-[60]">
+            <!-- Header minimalista -->
+            <div class="px-6 py-4 border-b border-gray-100">
+              <div class="flex items-center justify-between">
+                <h3 class="text-lg font-semibold text-gray-900">Usuario Creado Exitosamente</h3>
+                <button
+                  @click="showInfoModal = false"
+                  class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center transition-colors duration-200"
+                >
+                  <svg class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- Content -->
+            <div class="px-6 py-6">
+              <!-- Mensaje de éxito minimalista -->
+              <div class="flex items-start mb-6">
+                <CheckCircle class="h-5 w-5 text-green-600 mr-3 flex-shrink-0 mt-0.5" />
+                <div class="flex-1">
+                  <p class="text-sm text-gray-700">
+                    Se ha enviado un correo electrónico a <strong class="text-gray-900">{{ newUserEmail }}</strong> con las instrucciones para establecer su contraseña.
+                  </p>
+                </div>
+              </div>
+
+              <!-- Configuración Requerida -->
+              <div class="mb-6">
+                <h4 class="text-base font-semibold text-gray-900 mb-3">Configuración Requerida</h4>
+                <p class="text-sm text-gray-600 mb-4">
+                  Para que el usuario pueda comenzar a administrar el restaurante, debes asignarle:
+                </p>
+                
+                <div class="space-y-3">
+                  <!-- Restaurante -->
+                  <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <div class="flex items-start">
+                      <div class="w-7 h-7 bg-orange-100 rounded-md flex items-center justify-center mr-3 flex-shrink-0">
+                        <svg class="h-5 w-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        </svg>
+                      </div>
+                      <div class="flex-1">
+                        <h5 class="text-sm font-semibold text-gray-900 mb-1.5">1. Restaurante</h5>
+                        <p class="text-sm text-gray-600">
+                          Asigna el restaurante al cual el usuario tendrá acceso. Esto determina qué datos podrá ver y administrar.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Rol -->
+                  <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <div class="flex items-start">
+                      <div class="w-7 h-7 bg-orange-100 rounded-md flex items-center justify-center mr-3 flex-shrink-0">
+                        <svg class="h-5 w-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                        </svg>
+                      </div>
+                      <div class="flex-1">
+                        <h5 class="text-sm font-semibold text-gray-900 mb-1.5">2. Rol Personalizado</h5>
+                        <p class="text-sm text-gray-600">
+                          Asigna un rol personalizado que define los permisos y acciones que el usuario puede realizar en el sistema.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Instrucciones minimalista -->
+              <div class="bg-gray-50 rounded-lg p-3">
+                <p class="text-sm text-gray-600">
+                  <strong class="text-gray-900">¿Cómo hacerlo?</strong> Busca el usuario en la tabla, haz clic en el botón de editar (ícono de lápiz) y asigna el restaurante y rol personalizado correspondiente.
+                </p>
+              </div>
+            </div>
+
+            <!-- Footer minimalista -->
+            <div class="px-6 py-4 border-t border-gray-100">
+              <div class="flex justify-end">
+                <button
+                  @click="showInfoModal = false"
+                  class="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 px-5 py-2.5 text-sm font-medium text-white transition hover:from-orange-600 hover:to-orange-700"
+                >
+                  Entendido
                 </button>
               </div>
             </div>
@@ -1244,54 +1345,6 @@ const formatPhoneNumber = (event: Event) => {
         </div>
       </div>
     </Teleport>
-
-    <!-- Sistema de Notificaciones -->
-    <div class="fixed top-4 right-4 z-50 space-y-2">
-      <transition-group
-        enter-active-class="transition ease-out duration-300"
-        enter-from-class="opacity-0 translate-x-full"
-        enter-to-class="opacity-100 translate-x-0"
-        leave-active-class="transition ease-in duration-300"
-        leave-from-class="opacity-100 translate-x-0"
-        leave-to-class="opacity-0 translate-x-full"
-      >
-        <div
-          v-for="notification in notifications"
-          :key="notification.id"
-          class="max-w-sm w-full bg-white shadow-lg rounded-lg pointer-events-auto ring-1 ring-black ring-opacity-5"
-          :class="getNotificationClasses(notification.type)"
-        >
-          <div class="p-4">
-            <div class="flex items-start">
-              <div class="flex-shrink-0">
-                <component
-                  :is="getNotificationIcon(notification.type)"
-                  class="h-6 w-6"
-                  :class="getNotificationIconColor(notification.type)"
-                />
-              </div>
-              <div class="ml-3 w-0 flex-1 pt-0.5">
-                <p class="text-sm font-medium" :class="getNotificationTextColor(notification.type)">
-                  {{ getNotificationTitle(notification.type) }}
-                </p>
-                <p class="mt-1 text-sm text-gray-500">
-                  {{ notification.message }}
-                </p>
-              </div>
-              <div class="ml-4 flex-shrink-0 flex">
-                <button
-                  @click="removeNotification(notification.id)"
-                  class="inline-flex text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                >
-                  <span class="sr-only">Cerrar</span>
-                  <X class="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </transition-group>
-    </div>
   </div>
 </template>
 

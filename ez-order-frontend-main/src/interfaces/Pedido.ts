@@ -23,6 +23,7 @@ export type EstadoPedido =
  */
 export interface Pedido {
   id: string;
+  numero_ticket: number;
   created_at: string;
   restaurante_id: string;
   cliente_id: number | null;
@@ -71,6 +72,7 @@ export interface CreatePedidoDTO {
   importe_gravado?: number | null;
   importe_exento?: number | null;
   importe_exonerado?: number | null;
+  numero_ticket?: number;
 }
 
 /**
@@ -95,6 +97,7 @@ export interface UpdatePedidoDTO {
   importe_gravado?: number | null;
   importe_exento?: number | null;
   importe_exonerado?: number | null;
+  numero_ticket?: number;
 }
 
 /**

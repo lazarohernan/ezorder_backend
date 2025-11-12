@@ -7,7 +7,28 @@ import { useAuthStore } from '@/stores/auth_store';
  */
 
 /**
+ * Verifica si el usuario tiene un restaurante asignado
+ * Super Admin y Admin siempre tienen acceso (no requieren restaurante específico)
+ */
+function hasRestaurant(authStore: ReturnType<typeof useAuthStore>): boolean {
+  if (!authStore.userInfo) return false;
+
+  // Super Admin y Admin no requieren restaurante específico
+  if (authStore.userInfo.rol_id === 1 || authStore.userInfo.es_super_admin) {
+    return true;
+  }
+
+  if (authStore.userInfo.rol_id === 2) {
+    return true;
+  }
+
+  // Para otros usuarios, verificar si tienen restaurante asignado
+  return !!authStore.userInfo.restaurante_id;
+}
+
+/**
  * Verifica si el usuario tiene el permiso especificado
+ * PRIMERO valida que tenga restaurante asignado (excepto Super Admin y Admin)
  * Sistema RBAC con permisos en español
  */
 function hasPermission(permission: string, authStore: ReturnType<typeof useAuthStore>): boolean {
@@ -19,9 +40,13 @@ function hasPermission(permission: string, authStore: ReturnType<typeof useAuthS
   }
 
   // 2. Admin/Propietario - acceso total a SUS restaurantes sin restricciones
-  // No verificamos es_propietario para compatibilidad con sesiones antiguas
   if (authStore.userInfo.rol_id === 2) {
     return true;
+  }
+
+  // 3. VALIDAR PRIMERO QUE TENGA RESTAURANTE ASIGNADO
+  if (!hasRestaurant(authStore)) {
+    return false;
   }
 
   const permissions = authStore.userInfo.permisos || [];

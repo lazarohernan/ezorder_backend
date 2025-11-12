@@ -80,30 +80,29 @@
     </div>
 
     <!-- Mensaje si no hay menús -->
-    <div v-else-if="menus.length === 0" class="bg-gradient-to-br from-orange-50 via-white to-orange-100 rounded-3xl border border-orange-100 p-12 text-center">
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="h-20 w-20 mx-auto text-orange-400"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M9 17v-6a2 2 0 012-2h2a2 2 0 012 2v6m-6 0h6"
-        />
-      </svg>
-      <h2 class="mt-6 text-2xl font-bold text-gray-900">No hay menús registrados</h2>
-      <p class="mt-2 text-gray-600">Comienza a agregar menús para tu restaurante.</p>
-      <button
-        @click="openCreateDialog"
-        class="mt-6 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-6 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:from-orange-600 hover:to-orange-700"
-      >
-        <Plus class="h-5 w-5" />
-        <span>Agregar mi primer menú</span>
-      </button>
+    <div v-else-if="menus.length === 0" class="px-6 py-16">
+      <div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 py-16 text-center">
+        <div class="flex flex-col items-center gap-3">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-10 w-10 text-gray-300"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M9 17v-6a2 2 0 012-2h2a2 2 0 012 2v6m-6 0h6"
+            />
+          </svg>
+          <h3 class="text-sm font-semibold text-gray-700">No hay menús registrados</h3>
+          <p class="text-xs text-gray-500 max-w-sm">
+            Comienza a agregar menús para tu restaurante.
+          </p>
+        </div>
+      </div>
     </div>
 
     <!-- Menu Table -->
@@ -164,7 +163,7 @@
                 <div class="text-sm text-gray-500">{{ menu.descripcion }}</div>
               </td>
               <td class="px-6 py-4 whitespace-nowrap">
-                <div class="text-sm text-gray-900">L {{ menu.precio?.toFixed(2) }}</div>
+                <div class="text-sm text-gray-900">{{ formatCurrencyHNL(menu.precio || 0) }}</div>
               </td>
               <td class="px-6 py-4 whitespace-nowrap hidden md:table-cell">
                 <div class="text-sm text-gray-900">{{ menu.restaurantes?.nombre_restaurante }}</div>
@@ -231,133 +230,92 @@
         Desplaza horizontalmente para ver más información o pulsa Ver para detalles
       </div>
 
-      <!-- Paginación -->
-      <div class="bg-white px-4 py-3 flex items-center justify-between border-t">
-        <div class="flex-1 flex justify-between sm:hidden">
-          <button
-            @click="goToPreviousPage"
-            :disabled="!hasPreviousPage"
-            :class="[
-              !hasPreviousPage ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50',
-              'relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white',
-            ]"
-          >
-            Anterior
-          </button>
-          <button
-            @click="goToNextPage"
-            :disabled="!hasNextPage"
-            :class="[
-              !hasNextPage ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50',
-              'ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white',
-            ]"
-          >
-            Siguiente
-          </button>
+      <!-- Paginación Optimizada -->
+      <div v-if="totalItems > 0" class="px-8 py-4 border-t border-gray-200 bg-white">
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
+          <!-- Información de resultados -->
+          <div class="flex items-center gap-4 text-sm text-gray-600">
+            <span>
+              Mostrando <span class="font-semibold text-gray-900">{{ (currentPage - 1) * itemsPerPage + 1 }}</span> a
+              <span class="font-semibold text-gray-900">{{ Math.min(currentPage * itemsPerPage, totalItems) }}</span> de
+              <span class="font-semibold text-gray-900">{{ totalItems }}</span> resultados
+            </span>
+            <div class="flex items-center gap-2">
+              <label class="text-sm text-gray-600">Mostrar:</label>
+              <select
+                :value="itemsPerPage"
+                @change="(e) => { changeItemsPerPage(Number((e.target as HTMLSelectElement).value)); }"
+                class="px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+              >
+                <option :value="10">10</option>
+                <option :value="25">25</option>
+                <option :value="50">50</option>
+                <option :value="100">100</option>
+              </select>
         </div>
-        <div class="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-          <div>
-            <p class="text-sm text-gray-700">
-              Mostrando <span class="font-medium">{{ menus.length }}</span> de
-              <span class="font-medium">{{ totalItems }}</span> menús
-            </p>
           </div>
-          <div>
-            <nav
-              class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px"
-              aria-label="Pagination"
-            >
+
+          <!-- Controles de paginación -->
+          <div class="flex items-center gap-2">
+            <!-- Botón Primera página -->
               <button
                 @click="goToFirstPage"
-                :disabled="!hasPreviousPage"
-                class="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-                :class="{ 'opacity-50 cursor-not-allowed': !hasPreviousPage }"
-              >
-                <span class="sr-only">Primera página</span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-5 w-5"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M15.707 15.707a1 1 0 01-1.414 0l-5-5a1 1 0 010-1.414l5-5a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 010 1.414zm-6 0a1 1 0 01-1.414 0l-5-5a1 1 0 010-1.414l5-5a1 1 0 011.414 1.414L5.414 10l4.293 4.293a1 1 0 010 1.414z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
+              :disabled="!hasPreviousPage || loading"
+              class="px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              title="Primera página"
+            >
+              ««
               </button>
+
+            <!-- Botón Anterior -->
               <button
                 @click="goToPreviousPage"
-                :disabled="!hasPreviousPage"
-                class="relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-                :class="{ 'opacity-50 cursor-not-allowed': !hasPreviousPage }"
-              >
-                <span class="sr-only">Anterior</span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-5 w-5"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
+              :disabled="!hasPreviousPage || loading"
+              class="px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              title="Página anterior"
                 >
-                  <path
-                    fill-rule="evenodd"
-                    d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
+              ← Anterior
               </button>
-              <span
-                class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700"
-              >
-                Página {{ currentPage }} de {{ totalPages }}
-              </span>
+
+            <!-- Números de página -->
+            <div class="flex items-center gap-1">
+              <template v-for="pageNum in getPageNumbers()" :key="pageNum">
+                <button
+                  v-if="pageNum !== '...'"
+                  @click="goToPage(pageNum as number)"
+                  :disabled="loading"
+                  :class="[
+                    'px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200',
+                    pageNum === currentPage
+                      ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white border border-orange-500'
+                      : 'text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed'
+                  ]"
+                >
+                  {{ pageNum }}
+                </button>
+                <span v-else class="px-2 text-gray-400">...</span>
+              </template>
+            </div>
+
+            <!-- Botón Siguiente -->
               <button
                 @click="goToNextPage"
-                :disabled="!hasNextPage"
-                class="relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-                :class="{ 'opacity-50 cursor-not-allowed': !hasNextPage }"
-              >
-                <span class="sr-only">Siguiente</span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-5 w-5"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
+              :disabled="!hasNextPage || loading"
+              class="px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              title="Página siguiente"
+            >
+              Siguiente →
               </button>
+
+            <!-- Botón Última página -->
               <button
                 @click="goToLastPage"
-                :disabled="!hasNextPage"
-                class="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-                :class="{ 'opacity-50 cursor-not-allowed': !hasNextPage }"
-              >
-                <span class="sr-only">Última página</span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-5 w-5"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M10.293 15.707a1 1 0 010-1.414L14.586 10l-4.293-4.293a1 1 0 111.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0z"
-                    clip-rule="evenodd"
-                  />
-                  <path
-                    fill-rule="evenodd"
-                    d="M4.293 15.707a1 1 0 010-1.414L8.586 10 4.293 5.707a1 1 0 011.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
+              :disabled="!hasNextPage || loading"
+              class="px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              title="Última página"
+            >
+              »»
               </button>
-            </nav>
           </div>
         </div>
       </div>
@@ -410,7 +368,7 @@
                     <svg class="h-4 w-4 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    <span class="text-lg font-bold text-orange-600">L {{ selectedMenu?.precio?.toFixed(2) }}</span>
+                    <span class="text-lg font-bold text-orange-600">{{ formatCurrencyHNL(selectedMenu?.precio || 0) }}</span>
                   </div>
                   <div class="flex items-center space-x-1">
                     <svg class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -741,6 +699,53 @@
                 </div>
               </div>
 
+              <!-- Inventario -->
+              <div class="bg-blue-50 rounded-xl p-6 border border-blue-200">
+                <h4 class="text-sm font-semibold text-blue-900 uppercase tracking-wide mb-4 text-left">Control de Inventario</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <!-- Requiere Inventario (Izquierda) -->
+                  <div>
+                    <div class="flex items-center justify-between mb-3">
+                      <span class="text-sm font-medium text-gray-700">Requiere Inventario</span>
+                      <button
+                        type="button"
+                        @click="formData.requiere_inventario = !formData.requiere_inventario"
+                        :class="[
+                          'relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2',
+                          formData.requiere_inventario
+                            ? 'bg-blue-600'
+                            : 'bg-gray-200'
+                        ]"
+                      >
+                        <span
+                          :class="[
+                            'inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200',
+                            formData.requiere_inventario ? 'translate-x-6' : 'translate-x-1'
+                          ]"
+                        />
+                      </button>
+                    </div>
+                    <p class="text-xs text-gray-500">
+                      Activar control de stock para este producto
+                    </p>
+                  </div>
+
+                  <!-- Ingredientes (Derecha) -->
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 text-left">Ingredientes</label>
+                    <textarea
+                      v-model="formData.ingredientes"
+                      rows="3"
+                      placeholder="Lista de ingredientes (separados por comas o JSON)"
+                      class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                    ></textarea>
+                    <p class="text-xs text-gray-500 mt-1">
+                      Opcional: lista de ingredientes o componentes
+                    </p>
+                  </div>
+                </div>
+              </div>
+
             </form>
           </div>
 
@@ -876,8 +881,11 @@ import type { AxiosResponse } from 'axios';
 import type { ApiResponse } from '@/interfaces/Usuario';
 import type { PaginatedResponse } from '@/services/usuarios_service';
 import CustomSelect from '@/components/ui/CustomSelect.vue';
+import { formatCurrencyHNL } from '@/utils/currency';
+import { useAuthStore } from '@/stores/auth_store';
 
 const toast = useToast();
+const authStore = useAuthStore();
 
 // Estado principal
 const restaurantes = ref<Restaurante[]>([]);
@@ -896,23 +904,46 @@ const selectedLimit = ref(10);
 const selectedEstado = ref('');
 
 
+// Computed para obtener restaurante principal
+const restauranteId = computed(() => {
+  return authStore.userInfo?.restaurante_id || '';
+});
+
 // Computed para opciones de filtros
-const restauranteOptions = computed(() => [
-  { label: 'Todos los restaurantes', value: '' },
-  ...restaurantes.value.map((r) => ({
+const restauranteOptions = computed(() => {
+  const options = [
+    { label: 'Todos los restaurantes', value: '' }
+  ];
+  
+  restaurantes.value.forEach((r) => {
+    const isPrincipal = r.id === restauranteId.value;
+    options.push({
     label: r.nombre_restaurante,
     value: r.id || '',
-  })),
-]);
+      badge: isPrincipal ? 'Principal' : undefined
+    });
+  });
+  
+  return options;
+});
 
 // Computed para opciones del formulario
-const formRestauranteOptions = computed(() => [
-  { label: 'Seleccionar restaurante', value: '' },
-  ...restaurantes.value.map((r) => ({
+const formRestauranteOptions = computed(() => {
+  const options = [
+    { label: 'Seleccionar restaurante', value: '' }
+  ];
+  
+  restaurantes.value.forEach((r) => {
+    const isPrincipal = r.id === restauranteId.value;
+    options.push({
     label: r.nombre_restaurante,
     value: r.id || '',
-  })),
-]);
+      badge: isPrincipal ? 'Principal' : undefined
+    });
+  });
+  
+  return options;
+});
 
 const formCategoriaOptions = computed(() => [
   { label: 'Sin categoría', value: '' },
@@ -1000,6 +1031,7 @@ const {
   currentPage,
   totalPages,
   totalItems,
+  itemsPerPage,
   isLoading: loading,
   hasPreviousPage,
   hasNextPage,
@@ -1007,6 +1039,7 @@ const {
   goToPreviousPage,
   goToNextPage,
   goToLastPage,
+  goToPage,
   changeItemsPerPage,
   refresh: loadMenus,
 } = usePagination<Menu>(fetchPaginatedMenus);
@@ -1023,6 +1056,8 @@ const formData = ref<CreateMenuDTO>({
   activo: true,
   es_exento: false,
   es_exonerado: false,
+  requiere_inventario: false,
+  ingredientes: '',
 });
 
 // Cargar datos iniciales
@@ -1073,6 +1108,8 @@ const openCreateDialog = () => {
     activo: true,
     es_exento: false,
     es_exonerado: false,
+    requiere_inventario: false,
+    ingredientes: '',
   };
   showDialog.value = true;
 };
@@ -1185,6 +1222,50 @@ const removeImage = () => {
     fileInput.value.value = '';
   }
   toast.success('Imagen eliminada');
+};
+
+// Función para generar números de página con elipsis
+const getPageNumbers = (): (number | string)[] => {
+  if (totalPages.value <= 0) return [];
+  
+  const page = currentPage.value;
+  const pages = totalPages.value;
+  const pageNumbers: (number | string)[] = [];
+  
+  if (pages <= 7) {
+    // Si hay 7 o menos páginas, mostrar todas
+    for (let i = 1; i <= pages; i++) {
+      pageNumbers.push(i);
+    }
+  } else {
+    // Si hay más de 7 páginas, mostrar con elipsis
+    if (page <= 3) {
+      // Al inicio: 1 2 3 4 ... última
+      for (let i = 1; i <= 4; i++) {
+        pageNumbers.push(i);
+      }
+      pageNumbers.push('...');
+      pageNumbers.push(pages);
+    } else if (page >= pages - 2) {
+      // Al final: 1 ... (últimas 4)
+      pageNumbers.push(1);
+      pageNumbers.push('...');
+      for (let i = pages - 3; i <= pages; i++) {
+        pageNumbers.push(i);
+      }
+    } else {
+      // En el medio: 1 ... (actual-1) (actual) (actual+1) ... última
+      pageNumbers.push(1);
+      pageNumbers.push('...');
+      for (let i = page - 1; i <= page + 1; i++) {
+        pageNumbers.push(i);
+      }
+      pageNumbers.push('...');
+      pageNumbers.push(pages);
+    }
+  }
+  
+  return pageNumbers;
 };
 
 

@@ -11,10 +11,13 @@
       </div>
 
       <!-- Page content -->
-      <main class="flex-1 overflow-auto bg-white rounded-xl shadow-lg border border-gray-200 p-6">
+      <main class="flex-1 overflow-auto p-6">
         <router-view></router-view>
       </main>
     </div>
+
+    <!-- Welcome Modal -->
+    <WelcomeModal />
   </div>
 </template>
 
@@ -23,6 +26,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import SideBar from '../components/SideBar.vue';
 import TopBar from '../components/TopBar.vue';
+import WelcomeModal from '@/components/modals/WelcomeModal.vue';
 import { useAuthStore } from '@/stores/auth_store';
 // Estado para controlar el sidebar
 const sidebarCollapsed = ref(false);

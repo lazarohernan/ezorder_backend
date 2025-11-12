@@ -2,6 +2,7 @@ export interface Caja {
   id: string;
   created_at: string;
   restaurante_id: string;
+  restaurante_nombre?: string | null;
   usuario_id: string;
   usuario_nombre?: string | null;
   fecha_apertura: string;
@@ -35,6 +36,10 @@ export interface CajaUpdate {
 
 export interface CajaCierre {
   monto_final: number;
+  ventas_pos_reportadas?: number;
+  ventas_transferencia_reportadas?: number;
+  gastos_reportados?: number;
+  ventas_efectivo_reportadas?: number;
   observaciones?: string;
 }
 

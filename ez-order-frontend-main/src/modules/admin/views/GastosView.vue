@@ -55,7 +55,7 @@
         <div class="flex items-end">
           <button
             @click="limpiarFiltros"
-            class="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 transition hover:bg-orange-100 hover:border-orange-300"
+            class="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-transparent px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 hover:border-gray-400"
           >
             <RefreshCcw class="h-4 w-4" />
             Limpiar filtros
@@ -97,17 +97,16 @@
     </div>
 
     <!-- Mensaje si no hay gastos -->
-    <div v-else-if="gastos.length === 0" class="rounded-3xl border border-orange-100 bg-gradient-to-br from-orange-50 via-white to-orange-100 p-12 text-center">
-      <Receipt class="h-16 w-16 mx-auto text-orange-400" />
-      <h2 class="mt-4 text-xl font-semibold text-gray-900">No hay gastos registrados</h2>
-      <p class="mt-2 text-gray-600">Comienza a registrar los gastos de tu restaurante.</p>
-      <button
-        @click="openCreateDialog"
-        class="mt-6 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-6 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:from-orange-600 hover:to-orange-700"
-      >
-        <Plus class="h-5 w-5" />
-        Registrar primer gasto
-      </button>
+    <div v-else-if="gastos.length === 0" class="px-6 py-16">
+      <div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 py-16 text-center">
+        <div class="flex flex-col items-center gap-3">
+          <Receipt class="h-10 w-10 text-gray-300" stroke-width="1.5" />
+          <h3 class="text-sm font-semibold text-gray-700">No hay gastos registrados</h3>
+          <p class="text-xs text-gray-500 max-w-sm">
+            Comienza a registrar los gastos de tu restaurante.
+          </p>
+        </div>
+      </div>
     </div>
 
     <!-- Orders Table -->
@@ -393,54 +392,6 @@
         </div>
       </template>
     </Modal>
-
-    <!-- Sistema de Notificaciones -->
-    <div class="fixed top-4 right-4 z-50 space-y-2">
-      <transition-group
-        enter-active-class="transition ease-out duration-300"
-        enter-from-class="opacity-0 translate-x-full"
-        enter-to-class="opacity-100 translate-x-0"
-        leave-active-class="transition ease-in duration-300"
-        leave-from-class="opacity-100 translate-x-0"
-        leave-to-class="opacity-0 translate-x-full"
-      >
-        <div
-          v-for="notification in notifications"
-          :key="notification.id"
-          class="max-w-sm w-full bg-white shadow-lg rounded-lg pointer-events-auto ring-1 ring-black ring-opacity-5"
-          :class="getNotificationClasses(notification.type)"
-        >
-          <div class="p-4">
-            <div class="flex items-start">
-              <div class="flex-shrink-0">
-                <component
-                  :is="getNotificationIcon(notification.type)"
-                  class="h-6 w-6"
-                  :class="getNotificationIconColor(notification.type)"
-                />
-              </div>
-              <div class="ml-3 w-0 flex-1 pt-0.5">
-                <p class="text-sm font-medium" :class="getNotificationTextColor(notification.type)">
-                  {{ getNotificationTitle(notification.type) }}
-                </p>
-                <p class="mt-1 text-sm text-gray-500">
-                  {{ notification.message }}
-                </p>
-              </div>
-              <div class="ml-4 flex-shrink-0 flex">
-                <button
-                  @click="removeNotification(notification.id)"
-                  class="inline-flex text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                >
-                  <span class="sr-only">Cerrar</span>
-                  <X class="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </transition-group>
-    </div>
   </div>
 </template>
 
@@ -453,12 +404,7 @@ import {
   TrendingUp,
   Pencil,
   Trash2,
-  RefreshCcw,
-  AlertTriangle,
-  CheckCircle,
-  XCircle,
-  Info,
-  X
+  RefreshCcw
 } from 'lucide-vue-next';
 import { gastosService } from '@/services/gastos_service';
 import metodoPagoService from '@/services/metodo_pago_services';
@@ -468,8 +414,10 @@ import CustomSelect from '@/components/ui/CustomSelect.vue';
 import type { Gasto, GastoCreate, GastoUpdate } from '@/interfaces/Gasto';
 import { CATEGORIAS_GASTO } from '@/interfaces/Gasto';
 import type { MetodoPago } from '@/interfaces/MetodoPago';
+import { useToast } from 'vue-toastification';
 
 const authStore = useAuthStore();
+const toast = useToast();
 const gastos = ref<Gasto[]>([]);
 const metodosPago = ref<MetodoPago[]>([]);
 const loading = ref(false);
@@ -482,86 +430,22 @@ const currentGastoId = ref<string | null>(null);
 const showDeleteModal = ref(false);
 const gastoToDelete = ref<Gasto | null>(null);
 
-// Sistema de notificaciones
-const notifications = ref<Array<{
-  id: number;
-  type: 'success' | 'error' | 'warning' | 'info';
-  message: string;
-  duration?: number;
-}>>([]);
-let notificationId = 0;
-
-function showNotification(type: 'success' | 'error' | 'warning' | 'info', message: string, duration = 5000) {
-  const id = ++notificationId;
-  notifications.value.push({
-    id,
-    type,
-    message,
-    duration
-  });
-
-  // Auto-remover después de la duración
-  setTimeout(() => {
-    removeNotification(id);
-  }, duration);
-}
-
-function removeNotification(id: number) {
-  const index = notifications.value.findIndex(n => n.id === id);
-  if (index > -1) {
-    notifications.value.splice(index, 1);
+// Helper function para mostrar notificaciones usando vue-toastification
+function showNotification(type: 'success' | 'error' | 'warning' | 'info', message: string) {
+  switch (type) {
+    case 'success':
+      toast.success(message);
+      break;
+    case 'error':
+      toast.error(message);
+      break;
+    case 'warning':
+      toast.warning(message);
+      break;
+    case 'info':
+      toast.info(message);
+      break;
   }
-}
-
-// Funciones helper para notificaciones
-function getNotificationClasses(type: string): string {
-  const classes: Record<string, string> = {
-    success: 'bg-green-50 border-green-200',
-    error: 'bg-red-50 border-red-200',
-    warning: 'bg-yellow-50 border-yellow-200',
-    info: 'bg-blue-50 border-blue-200'
-  };
-  return classes[type] || classes.info;
-}
-
-function getNotificationIcon(type: string) {
-  const icons = {
-    success: CheckCircle,
-    error: XCircle,
-    warning: AlertTriangle,
-    info: Info
-  };
-  return icons[type as keyof typeof icons] || icons.info;
-}
-
-function getNotificationIconColor(type: string): string {
-  const colors: Record<string, string> = {
-    success: 'text-green-400',
-    error: 'text-red-400',
-    warning: 'text-yellow-400',
-    info: 'text-blue-400'
-  };
-  return colors[type] || colors.info;
-}
-
-function getNotificationTextColor(type: string): string {
-  const colors: Record<string, string> = {
-    success: 'text-green-800',
-    error: 'text-red-800',
-    warning: 'text-yellow-800',
-    info: 'text-blue-800'
-  };
-  return colors[type] || colors.info;
-}
-
-function getNotificationTitle(type: string): string {
-  const titles: Record<string, string> = {
-    success: 'Éxito',
-    error: 'Error',
-    warning: 'Advertencia',
-    info: 'Información'
-  };
-  return titles[type] || titles.info;
 }
 
 // Filtros

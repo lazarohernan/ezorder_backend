@@ -1,9 +1,10 @@
 import axios from '../plugins/axios';
 import type { Caja, CajaCreate, CajaUpdate, CajaCierre } from '../interfaces/Caja';
+import { formatCurrencyHNL } from '../utils/currency';
 
 export const cajaService = {
   // Obtener todas las cajas de todos los restaurantes (solo administradores)
-  async getAllCajas(page: number = 1, limit: number = 10, estado?: string, restauranteId?: string) {
+  async getAllCajas(page: number = 1, limit: number = 10, estado?: string, restauranteId?: string, fechaDesde?: string, fechaHasta?: string) {
     const params = new URLSearchParams({
       page: page.toString(),
       limit: limit.toString()
@@ -15,6 +16,14 @@ export const cajaService = {
 
     if (restauranteId) {
       params.append('restaurante_id', restauranteId);
+    }
+
+    if (fechaDesde) {
+      params.append('fecha_desde', fechaDesde);
+    }
+
+    if (fechaHasta) {
+      params.append('fecha_hasta', fechaHasta);
     }
 
     const response = await axios.get(`/caja/all?${params}`);
@@ -37,7 +46,7 @@ export const cajaService = {
   },
 
   // Obtener todas las cajas de un restaurante
-  async getCajas(restauranteId: string, page: number = 1, limit: number = 10, estado?: string) {
+  async getCajas(restauranteId: string, page: number = 1, limit: number = 10, estado?: string, fechaDesde?: string, fechaHasta?: string) {
     const params = new URLSearchParams({
       page: page.toString(),
       limit: limit.toString()
@@ -45,6 +54,14 @@ export const cajaService = {
 
     if (estado) {
       params.append('estado', estado);
+    }
+
+    if (fechaDesde) {
+      params.append('fecha_desde', fechaDesde);
+    }
+
+    if (fechaHasta) {
+      params.append('fecha_hasta', fechaHasta);
     }
 
     const response = await axios.get(`/caja/restaurante/${restauranteId}?${params}`);
@@ -104,12 +121,7 @@ export const cajaService = {
 
   // Formatear moneda
   formatMoneda(monto: number): string {
-    const formatter = new Intl.NumberFormat('es-HN', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-
-    return `L ${formatter.format(monto)}`;
+    return formatCurrencyHNL(monto);
   },
 
   // Calcular diferencia de caja
@@ -123,16 +135,18 @@ export const cajaService = {
   // Verificar si hay caja abierta
   async verificarCajaAbierta(restauranteId: string): Promise<boolean> {
     try {
+      console.log('🔍 Verificando caja abierta para restaurante:', restauranteId);
       const response = await this.getCajaActual(restauranteId);
-      return !!response.data;
-  } catch {
-    return false;
-  }
+      const tieneCajaAbierta = !!response.data;
+      console.log('📊 Respuesta getCajaActual:', response);
+      console.log('✅ Tiene caja abierta:', tieneCajaAbierta);
+      return tieneCajaAbierta;
+    } catch (error) {
+      console.error('❌ Error al verificar caja abierta:', error);
+      return false;
+    }
   }
 };
-
-
-
 
 
 

@@ -292,51 +292,6 @@ export const inventarioService = {
       console.error('Error al obtener estadísticas:', error);
       throw error;
     }
-  },
-
-  // Obtener historial de movimientos por producto
-  async obtenerHistorialProducto(menuId: string, filtros?: {
-    fecha_desde?: string;
-    fecha_hasta?: string;
-    tipo_movimiento?: 'entrada' | 'salida' | 'ajuste';
-    pagina?: number;
-    limite?: number;
-  }): Promise<RespuestaMovimientos> {
-    try {
-      const params = new URLSearchParams();
-      
-      if (filtros?.fecha_desde) params.append('fecha_desde', filtros.fecha_desde);
-      if (filtros?.fecha_hasta) params.append('fecha_hasta', filtros.fecha_hasta);
-      if (filtros?.tipo_movimiento) params.append('tipo_movimiento', filtros.tipo_movimiento);
-      if (filtros?.pagina) params.append('pagina', filtros.pagina.toString());
-      if (filtros?.limite) params.append('limite', filtros.limite.toString());
-
-      const response = await axios.get(`/inventario/historial/${menuId}?${params.toString()}`);
-      return response.data;
-    } catch (error) {
-      console.error('Error al obtener historial del producto:', error);
-      throw error;
-    }
-  },
-
-  // Exportar inventario a CSV
-  async exportarInventario(filtros?: FiltrosInventario): Promise<Blob> {
-    try {
-      const params = new URLSearchParams();
-      
-      if (filtros?.busqueda) params.append('busqueda', filtros.busqueda);
-      if (filtros?.estado_stock) params.append('estado_stock', filtros.estado_stock);
-      if (filtros?.requiere_inventario !== undefined) params.append('requiere_inventario', filtros.requiere_inventario.toString());
-      if (filtros?.activo !== undefined) params.append('activo', filtros.activo.toString());
-
-      const response = await axios.get(`/inventario/exportar?${params.toString()}`, {
-        responseType: 'blob'
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error al exportar inventario:', error);
-      throw error;
-    }
   }
 };
 

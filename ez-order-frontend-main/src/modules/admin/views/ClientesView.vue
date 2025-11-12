@@ -32,7 +32,7 @@
 
     <!-- Filters -->
     <div class="relative z-40 rounded-3xl border border-orange-100 bg-white/80 p-6 backdrop-blur">
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div class="space-y-2">
           <label class="block text-sm font-semibold text-gray-700">Filtrar por Restaurante</label>
           <CustomSelect
@@ -65,14 +65,6 @@
             </svg>
           </div>
         </div>
-        <div class="space-y-2">
-          <label class="block text-sm font-semibold text-gray-700">Mostrar</label>
-          <CustomSelect
-            v-model="selectedLimit"
-            :options="limitOptions"
-            @update:modelValue="onLimitChange"
-          />
-        </div>
       </div>
     </div>
 
@@ -82,41 +74,29 @@
     </div>
 
     <!-- Mensaje si no hay clientes -->
-    <div v-else-if="clientes.length === 0" class="rounded-3xl border border-orange-100 bg-gradient-to-br from-orange-50 via-white to-orange-100 p-12 text-center">
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="h-16 w-16 mx-auto text-orange-400"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-        />
-      </svg>
-      <h2 class="mt-4 text-xl font-medium text-gray-700">No hay clientes registrados</h2>
-      <p class="mt-2 text-gray-500">Comienza a agregar clientes para tu restaurante.</p>
-      <button
-        @click="openCreateDialog"
-        class="mt-4 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:from-orange-600 hover:to-orange-700"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="h-5 w-5"
-          viewBox="0 0 20 20"
-          fill="currentColor"
-        >
-          <path
-            fill-rule="evenodd"
-            d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z"
-            clip-rule="evenodd"
-          />
-        </svg>
-        <span>Agregar mi primer cliente</span>
-      </button>
+    <div v-else-if="clientes.length === 0" class="px-6 py-16">
+      <div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 py-16 text-center">
+        <div class="flex flex-col items-center gap-3">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-10 w-10 text-gray-300"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+            />
+          </svg>
+          <h3 class="text-sm font-semibold text-gray-700">No hay clientes registrados</h3>
+          <p class="text-xs text-gray-500 max-w-sm">
+            Comienza a agregar clientes para tu restaurante.
+          </p>
+        </div>
+      </div>
     </div>
 
     <!-- Orders Table -->
@@ -176,60 +156,28 @@
                   {{ cliente.restaurantes?.nombre_restaurante || 'N/A' }}
                 </div>
               </td>
-              <td class="whitespace-nowrap px-6 py-4 text-sm font-medium align-middle">
-                <div class="flex space-x-2">
+              <td class="whitespace-nowrap px-6 py-4 text-right text-sm font-medium align-middle">
+                <div class="flex justify-end gap-2">
                   <button
                     @click="viewCliente(cliente)"
-                    class="text-gray-600 hover:text-orange-600 bg-gray-50 hover:bg-orange-50 rounded-full p-1 transition-colors duration-200"
+                    class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-500 transition hover:border-orange-300 hover:text-orange-600"
                     title="Ver"
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      class="h-5 w-5"
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                    >
-                      <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                      <path
-                        fill-rule="evenodd"
-                        d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
-                        clip-rule="evenodd"
-                      />
-                    </svg>
+                    <Eye class="h-4 w-4" />
                   </button>
                   <button
                     @click="editCliente(cliente)"
-                    class="text-orange-600 hover:text-orange-900 bg-orange-50 hover:bg-orange-100 rounded-full p-1 transition-colors duration-200"
+                    class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-500 transition hover:border-orange-300 hover:text-orange-600"
                     title="Editar"
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      class="h-5 w-5"
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                    >
-                      <path
-                        d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"
-                      />
-                    </svg>
+                    <Pencil class="h-4 w-4" />
                   </button>
                   <button
                     @click="confirmDelete(cliente)"
-                    class="text-red-600 hover:text-red-900 bg-red-50 hover:bg-red-100 rounded-full p-1 transition-colors duration-200"
+                    class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-200 text-red-500 transition hover:border-red-300 hover:text-red-600"
                     title="Eliminar"
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      class="h-5 w-5"
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                    >
-                      <path
-                        fill-rule="evenodd"
-                        d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
-                        clip-rule="evenodd"
-                      />
-                    </svg>
+                    <Trash2 class="h-4 w-4" />
                   </button>
                 </div>
               </td>
@@ -257,133 +205,92 @@
         Desplaza horizontalmente para ver más información o pulsa Ver para detalles
       </div>
 
-      <!-- Paginación -->
-      <div class="bg-white px-4 py-3 flex items-center justify-between border-t">
-        <div class="flex-1 flex justify-between sm:hidden">
-          <button
-            @click="goToPreviousPage"
-            :disabled="!hasPreviousPage"
-            :class="[
-              !hasPreviousPage ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50',
-              'relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white',
-            ]"
-          >
-            Anterior
-          </button>
-          <button
-            @click="goToNextPage"
-            :disabled="!hasNextPage"
-            :class="[
-              !hasNextPage ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50',
-              'ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white',
-            ]"
-          >
-            Siguiente
-          </button>
+      <!-- Paginación Optimizada -->
+      <div v-if="totalItems > 0" class="px-8 py-4 border-t border-gray-200 bg-white">
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
+          <!-- Información de resultados -->
+          <div class="flex items-center gap-4 text-sm text-gray-600">
+            <span>
+              Mostrando <span class="font-semibold text-gray-900">{{ (currentPage - 1) * itemsPerPage + 1 }}</span> a
+              <span class="font-semibold text-gray-900">{{ Math.min(currentPage * itemsPerPage, totalItems) }}</span> de
+              <span class="font-semibold text-gray-900">{{ totalItems }}</span> resultados
+            </span>
+            <div class="flex items-center gap-2">
+              <label class="text-sm text-gray-600">Mostrar:</label>
+              <select
+                :value="itemsPerPage"
+                @change="(e) => { changeItemsPerPage(Number((e.target as HTMLSelectElement).value)); }"
+                class="px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+              >
+                <option :value="10">10</option>
+                <option :value="25">25</option>
+                <option :value="50">50</option>
+                <option :value="100">100</option>
+              </select>
         </div>
-        <div class="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-          <div>
-            <p class="text-sm text-gray-700">
-              Mostrando <span class="font-medium">{{ clientes.length }}</span> de
-              <span class="font-medium">{{ totalItems }}</span> clientes
-            </p>
           </div>
-          <div>
-            <nav
-              class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px"
-              aria-label="Pagination"
-            >
+
+          <!-- Controles de paginación -->
+          <div class="flex items-center gap-2">
+            <!-- Botón Primera página -->
               <button
                 @click="goToFirstPage"
-                :disabled="!hasPreviousPage"
-                class="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-                :class="{ 'opacity-50 cursor-not-allowed': !hasPreviousPage }"
-              >
-                <span class="sr-only">Primera página</span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-5 w-5"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M15.707 15.707a1 1 0 01-1.414 0l-5-5a1 1 0 010-1.414l5-5a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 010 1.414zm-6 0a1 1 0 01-1.414 0l-5-5a1 1 0 010-1.414l5-5a1 1 0 011.414 1.414L5.414 10l4.293 4.293a1 1 0 010 1.414z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
+              :disabled="!hasPreviousPage || loading"
+              class="px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              title="Primera página"
+            >
+              ««
               </button>
+
+            <!-- Botón Anterior -->
               <button
                 @click="goToPreviousPage"
-                :disabled="!hasPreviousPage"
-                class="relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-                :class="{ 'opacity-50 cursor-not-allowed': !hasPreviousPage }"
+              :disabled="!hasPreviousPage || loading"
+              class="px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              title="Página anterior"
               >
-                <span class="sr-only">Anterior</span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-5 w-5"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
+              ← Anterior
+            </button>
+
+            <!-- Números de página -->
+            <div class="flex items-center gap-1">
+              <template v-for="pageNum in getPageNumbers()" :key="pageNum">
+                <button
+                  v-if="pageNum !== '...'"
+                  @click="goToPage(pageNum as number)"
+                  :disabled="loading"
+                  :class="[
+                    'px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200',
+                    pageNum === currentPage
+                      ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white border border-orange-500'
+                      : 'text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed'
+                  ]"
                 >
-                  <path
-                    fill-rule="evenodd"
-                    d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
+                  {{ pageNum }}
               </button>
-              <span
-                class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700"
-              >
-                Página {{ currentPage }} de {{ totalPages }}
-              </span>
+                <span v-else class="px-2 text-gray-400">...</span>
+              </template>
+            </div>
+
+            <!-- Botón Siguiente -->
               <button
                 @click="goToNextPage"
-                :disabled="!hasNextPage"
-                class="relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-                :class="{ 'opacity-50 cursor-not-allowed': !hasNextPage }"
-              >
-                <span class="sr-only">Siguiente</span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-5 w-5"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
+              :disabled="!hasNextPage || loading"
+              class="px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              title="Página siguiente"
+            >
+              Siguiente →
               </button>
+
+            <!-- Botón Última página -->
               <button
                 @click="goToLastPage"
-                :disabled="!hasNextPage"
-                class="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-                :class="{ 'opacity-50 cursor-not-allowed': !hasNextPage }"
-              >
-                <span class="sr-only">Última página</span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-5 w-5"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M10.293 15.707a1 1 0 010-1.414L14.586 10l-4.293-4.293a1 1 0 111.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0z"
-                    clip-rule="evenodd"
-                  />
-                  <path
-                    fill-rule="evenodd"
-                    d="M4.293 15.707a1 1 0 010-1.414L8.586 10 4.293 5.707a1 1 0 011.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
+              :disabled="!hasNextPage || loading"
+              class="px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              title="Última página"
+            >
+              »»
               </button>
-            </nav>
           </div>
         </div>
       </div>
@@ -611,8 +518,11 @@ import type { AxiosResponse } from 'axios';
 import type { ApiResponse } from '@/interfaces/Usuario';
 import type { PaginatedResponse } from '@/services/usuarios_service';
 import CustomSelect from '@/components/ui/CustomSelect.vue';
+import { Eye, Pencil, Trash2 } from 'lucide-vue-next';
+import { useAuthStore } from '@/stores/auth_store';
 
 const toast = useToast();
+const authStore = useAuthStore();
 
 // Estado principal
 const restaurantes = ref<Restaurante[]>([]);
@@ -623,9 +533,8 @@ const showViewDialog = ref(false);
 const isEditing = ref(false);
 const selectedCliente = ref<Cliente | null>(null);
 
-// Búsqueda y límite
+// Búsqueda
 const searchTerm = ref('');
-const selectedLimit = ref(10);
 
 // Función para obtener clientes paginados
 const fetchPaginatedClientes = async (params: {
@@ -688,6 +597,7 @@ const {
   currentPage,
   totalPages,
   totalItems,
+  itemsPerPage,
   isLoading: loading,
   hasPreviousPage,
   hasNextPage,
@@ -695,6 +605,7 @@ const {
   goToPreviousPage,
   goToNextPage,
   goToLastPage,
+  goToPage,
   changeItemsPerPage,
   refresh: loadClientes,
 } = usePagination<Cliente>(fetchPaginatedClientes);
@@ -713,11 +624,6 @@ onMounted(async () => {
   await loadRestaurantes();
   // loadClientes se ejecutará automáticamente desde usePagination
 });
-
-// Función para cambiar el límite
-const onLimitChange = () => {
-  changeItemsPerPage(selectedLimit.value);
-};
 
 // Cargar restaurantes
 const loadRestaurantes = async () => {
@@ -806,27 +712,83 @@ const deleteCliente = async () => {
   }
 };
 
+// Computed para obtener restaurante principal
+const restauranteId = computed(() => {
+  return authStore.userInfo?.restaurante_id || '';
+});
+
 // Computed properties para opciones de CustomSelect
-const restauranteOptions = computed(() => [
-  { label: 'Todos los restaurantes', value: '' },
-  ...restaurantes.value.map((r) => ({
+const restauranteOptions = computed(() => {
+  const options = [
+    { label: 'Todos los restaurantes', value: '' }
+  ];
+  
+  restaurantes.value.forEach((r) => {
+    const isPrincipal = r.id === restauranteId.value;
+    options.push({
     label: r.nombre_restaurante,
     value: r.id || '',
-  })),
-]);
+      badge: isPrincipal ? 'Principal' : undefined
+    });
+  });
+  
+  return options;
+});
 
-const formRestauranteOptions = computed(() =>
-  restaurantes.value.map((r) => ({
+const formRestauranteOptions = computed(() => {
+  return restaurantes.value.map((r) => {
+    const isPrincipal = r.id === restauranteId.value;
+    return {
     label: r.nombre_restaurante,
     value: r.id || '',
-  })),
-);
+      badge: isPrincipal ? 'Principal' : undefined
+    };
+  });
+});
 
-const limitOptions = computed(() => [
-  { label: '10 por página', value: 10 },
-  { label: '20 por página', value: 20 },
-  { label: '50 por página', value: 50 },
-]);
+// Función para generar números de página con elipsis
+const getPageNumbers = (): (number | string)[] => {
+  if (totalPages.value <= 0) return [];
+  
+  const page = currentPage.value;
+  const pages = totalPages.value;
+  const pageNumbers: (number | string)[] = [];
+  
+  if (pages <= 7) {
+    // Si hay 7 o menos páginas, mostrar todas
+    for (let i = 1; i <= pages; i++) {
+      pageNumbers.push(i);
+    }
+  } else {
+    // Si hay más de 7 páginas, mostrar con elipsis
+    if (page <= 3) {
+      // Al inicio: 1 2 3 4 ... última
+      for (let i = 1; i <= 4; i++) {
+        pageNumbers.push(i);
+      }
+      pageNumbers.push('...');
+      pageNumbers.push(pages);
+    } else if (page >= pages - 2) {
+      // Al final: 1 ... (últimas 4)
+      pageNumbers.push(1);
+      pageNumbers.push('...');
+      for (let i = pages - 3; i <= pages; i++) {
+        pageNumbers.push(i);
+      }
+    } else {
+      // En el medio: 1 ... (actual-1) (actual) (actual+1) ... última
+      pageNumbers.push(1);
+      pageNumbers.push('...');
+      for (let i = page - 1; i <= page + 1; i++) {
+        pageNumbers.push(i);
+      }
+      pageNumbers.push('...');
+      pageNumbers.push(pages);
+    }
+  }
+  
+  return pageNumbers;
+};
 </script>
 
 <style scoped></style>

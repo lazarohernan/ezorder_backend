@@ -30,13 +30,6 @@ const roleForm = reactive({
   activo: true
 });
 
-// Límite de elementos por página
-const selectedLimit = ref(10);
-
-// Función para cambiar el límite de elementos por página
-const onLimitChange = () => {
-  loadRoles();
-};
 
 // Cargar datos iniciales
 onMounted(async () => {
@@ -240,7 +233,7 @@ const isPermisoSelected = (permisoId: number) => {
 
     <!-- Filtros y búsqueda -->
     <div class="relative z-40 rounded-3xl border border-orange-100 bg-white/80 p-6 backdrop-blur">
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="space-y-2">
           <label class="block text-sm font-semibold text-gray-700">Buscar roles</label>
           <div class="relative">
@@ -262,18 +255,6 @@ const isPermisoSelected = (permisoId: number) => {
               />
             </svg>
           </div>
-        </div>
-        <div class="space-y-2">
-          <label class="block text-sm font-semibold text-gray-700">Elementos por página</label>
-          <select
-            v-model="selectedLimit"
-            @change="onLimitChange"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-          >
-            <option :value="10">10 por página</option>
-            <option :value="20">20 por página</option>
-            <option :value="50">50 por página</option>
-          </select>
         </div>
         <div class="flex items-end">
           <button
@@ -382,17 +363,16 @@ const isPermisoSelected = (permisoId: number) => {
     </div>
 
     <!-- Sin resultados -->
-    <div v-else class="bg-white rounded-lg shadow-sm p-8 text-center">
-      <Shield class="h-16 w-16 mx-auto text-gray-400 mb-3" />
-      <h3 class="text-lg font-medium text-gray-800 mb-1">No se encontraron roles</h3>
-      <p class="text-gray-600 mb-4">No hay roles personalizados registrados.</p>
-      <button
-        @click="openCreateModal"
-        class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:from-orange-600 hover:to-orange-700"
-      >
-        <Plus class="h-5 w-5" />
-        Crear primer rol
-      </button>
+    <div v-else class="px-6 py-16">
+      <div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 py-16 text-center">
+        <div class="flex flex-col items-center gap-3">
+          <Shield class="h-10 w-10 text-gray-300" stroke-width="1.5" />
+          <h3 class="text-sm font-semibold text-gray-700">No hay roles personalizados registrados</h3>
+          <p class="text-xs text-gray-500 max-w-sm">
+            Cuando crees roles personalizados, aparecerán listados aquí.
+          </p>
+        </div>
+      </div>
     </div>
 
     <!-- Modal Ver Rol -->

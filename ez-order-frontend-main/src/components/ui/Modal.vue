@@ -64,7 +64,7 @@ interface Props {
   icon?: object;
   iconBg?: string;
   iconColor?: string;
-  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | 'full';
   closeOnOverlay?: boolean;
 }
 
@@ -83,12 +83,14 @@ const emit = defineEmits<{
 
 // Computed
 const modalSize = computed(() => {
-  const sizes: Record<'sm' | 'md' | 'lg' | 'xl' | '2xl', string> = {
+  const sizes: Record<'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | 'full', string> = {
     sm: 'max-w-sm',
     md: 'max-w-md',
     lg: 'max-w-lg',
     xl: 'max-w-xl',
-    '2xl': 'max-w-4xl'
+    '2xl': 'max-w-4xl',
+    '3xl': 'max-w-5xl',
+    full: 'max-w-[95vw]'
   };
 
   const sizeKey = props.size ?? 'md';

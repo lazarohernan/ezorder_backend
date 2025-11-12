@@ -12,6 +12,18 @@ export interface InvoiceData {
 }
 
 class PDFService {
+  private currencyFormatter: Intl.NumberFormat = new Intl.NumberFormat('es-HN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    useGrouping: true
+  });
+
+  private formatCurrency(value: number): string {
+    const amount = value ?? 0;
+    const sign = amount < 0 ? '-' : '';
+    return `${sign}Lp. ${this.currencyFormatter.format(Math.abs(amount))}`;
+  }
+
   /**
    * Generar PDF en tamaño carta (8.5" x 11")
    */
@@ -58,7 +70,7 @@ class PDFService {
     const leftCol = 20;
     const rightCol = pageWidth / 2 + 10;
 
-    doc.text(`Pedido #: ${data.pedido.id.substring(0, 8)}`, leftCol, yPosition);
+    doc.text(`Ticket #: ${data.pedido.numero_ticket || data.pedido.id.substring(0, 8)}`, leftCol, yPosition);
     doc.text(
       `Fecha: ${new Date(data.pedido.created_at).toLocaleDateString()}`,
       rightCol,
@@ -106,8 +118,8 @@ class PDFService {
     data.items.forEach((item) => {
       doc.text(item.cantidad.toString(), leftCol, yPosition);
       doc.text(item.nombre_menu, leftCol + 20, yPosition);
-      doc.text(`L ${(item.precio_unitario || 0).toFixed(2)}`, leftCol + 100, yPosition);
-      doc.text(`L ${item.total_item.toFixed(2)}`, leftCol + 140, yPosition);
+      doc.text(this.formatCurrency(item.precio_unitario || 0), leftCol + 100, yPosition);
+      doc.text(this.formatCurrency(item.total_item || 0), leftCol + 140, yPosition);
       yPosition += 7;
     });
 
@@ -118,34 +130,34 @@ class PDFService {
 
     const totalsX = leftCol + 100;
     doc.text(`Subtotal:`, totalsX, yPosition);
-    doc.text(`L ${data.pedido.subtotal.toFixed(2)}`, leftCol + 140, yPosition);
+    doc.text(this.formatCurrency(data.pedido.subtotal || 0), leftCol + 140, yPosition);
 
     yPosition += 7;
     if (data.pedido.importe_exonerado && data.pedido.importe_exonerado > 0) {
       doc.text(`Importe Exonerado:`, totalsX, yPosition);
-      doc.text(`L ${data.pedido.importe_exonerado.toFixed(2)}`, leftCol + 140, yPosition);
+      doc.text(this.formatCurrency(data.pedido.importe_exonerado || 0), leftCol + 140, yPosition);
       yPosition += 7;
     }
 
     if (data.pedido.importe_exento && data.pedido.importe_exento > 0) {
       doc.text(`Importe Exento:`, totalsX, yPosition);
-      doc.text(`L ${data.pedido.importe_exento.toFixed(2)}`, leftCol + 140, yPosition);
+      doc.text(this.formatCurrency(data.pedido.importe_exento || 0), leftCol + 140, yPosition);
       yPosition += 7;
     }
 
     if (data.pedido.importe_gravado && data.pedido.importe_gravado > 0) {
       doc.text(`Importe Gravado:`, totalsX, yPosition);
-      doc.text(`L ${data.pedido.importe_gravado.toFixed(2)}`, leftCol + 140, yPosition);
+      doc.text(this.formatCurrency(data.pedido.importe_gravado || 0), leftCol + 140, yPosition);
       yPosition += 7;
     }
 
     // Siempre mostrar descuento
     doc.text(`Descuento:`, totalsX, yPosition);
-    doc.text(`-L ${(data.pedido.descuento || 0).toFixed(2)}`, leftCol + 140, yPosition);
+    doc.text(this.formatCurrency(-(data.pedido.descuento || 0)), leftCol + 140, yPosition);
     yPosition += 7;
 
     doc.text(`ISV (15%):`, totalsX, yPosition);
-    doc.text(`L ${data.pedido.impuesto.toFixed(2)}`, leftCol + 140, yPosition);
+    doc.text(this.formatCurrency(data.pedido.impuesto || 0), leftCol + 140, yPosition);
 
     yPosition += 10;
     doc.line(leftCol + 100, yPosition, pageWidth - 20, yPosition);
@@ -154,7 +166,7 @@ class PDFService {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.text(`TOTAL`, totalsX, yPosition);
-    doc.text(`L ${data.pedido.total.toFixed(2)}`, leftCol + 140, yPosition);
+    doc.text(this.formatCurrency(data.pedido.total || 0), leftCol + 140, yPosition);
 
     // Footer
     yPosition += 30;
@@ -218,7 +230,7 @@ class PDFService {
 
     // Número de pedido destacado
     doc.setFontSize(10);
-    doc.text(`PEDIDO #${data.pedido.id.substring(0, 8).toUpperCase()}`, pageWidth / 2, yPosition, {
+    doc.text(`TICKET #${(data.pedido.numero_ticket || data.pedido.id.substring(0, 8))}`, pageWidth / 2, yPosition, {
       align: 'center',
     });
     yPosition += 15;
@@ -554,7 +566,7 @@ class PDFService {
    */
   printPDF(pdf: jsPDF): void {
     try {
-      // Abrir en nueva ventana para imprimir
+      // Método 1: Intentar abrir en nueva ventana para imprimir
       const pdfUrl = pdf.output('bloburl');
       const printWindow = window.open(pdfUrl, '_blank');
 
@@ -563,11 +575,23 @@ class PDFService {
           printWindow.print();
         };
       } else {
-        throw new Error('No se pudo abrir la ventana de impresión');
+        // Método 2: Si el popup blocker bloquea la ventana, descargar el PDF
+        console.warn('Ventana bloqueada, descargando PDF...');
+        pdf.save(`pedido-${Date.now()}.pdf`);
+        
+        // Mostrar mensaje al usuario
+        alert('El PDF se ha descargado. Ábrelo e imprímelo manualmente.');
       }
     } catch (error) {
       console.error('Error al imprimir:', error);
-      throw new Error('No se pudo imprimir el documento');
+      // Fallback: Descargar el PDF
+      try {
+        pdf.save(`pedido-${Date.now()}.pdf`);
+        alert('El PDF se ha descargado. Ábrelo e imprímelo manualmente.');
+      } catch (downloadError) {
+        console.error('Error al descargar PDF:', downloadError);
+        throw new Error('No se pudo imprimir ni descargar el documento');
+      }
     }
   }
 

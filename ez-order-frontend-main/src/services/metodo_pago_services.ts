@@ -9,7 +9,7 @@ import type {
 } from '@/interfaces/MetodoPago';
 
 class MetodoPagoService {
-  private baseURL = '/metodos-pago';
+  private baseURL = 'metodos-pago';
 
   /**
    * Obtener todos los métodos de pago

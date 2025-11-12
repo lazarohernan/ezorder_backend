@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { formatCurrencyHNL } from '@/utils/currency';
 
 interface Props {
   totalPedido: number;
@@ -119,12 +120,12 @@ const addCommonAmount = (amount: number) => {
     <div class="mb-4 p-3 bg-gray-50 rounded-lg">
       <div class="flex justify-between text-sm">
         <span class="text-gray-600">Total del pedido:</span>
-        <span class="font-semibold">L {{ totalPedido.toFixed(2) }}</span>
+        <span class="font-semibold">{{ formatCurrencyHNL(totalPedido) }}</span>
       </div>
       <div class="flex justify-between text-sm mt-1">
         <span class="text-gray-600">Monto recibido:</span>
         <span class="font-semibold" :class="esPagoSuficiente ? 'text-green-600' : 'text-red-600'">
-          L {{ montoRecibido.toFixed(2) }}
+          {{ formatCurrencyHNL(montoRecibido) }}
         </span>
       </div>
       <div class="flex justify-between text-sm mt-1 pt-2 border-t border-gray-200">
@@ -133,7 +134,7 @@ const addCommonAmount = (amount: number) => {
           class="font-bold text-lg"
           :class="esPagoSuficiente ? 'text-green-600' : 'text-gray-400'"
         >
-          L {{ cambio.toFixed(2) }}
+          {{ formatCurrencyHNL(cambio) }}
         </span>
       </div>
     </div>

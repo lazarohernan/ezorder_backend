@@ -17,7 +17,30 @@ export function usePermissions() {
   });
 
   /**
+   * Verifica si el usuario tiene un restaurante asignado
+   * Super Admin y Admin siempre tienen acceso (no requieren restaurante específico)
+   */
+  const hasRestaurant = computed(() => {
+    if (!authStore.userInfo) {
+      return false;
+    }
+
+    // Super Admin y Admin no requieren restaurante específico
+    if (authStore.userInfo.rol_id === 1 || authStore.userInfo.es_super_admin) {
+      return true;
+    }
+
+    if (authStore.userInfo.rol_id === 2) {
+      return true;
+    }
+
+    // Para otros usuarios, verificar si tienen restaurante asignado
+    return !!authStore.userInfo.restaurante_id;
+  });
+
+  /**
    * Verifica si el usuario tiene un permiso específico
+   * PRIMERO valida que tenga restaurante asignado (excepto Super Admin y Admin)
    * @param permission - Nombre del permiso a verificar (ej: 'usuarios.ver')
    * @returns true si el usuario tiene el permiso
    */
@@ -33,9 +56,13 @@ export function usePermissions() {
       }
 
       // 2. Admin/Propietario (rol_id=2) - Acceso total a SUS restaurantes sin restricciones
-      // No verificamos es_propietario para compatibilidad con sesiones antiguas
       if (authStore.userInfo.rol_id === 2) {
         return true;
+      }
+
+      // 3. VALIDAR PRIMERO QUE TENGA RESTAURANTE ASIGNADO
+      if (!hasRestaurant.value) {
+        return false;
       }
 
       const permissions = userPermissions.value;
@@ -147,6 +174,7 @@ export function usePermissions() {
   return {
     userPermissions,
     hasPermission,
+    hasRestaurant,
     hasAnyPermission,
     hasAllPermissions,
     isSuperAdmin,

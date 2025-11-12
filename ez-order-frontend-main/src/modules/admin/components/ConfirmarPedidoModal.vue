@@ -23,6 +23,7 @@ import WhatsAppDeliveryModal from './WhatsAppDeliveryModal.vue';
 import Modal from '@/components/ui/Modal.vue';
 import type { Menu } from '@/interfaces/Menu';
 import foodPlaceholder from '@/assets/food-placeholder.svg';
+import { formatCurrencyHNL } from '@/utils/currency';
 
 interface Props {
   isOpen: boolean;
@@ -44,6 +45,7 @@ interface Emits {
     metodoPagoId: number,
     deliveryMethod: string,
     estadoPedido: string,
+    ticketNumber: number,
     whatsappNumber?: string,
   ): void;
   (e: 'result', success: boolean, message: string): void;
@@ -65,6 +67,11 @@ const selectedEstadoPedido = ref<string>('confirmado');
 const showSuccessModal = ref(false);
 const successMessage = ref<string>('');
 const successState = ref<boolean>(true);
+
+// Ticket management
+const ticketNumber = ref<number | null>(null);
+const isEditingTicket = ref(false);
+const tempTicketNumber = ref<string>('');
 
 const menuLookup = computed<Record<string, Menu>>(() => {
   const map: Record<string, Menu> = {};
@@ -96,25 +103,25 @@ const estadoPedidoOptions = [
   },
 ];
 
-// Delivery methods - Reordenados con 80mm primero
+// Delivery methods - Colores semánticos de la plataforma
 const deliveryMethods = [
   {
     id: 'print_80mm',
     name: 'Imprimir 80mm',
     description: 'Imprimir en impresora térmica de 80mm',
     icon: PrinterIcon,
-    color: 'text-purple-600',
-    bgColor: 'bg-purple-50',
-    borderColor: 'border-purple-200',
+    color: 'text-orange-600',
+    bgColor: 'bg-orange-50',
+    borderColor: 'border-orange-200',
   },
   {
     id: 'print_normal',
     name: 'Imprimir Tamaño Carta',
     description: 'Imprimir en impresora normal (8.5" x 11")',
     icon: DocumentIcon,
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
+    color: 'text-orange-600',
+    bgColor: 'bg-orange-50',
+    borderColor: 'border-orange-200',
   },
   {
     id: 'whatsapp',
@@ -138,7 +145,13 @@ const isEfectivo = computed(() => {
 });
 
 const canConfirm = computed(() => {
-  return selectedMetodoPago.value !== null && !isLoading.value;
+  const canConfirmResult = selectedMetodoPago.value !== null && !isLoading.value;
+  console.log('🔘 Estado del botón confirmar:', {
+    selectedMetodoPago: selectedMetodoPago.value,
+    isLoading: isLoading.value,
+    canConfirm: canConfirmResult
+  });
+  return canConfirmResult;
 });
 
 const tiposPedidoLabels: Record<string, string> = {
@@ -156,20 +169,67 @@ const tipoPedidoIconos: Record<string, typeof HomeModernIcon> = {
 };
 
 // Methods
+const generarSiguienteTicket = async (): Promise<number> => {
+  try {
+    // Simular generación de ticket (en una implementación real, esto llamaría a un endpoint)
+    // Por ahora, generamos un número aleatorio entre 100 y 999
+    const baseTicket = Math.floor(Math.random() * 900) + 100;
+    return baseTicket;
+  } catch (error) {
+    console.error('Error al generar ticket:', error);
+    return Math.floor(Math.random() * 900) + 100; // Fallback
+  }
+};
+
+const startEditingTicket = () => {
+  isEditingTicket.value = true;
+  tempTicketNumber.value = ticketNumber.value?.toString() || '';
+};
+
+const saveTicketNumber = () => {
+  const newNumber = parseInt(tempTicketNumber.value);
+  if (!isNaN(newNumber) && newNumber > 0) {
+    ticketNumber.value = newNumber;
+  }
+  isEditingTicket.value = false;
+};
+
+const cancelEditingTicket = () => {
+  isEditingTicket.value = false;
+  tempTicketNumber.value = ticketNumber.value?.toString() || '';
+};
+
 const fetchMetodosPago = async () => {
   try {
     isLoadingMetodos.value = true;
+    console.log('🔍 Cargando métodos de pago...');
     const response = await metodoPagoService.getAll();
+    console.log('📡 Respuesta del servicio:', response);
+    
     if (response.data.success) {
       metodosPago.value = response.data.data;
+      console.log('✅ Métodos de pago cargados:', metodosPago.value);
+      console.log('📋 Lista de métodos disponibles:', metodosPago.value.map(m => ({ id: m.id, metodo: m.metodo, descripcion: m.descripcion })));
+      
       // Seleccionar efectivo por defecto si existe
       const efectivo = metodosPago.value.find((m) => m.metodo.toLowerCase().includes('efectivo'));
       if (efectivo) {
         selectedMetodoPago.value = efectivo.id;
+        console.log('🎯 Método de pago seleccionado por defecto:', efectivo);
+      } else {
+        console.log('⚠️ No se encontró método de pago "efectivo"');
+        console.log('🔍 Buscando métodos que contengan "efectivo":', metodosPago.value.filter(m => m.metodo.toLowerCase().includes('efectivo')));
+        // Seleccionar el primer método disponible si no hay efectivo
+        if (metodosPago.value.length > 0) {
+          selectedMetodoPago.value = metodosPago.value[0].id;
+          console.log('🎯 Seleccionando primer método disponible:', metodosPago.value[0]);
+        }
       }
+    } else {
+      console.error('❌ Error en la respuesta del servicio:', response.data);
     }
   } catch (error) {
-    console.error('Error al cargar métodos de pago:', error);
+    console.error('❌ Error al cargar métodos de pago:', error);
   } finally {
     isLoadingMetodos.value = false;
   }
@@ -188,7 +248,7 @@ const handleVisibility = (value: boolean) => {
 };
 
 const confirmPedido = () => {
-  if (!selectedMetodoPago.value) return;
+  if (!selectedMetodoPago.value || !ticketNumber.value) return;
 
   // Si es WhatsApp, abrir modal para número
   if (selectedDeliveryMethod.value === 'whatsapp') {
@@ -203,6 +263,7 @@ const confirmPedido = () => {
     selectedMetodoPago.value,
     selectedDeliveryMethod.value,
     selectedEstadoPedido.value,
+    ticketNumber.value,
   );
 };
 
@@ -215,6 +276,7 @@ const handleWhatsAppConfirm = (phoneNumber: string) => {
     selectedMetodoPago.value!,
     selectedDeliveryMethod.value,
     selectedEstadoPedido.value,
+    ticketNumber.value!,
     phoneNumber,
   );
 };
@@ -276,11 +338,17 @@ const getMetodoPagoIcon = (metodo: string) => {
 // Watch for modal open/close
 watch(
   () => props.isOpen,
-  (newValue) => {
+  async (newValue) => {
     if (newValue) {
+      // Generar ticket automáticamente al abrir el modal
+      const generatedTicket = await generarSiguienteTicket();
+      ticketNumber.value = generatedTicket;
+      tempTicketNumber.value = generatedTicket.toString();
+      
       fetchMetodosPago();
     } else {
       showCalculator.value = false;
+      isEditingTicket.value = false;
     }
   },
 );
@@ -322,6 +390,47 @@ onMounted(() => {
                     <span>
                       {{ tiposPedidoLabels[pedidoData.tipo_pedido] || pedidoData.tipo_pedido }}
                     </span>
+                  </dd>
+                </div>
+                <div class="flex justify-between">
+                  <dt class="font-medium text-gray-700">Ticket</dt>
+                  <dd class="text-gray-900">
+                    <div v-if="isEditingTicket" class="flex items-center gap-2">
+                      <input
+                        v-model.number="tempTicketNumber"
+                        type="number"
+                        min="1"
+                        class="w-20 rounded border border-orange-300 px-2 py-1 text-sm font-semibold text-orange-600 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                        @keyup.enter="saveTicketNumber"
+                        @keyup.escape="cancelEditingTicket"
+                      />
+                      <button
+                        @click="saveTicketNumber"
+                        class="text-green-600 hover:text-green-700 transition-colors"
+                        title="Guardar"
+                      >
+                        <CheckCircleIcon class="h-4 w-4" />
+                      </button>
+                      <button
+                        @click="cancelEditingTicket"
+                        class="text-gray-400 hover:text-gray-600 transition-colors"
+                        title="Cancelar"
+                      >
+                        <span class="h-4 w-4">×</span>
+                      </button>
+                    </div>
+                    <div v-else class="flex items-center gap-2">
+                      <span 
+                        class="font-semibold text-orange-600 cursor-pointer hover:text-orange-700 transition-colors"
+                        @click="startEditingTicket"
+                        title="Click para editar"
+                      >
+                        #{{ ticketNumber || '---' }}
+                      </span>
+                      <span class="text-xs text-gray-400">
+                        (click para editar)
+                      </span>
+                    </div>
                   </dd>
                 </div>
                 <div v-if="pedidoData.mesa" class="flex justify-between">
@@ -399,34 +508,34 @@ onMounted(() => {
             <dl class="space-y-2 text-sm">
               <div class="flex justify-between text-gray-600">
                 <dt>Subtotal</dt>
-                <dd class="font-semibold text-gray-900">L {{ subtotal.toFixed(2) }}</dd>
+                <dd class="font-semibold text-gray-900">{{ formatCurrencyHNL(subtotal) }}</dd>
               </div>
               <div class="flex justify-between text-orange-600">
                 <dt>Importe Exonerado</dt>
-                <dd class="font-semibold">L {{ importeExonerado.toFixed(2) }}</dd>
+                <dd class="font-semibold">{{ formatCurrencyHNL(importeExonerado) }}</dd>
               </div>
               <div class="flex justify-between text-orange-500">
                 <dt>Importe Exento</dt>
-                <dd class="font-semibold">L {{ importeExento.toFixed(2) }}</dd>
+                <dd class="font-semibold">{{ formatCurrencyHNL(importeExento) }}</dd>
               </div>
               <div class="flex justify-between text-gray-600">
                 <dt>Importe Gravado</dt>
-                <dd class="font-semibold text-gray-900">L {{ importeGravado.toFixed(2) }}</dd>
+                <dd class="font-semibold text-gray-900">{{ formatCurrencyHNL(importeGravado) }}</dd>
               </div>
               <div
                 v-if="pedidoData.descuento && pedidoData.descuento > 0"
                 class="flex justify-between text-red-500"
               >
                 <dt>Descuento</dt>
-                <dd>-L {{ pedidoData.descuento.toFixed(2) }}</dd>
+                <dd>{{ formatCurrencyHNL(-(pedidoData.descuento || 0)) }}</dd>
               </div>
               <div class="flex justify-between text-gray-600">
                 <dt>Impuestos (ISV 15%)</dt>
-                <dd class="font-semibold text-gray-900">L {{ totalImpuestos.toFixed(2) }}</dd>
+                <dd class="font-semibold text-gray-900">{{ formatCurrencyHNL(totalImpuestos) }}</dd>
               </div>
               <div class="flex justify-between border-t border-orange-100 pt-3 text-base font-semibold text-orange-600">
                 <dt>Total a Cobrar</dt>
-                <dd>L {{ total.toFixed(2) }}</dd>
+                <dd>{{ formatCurrencyHNL(total) }}</dd>
               </div>
             </dl>
           </section>
@@ -457,12 +566,12 @@ onMounted(() => {
                   <div>
                     <h5 class="text-sm font-semibold text-gray-900">{{ item.nombre_menu }}</h5>
                     <p class="text-xs text-gray-600">
-                      {{ item.cantidad || 0 }} × L {{ item.precio_unitario.toFixed(2) }}
+                      {{ item.cantidad || 0 }} × {{ formatCurrencyHNL(item.precio_unitario || 0) }}
                     </p>
                   </div>
                 </div>
                 <p class="text-sm font-semibold text-orange-600">
-                  L {{ (item.precio_unitario * (item.cantidad || 0)).toFixed(2) }}
+                  {{ formatCurrencyHNL((item.precio_unitario || 0) * (item.cantidad || 0)) }}
                 </p>
               </article>
             </div>

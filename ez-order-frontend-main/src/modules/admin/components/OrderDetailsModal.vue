@@ -3,11 +3,12 @@ import { ref, watch, computed } from 'vue';
 import { CheckCircleIcon } from '@heroicons/vue/24/outline';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import type { EstadoPedido, Pedido } from '@/interfaces/Pedido';
+import type { EstadoPedido, Pedido, UpdatePedidoDTO } from '@/interfaces/Pedido';
 import PedidoItemService from '@/services/pedidoItem_service';
 import type { PedidoItem } from '@/interfaces/PedidoItem';
 import PedidoService from '@/services/pedido_service';
 import Modal from '@/components/ui/Modal.vue';
+import { formatCurrencyHNL } from '@/utils/currency';
 
 const props = defineProps<{
   isOpen: boolean;
@@ -18,6 +19,8 @@ const emit = defineEmits(['close', 'status-updated']);
 
 const orderItems = ref<PedidoItem[]>([]);
 const isLoadingItems = ref(false);
+const editingTicket = ref(false);
+const editedTicketNumber = ref<number>(0);
 
 const modalTitle = computed(() => 'Detalles del Pedido');
 
@@ -93,7 +96,7 @@ const formatEstado = (estado: string) => {
   return estados[estado] || estado;
 };
 
-const getStatusBadgeClass = (estado: string) => {
+const getStatusBadgeClass = (estado: string): string => {
   const classes: Record<string, string> = {
     pendiente: 'bg-yellow-100 text-yellow-800',
     confirmado: 'bg-blue-100 text-blue-800',
@@ -104,6 +107,41 @@ const getStatusBadgeClass = (estado: string) => {
   };
   return classes[estado] || 'bg-gray-100 text-gray-800';
 };
+
+const formatTipo = (tipo: string): string => {
+  const tipos: Record<string, string> = {
+    local: 'Local',
+    domicilio: 'Domicilio',
+    recoger: 'Para Recoger',
+    mesa: 'Mesa',
+  };
+  return tipos[tipo] || tipo;
+};
+
+const saveTicketNumber = async () => {
+  if (!props.order || !editedTicketNumber.value) {
+    editingTicket.value = false;
+    return;
+  }
+
+  try {
+    await PedidoService.update(props.order.id, { 
+      numero_ticket: editedTicketNumber.value 
+    } as UpdatePedidoDTO);
+    editingTicket.value = false;
+    emit('status-updated');
+  } catch (error) {
+    console.error('Error al actualizar el número de ticket:', error);
+    editingTicket.value = false;
+  }
+};
+
+watch(() => props.order, (newOrder) => {
+  if (newOrder) {
+    editedTicketNumber.value = newOrder.numero_ticket || 0;
+    editingTicket.value = false;
+  }
+}, { immediate: true });
 
 // Watch for order changes and modal open state
 watch(
@@ -132,9 +170,21 @@ watch(
     <div class="max-h-[75vh] overflow-y-auto space-y-6 pr-2">
       <div class="border border-gray-100 bg-gray-50 rounded-xl p-4">
         <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p class="text-sm font-semibold text-gray-900">
-              Pedido #{{ order?.id.substring(0, 8) || '---' }}
+          <div class="flex-1">
+            <p class="text-sm font-semibold text-gray-900 flex items-center gap-2">
+              <span>Ticket:</span>
+              <input
+                v-if="editingTicket"
+                v-model.number="editedTicketNumber"
+                type="number"
+                min="1"
+                @blur="saveTicketNumber"
+                @keyup.enter="saveTicketNumber"
+                class="w-20 rounded border border-gray-300 px-2 py-1 text-sm font-semibold"
+              />
+              <span v-else class="font-semibold text-orange-600 cursor-pointer hover:text-orange-700" @click="editingTicket = true">
+                #{{ order?.numero_ticket || order?.id.substring(0, 8) || '---' }}
+              </span>
             </p>
             <p class="text-xs text-gray-500">
               Creado: {{ formatDate(order?.created_at || '') }}
@@ -183,10 +233,10 @@ watch(
                 </div>
                 <div class="text-right">
                   <div class="font-semibold text-gray-900">
-                    L {{ ((item.precio_unitario || 0) * (item.cantidad || 0)).toFixed(2) }}
+                    {{ formatCurrencyHNL((item.precio_unitario || 0) * (item.cantidad || 0)) }}
                   </div>
                   <div class="text-sm text-gray-500">
-                    L {{ (item.precio_unitario || 0).toFixed(2) }} c/u
+                    {{ formatCurrencyHNL(item.precio_unitario || 0) }} c/u
                   </div>
                 </div>
               </div>
@@ -199,16 +249,16 @@ watch(
               <div class="flex justify-between text-gray-600">
                 <span>Subtotal</span>
                 <span class="font-medium text-gray-900">
-                  L {{ order?.total ? (order.total - (order.impuesto || 0)).toFixed(2) : '0.00' }}
+                  {{ formatCurrencyHNL(order?.total ? order.total - (order.impuesto || 0) : 0) }}
                 </span>
               </div>
               <div class="flex justify-between text-gray-600">
                 <span>Impuesto</span>
-                <span class="font-medium text-gray-900">L {{ order?.impuesto?.toFixed(2) || '0.00' }}</span>
+                <span class="font-medium text-gray-900">{{ formatCurrencyHNL(order?.impuesto || 0) }}</span>
               </div>
               <div class="flex justify-between text-gray-900 font-semibold">
                 <span>Total</span>
-                <span>L {{ order?.total?.toFixed(2) || '0.00' }}</span>
+                <span>{{ formatCurrencyHNL(order?.total || 0) }}</span>
               </div>
             </div>
           </div>
@@ -241,6 +291,32 @@ watch(
               <div v-if="order?.tipo_pedido === 'domicilio' && order?.direccion_entrega">
                 <span class="text-gray-500">Dirección de entrega:</span>
                 <p class="mt-1 font-medium text-gray-900">{{ order.direccion_entrega }}</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded-xl border border-gray-200 bg-white p-4">
+            <h4 class="font-medium text-gray-900 mb-3">Información del Pedido</h4>
+            <div class="space-y-2 text-sm text-gray-700">
+              <div>
+                <span class="text-gray-500">Ticket:</span>
+                <span class="ml-2 font-semibold text-orange-600">
+                  #{{ order?.numero_ticket || order?.id.substring(0, 8) || '---' }}
+                </span>
+              </div>
+              <div>
+                <span class="text-gray-500">Tipo:</span>
+                <span class="ml-2 font-semibold text-gray-900">
+                  {{ formatTipo(order?.tipo_pedido || '') }}
+                </span>
+              </div>
+              <div v-if="order?.mesa">
+                <span class="text-gray-500">Mesa:</span>
+                <span class="ml-2 font-semibold text-gray-900">{{ order.mesa }}</span>
+              </div>
+              <div v-if="order?.fecha_entrega">
+                <span class="text-gray-500">Fecha de entrega:</span>
+                <span class="ml-2 font-semibold text-gray-900">{{ formatDate(order.fecha_entrega) }}</span>
               </div>
             </div>
           </div>

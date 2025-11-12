@@ -36,12 +36,12 @@
           <div class="rounded-xl border border-gray-100 bg-white/80 p-4">
             <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Precio base</p>
             <p class="text-xl font-bold text-orange-600">
-              L {{ menu.precio?.toFixed(2) || '0.00' }}
+              {{ formatCurrencyHNL(menu.precio || 0) }}
             </p>
             <p v-if="aplicaImpuesto" class="mt-1 text-xs text-gray-500">
               ISV ({{ menu.porcentaje_impuesto }}%):
               <span class="font-medium text-gray-700">
-                L {{ impuestoCalculado.toFixed(2) }}
+                {{ formatCurrencyHNL(impuestoCalculado.value) }}
               </span>
             </p>
             <p v-else-if="menu.es_exento || menu.es_exonerado" class="mt-1 text-xs text-orange-500">
@@ -52,7 +52,7 @@
           <div class="rounded-xl border border-gray-100 bg-white/80 p-4">
             <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Total a pagar</p>
             <p class="text-xl font-bold text-emerald-600">
-              L {{ precioConImpuesto.toFixed(2) }}
+              {{ formatCurrencyHNL(precioConImpuesto.value) }}
             </p>
             <p class="mt-1 text-xs text-gray-500">
               Incluye impuestos y exenciones aplicables.
@@ -146,6 +146,7 @@ import { computed } from 'vue';
 import type { Menu } from '@/interfaces/Menu';
 import foodPlaceholder from '@/assets/food-placeholder.svg';
 import Modal from '@/components/ui/Modal.vue';
+import { formatCurrencyHNL } from '@/utils/currency';
 
 interface Props {
   isOpen: boolean;

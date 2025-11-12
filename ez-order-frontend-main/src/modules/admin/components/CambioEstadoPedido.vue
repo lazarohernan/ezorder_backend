@@ -10,6 +10,7 @@ import {
 import type { Pedido, EstadoPedido } from '@/interfaces/Pedido';
 import PedidoService from '@/services/pedido_service';
 import Modal from '@/components/ui/Modal.vue';
+import { formatCurrencyHNL } from '@/utils/currency';
 
 interface Props {
   isOpen: boolean;
@@ -36,32 +37,32 @@ const estadosDisponibles = [
     description: 'Pedido recibido, esperando confirmación',
     icon: ClockIcon,
     color: 'yellow',
-    bgColor: 'bg-yellow-50',
-    borderColor: 'border-yellow-200',
-    textColor: 'text-yellow-800',
-    iconColor: 'text-yellow-600',
+    bgColor: 'bg-gray-50',
+    borderColor: 'border-gray-200',
+    textColor: 'text-gray-900',
+    iconColor: 'text-gray-600',
   },
   {
     value: 'confirmado' as EstadoPedido,
     label: 'Confirmado',
     description: 'Pedido confirmado, listo para preparar',
     icon: CheckCircleIcon,
-    color: 'blue',
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
-    textColor: 'text-blue-800',
-    iconColor: 'text-blue-600',
+    color: 'gray',
+    bgColor: 'bg-gray-50',
+    borderColor: 'border-gray-200',
+    textColor: 'text-gray-900',
+    iconColor: 'text-gray-600',
   },
   {
     value: 'en preparacion' as EstadoPedido,
     label: 'En Preparación',
     description: 'Pedido siendo preparado en cocina',
     icon: TruckIcon,
-    color: 'indigo',
-    bgColor: 'bg-indigo-50',
-    borderColor: 'border-indigo-200',
-    textColor: 'text-indigo-800',
-    iconColor: 'text-indigo-600',
+    color: 'gray',
+    bgColor: 'bg-gray-50',
+    borderColor: 'border-gray-200',
+    textColor: 'text-gray-900',
+    iconColor: 'text-gray-600',
   },
   {
     value: 'listo' as EstadoPedido,
@@ -82,7 +83,7 @@ const estadosDisponibles = [
     color: 'gray',
     bgColor: 'bg-gray-50',
     borderColor: 'border-gray-200',
-    textColor: 'text-gray-800',
+    textColor: 'text-gray-900',
     iconColor: 'text-gray-600',
   },
   {
@@ -190,12 +191,12 @@ watch(
       <div v-if="pedido" class="bg-gray-50 rounded-lg p-4">
         <h4 class="font-medium text-gray-900 mb-2">Información del Pedido</h4>
         <div class="space-y-1 text-sm text-gray-600">
-          <p><span class="font-medium">ID:</span> #{{ pedido.id.substring(0, 8) }}</p>
+          <p><span class="font-medium">Ticket:</span> #{{ pedido.numero_ticket || pedido.id.substring(0, 8) }}</p>
           <p>
             <span class="font-medium">Cliente:</span>
             {{ pedido.clientes?.nombre_cliente || 'No registrado' }}
           </p>
-          <p><span class="font-medium">Total:</span> L {{ pedido.total.toFixed(2) }}</p>
+          <p><span class="font-medium">Total:</span> {{ formatCurrencyHNL(pedido.total) }}</p>
         </div>
       </div>
 
@@ -264,14 +265,14 @@ watch(
               </p>
             </div>
             <div v-if="selectedEstado === estado.value" class="absolute top-2 right-2">
-              <CheckCircleIcon :class="estado.iconColor" class="h-5 w-5" />
+              <CheckCircleIcon class="h-5 w-5 text-gray-600" />
             </div>
           </label>
         </div>
       </div>
 
-      <div v-if="!canChangeStatus" class="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-        <p class="text-sm text-blue-800">
+      <div v-if="!canChangeStatus" class="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+        <p class="text-sm text-gray-600">
           <span class="font-medium">Nota:</span> El estado seleccionado es el mismo que el actual.
         </p>
       </div>

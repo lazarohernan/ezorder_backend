@@ -1,5 +1,6 @@
 import axios from 'axios';
 import AuthService from '@/services/auth_service';
+import { showPermissionError } from '@/utils/toast';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
@@ -84,6 +85,24 @@ apiClient.interceptors.response.use(
 
         return Promise.reject(refreshError);
       }
+    }
+
+    // Manejar errores 403 (Forbidden) - Sin permisos
+    // Muestra un toast automático informando al usuario que no tiene permisos
+    // Para evitar el toast automático en una vista específica, agregar:
+    // config._skipPermissionToast = true antes de hacer la petición
+    if (
+      error.response &&
+      error.response.status === 403 &&
+      !originalRequest._skipPermissionToast &&
+      !originalRequest.url?.includes('/auth/refresh') &&
+      !originalRequest.url?.includes('/auth/login')
+    ) {
+      // Obtener mensaje del error si está disponible
+      const errorMessage = error.response.data?.message || error.response.data?.error;
+      
+      // Mostrar toast de permisos
+      showPermissionError(errorMessage);
     }
 
     // Para otros tipos de errores, no limpiamos los datos

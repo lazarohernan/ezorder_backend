@@ -60,7 +60,7 @@
           <button
             @click="fetchPedidosRango"
             :disabled="isLoading"
-            class="w-full inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:from-orange-600 hover:to-orange-700 disabled:bg-gray-400"
+            class="w-full inline-flex items-center justify-center rounded-xl border border-gray-300 bg-transparent px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 hover:border-gray-400 disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
           >
             <span v-if="isLoading">Cargando...</span>
             <span v-else>Generar Reporte</span>
@@ -73,7 +73,7 @@
               fechaFin = new Date().toISOString().split('T')[0];
               fetchPedidosRango();
             }"
-            class="w-full inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-gray-500 to-gray-600 px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:from-gray-600 hover:to-gray-700"
+            class="w-full inline-flex items-center justify-center rounded-xl border border-gray-300 bg-transparent px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 hover:border-gray-400"
           >
             Última Semana
           </button>
@@ -110,7 +110,7 @@
                 {{ venta.pedidos }}
               </td>
               <td class="whitespace-nowrap px-6 py-4 text-sm font-semibold text-gray-900 align-middle">
-                L {{ venta.ingresos.toFixed(2) }}
+                {{ formatCurrencyHNL(venta.ingresos) }}
               </td>
               <td class="whitespace-nowrap px-6 py-4 align-middle">
                 <div class="flex items-center justify-center">
@@ -124,8 +124,15 @@
               </td>
             </tr>
             <tr v-if="estadisticasRango.ventasPorDia.length === 0">
-              <td colspan="4" class="px-6 py-8 text-center text-gray-500">
-                No hay datos para mostrar en el período seleccionado
+              <td colspan="4" class="px-6 py-12 text-center">
+                <div class="flex flex-col items-center gap-2">
+                  <div class="h-8 w-8 text-gray-300">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                    </svg>
+                  </div>
+                  <p class="text-xs font-medium text-gray-500">No hay datos para mostrar en el período seleccionado</p>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -133,37 +140,6 @@
       </div>
     </div>
 
-    <!-- Métodos de pago -->
-    <div class="overflow-hidden rounded-3xl border border-gray-100 bg-white/90 backdrop-blur">
-      <div class="p-6">
-        <div class="flex items-center mb-6">
-          <CreditCardIcon class="h-6 w-6 text-blue-600 mr-3" />
-          <h3 class="text-lg font-semibold text-gray-800">Métodos de Pago</h3>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div
-            v-for="metodo in estadisticasRango.metodosPago"
-            :key="metodo.metodo"
-            class="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200"
-          >
-            <div class="flex items-center justify-between mb-2">
-              <p class="font-medium text-gray-900">{{ metodo.metodo }}</p>
-              <p class="text-sm text-gray-600">{{ metodo.cantidad }} transacciones</p>
-            </div>
-            <p class="text-xl font-bold text-green-600">L {{ metodo.ingresos.toFixed(2) }}</p>
-            <div class="mt-3 w-full bg-gray-200 rounded-full h-2">
-              <div
-                class="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all duration-300"
-                :style="{ width: getPaymentProgressWidth(metodo.ingresos) + '%' }"
-              ></div>
-            </div>
-          </div>
-          <div v-if="estadisticasRango.metodosPago.length === 0" class="col-span-2 text-center text-gray-500 py-8">
-            No hay datos de métodos de pago para mostrar
-          </div>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -174,13 +150,16 @@ import {
   ShoppingBagIcon,
   UserGroupIcon,
   ChartBarIcon,
-  CreditCardIcon,
 } from '@heroicons/vue/24/outline';
 import { useAuthStore } from '@/stores/auth_store';
+import { usePermissions } from '@/composables/usePermissions';
 import PedidoService from '@/services/pedido_service';
 import type { Pedido } from '@/interfaces/Pedido';
+import type { AxiosError } from 'axios';
+import { formatCurrencyHNL } from '@/utils/currency';
 
 const authStore = useAuthStore();
+const { hasPermission } = usePermissions();
 
 // Estado
 const isLoading = ref(false);
@@ -221,7 +200,7 @@ const stats = computed(() => [
   },
   {
     title: 'Ingreso Total',
-    value: `L ${estadisticasHoy.value.ingresoTotal.toFixed(2)}`,
+    value: formatCurrencyHNL(estadisticasHoy.value.ingresoTotal),
     icon: CurrencyDollarIcon,
   },
   {
@@ -231,7 +210,7 @@ const stats = computed(() => [
   },
   {
     title: 'Ticket Promedio',
-    value: `L ${estadisticasHoy.value.ticketPromedio.toFixed(2)}`,
+    value: formatCurrencyHNL(estadisticasHoy.value.ticketPromedio),
     icon: ChartBarIcon,
   },
 ]);
@@ -262,20 +241,6 @@ const estadisticasRango = computed(() => {
     {} as Record<string, { pedidos: number; ingresos: number }>,
   );
 
-  // Métodos de pago
-  const metodosPago = pedidosConfirmados.reduce(
-    (acc, pedido) => {
-      const metodo = pedido.metodo_pago_id === 1 ? 'Efectivo' : 'Tarjeta/Otros';
-      if (!acc[metodo]) {
-        acc[metodo] = { cantidad: 0, ingresos: 0 };
-      }
-      acc[metodo].cantidad += 1;
-      acc[metodo].ingresos += pedido.total;
-      return acc;
-    },
-    {} as Record<string, { cantidad: number; ingresos: number }>,
-  );
-
   return {
     totalPedidos: pedidosConfirmados.length,
     ingresoTotal: pedidosConfirmados.reduce((sum, p) => sum + p.total, 0),
@@ -287,47 +252,53 @@ const estadisticasRango = computed(() => {
     ventasPorDia: Object.entries(ventasPorDia)
       .map(([fecha, data]) => ({ fecha, ...data }))
       .sort((a, b) => a.fecha.localeCompare(b.fecha)),
-    metodosPago: Object.entries(metodosPago).map(([metodo, data]) => ({ metodo, ...data })),
   };
 });
 
 // Métodos
 const getStatStyle = (title: string) => {
-  const styles = {
+  const statCardStyles: Record<string, {
+    container: string;
+    iconWrapper: string;
+    title: string;
+    value: string;
+    bar: string;
+    barFill: string;
+  }> = {
     'Pedidos Totales': {
-      container: 'bg-gradient-to-br from-blue-500 to-blue-600 p-4',
-      title: 'text-blue-100',
-      value: 'text-white',
-      iconWrapper: 'bg-blue-400/50',
-      bar: 'bg-blue-400/50',
-      barFill: 'bg-white',
+      container: 'bg-gradient-to-br from-orange-50 via-white to-orange-50 border border-orange-200 hover:border-orange-300 p-5',
+      iconWrapper: 'w-10 h-10 bg-gradient-to-br from-orange-500 to-orange-600 rounded-full flex items-center justify-center shadow-lg transition-transform duration-200 group-hover:scale-110',
+      title: 'text-orange-600',
+      value: 'text-orange-700',
+      bar: 'bg-orange-100',
+      barFill: 'bg-gradient-to-r from-orange-500 to-orange-600'
     },
     'Ingreso Total': {
-      container: 'bg-gradient-to-br from-green-500 to-green-600 p-4',
-      title: 'text-green-100',
-      value: 'text-white',
-      iconWrapper: 'bg-green-400/50',
-      bar: 'bg-green-400/50',
-      barFill: 'bg-white',
+      container: 'bg-gradient-to-br from-amber-50 via-white to-amber-50 border border-amber-200 hover:border-amber-300 p-5',
+      iconWrapper: 'w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-full flex items-center justify-center shadow-lg transition-transform duration-200 group-hover:scale-110',
+      title: 'text-amber-600',
+      value: 'text-amber-700',
+      bar: 'bg-amber-100',
+      barFill: 'bg-gradient-to-r from-amber-500 to-orange-600'
     },
     'Clientes Únicos': {
-      container: 'bg-gradient-to-br from-purple-500 to-purple-600 p-4',
-      title: 'text-purple-100',
-      value: 'text-white',
-      iconWrapper: 'bg-purple-400/50',
-      bar: 'bg-purple-400/50',
-      barFill: 'bg-white',
+      container: 'bg-gradient-to-br from-orange-50 via-white to-amber-50 border border-orange-200 hover:border-orange-300 p-5',
+      iconWrapper: 'w-10 h-10 bg-gradient-to-br from-orange-400 to-amber-600 rounded-full flex items-center justify-center shadow-lg transition-transform duration-200 group-hover:scale-110',
+      title: 'text-orange-600',
+      value: 'text-orange-700',
+      bar: 'bg-orange-100',
+      barFill: 'bg-gradient-to-r from-orange-400 to-amber-600'
     },
     'Ticket Promedio': {
-      container: 'bg-gradient-to-br from-orange-500 to-orange-600 p-4',
-      title: 'text-orange-100',
-      value: 'text-white',
-      iconWrapper: 'bg-orange-400/50',
-      bar: 'bg-orange-400/50',
-      barFill: 'bg-white',
-    },
+      container: 'bg-gradient-to-br from-orange-50 via-white to-orange-100 border border-orange-300 hover:border-orange-400 p-5',
+      iconWrapper: 'w-10 h-10 bg-gradient-to-br from-orange-600 to-orange-700 rounded-full flex items-center justify-center shadow-lg transition-transform duration-200 group-hover:scale-110',
+      title: 'text-orange-700',
+      value: 'text-orange-800',
+      bar: 'bg-orange-200',
+      barFill: 'bg-gradient-to-r from-orange-600 to-orange-700'
+    }
   };
-  return styles[title as keyof typeof styles] || styles['Pedidos Totales'];
+  return statCardStyles[title] || statCardStyles['Pedidos Totales'];
 };
 
 const getProgressWidth = (ingresos: number) => {
@@ -335,12 +306,13 @@ const getProgressWidth = (ingresos: number) => {
   return maxIngreso > 0 ? (ingresos / maxIngreso) * 100 : 0;
 };
 
-const getPaymentProgressWidth = (ingresos: number) => {
-  const maxIngreso = Math.max(...estadisticasRango.value.metodosPago.map(m => m.ingresos));
-  return maxIngreso > 0 ? (ingresos / maxIngreso) * 100 : 0;
-};
 
 const fetchPedidosHoy = async () => {
+  // Verificar permiso antes de cargar datos
+  if (!hasPermission('pedidos.ver').value) {
+    return;
+  }
+
   try {
     const hoy = new Date().toISOString().split('T')[0];
     const response = await PedidoService.getAll();
@@ -352,11 +324,23 @@ const fetchPedidosHoy = async () => {
       });
     }
   } catch (error) {
+    const axiosError = error as AxiosError;
+
+    if (axiosError.response?.status === 403) {
+      console.info('Permiso pedidos.ver no asignado, omitiendo datos del dashboard.');
+      return;
+    }
+
     console.error('Error al obtener pedidos de hoy:', error);
   }
 };
 
 const fetchPedidosRango = async () => {
+  // Verificar permiso antes de cargar datos
+  if (!hasPermission('pedidos.ver').value) {
+    return;
+  }
+
   if (!fechaInicio.value || !fechaFin.value) return;
 
   isLoading.value = true;
@@ -374,6 +358,13 @@ const fetchPedidosRango = async () => {
       });
     }
   } catch (error) {
+    const axiosError = error as AxiosError;
+
+    if (axiosError.response?.status === 403) {
+      console.info('Permiso pedidos.ver no asignado, omitiendo datos del dashboard.');
+      return;
+    }
+
     console.error('Error al obtener pedidos del rango:', error);
   } finally {
     isLoading.value = false;
