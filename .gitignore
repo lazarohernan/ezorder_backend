@@ -1,0 +1,32 @@
+# Global ignores for the monorepo
+
+# Documentation and non-essential assets
+/docs/
+
+# Environment files
+*.env
+*.env.local
+**/.env
+**/.env.local
+
+# Build outputs
+**/dist/
+
+# Dependencies
+**/node_modules/
+
+# Logs and coverage
+*.log
+**/coverage/
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Cache
+**/.cache/
+**/.vite/
+
+
