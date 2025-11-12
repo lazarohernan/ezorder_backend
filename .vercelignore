@@ -5,4 +5,5 @@ src
 *.log
 .env.local
 .env.*.local
+# Mantener dist/ para que api/index.js pueda importar los archivos compilados
 
