@@ -20,8 +20,6 @@ Este proyecto está configurado para desplegarse como Serverless Functions en Ve
    - Build Command: `npm run vercel-build`
    - Install Command: `npm install`
    - Output Directory: (dejar vacío)
-   
-   ⚠️ **Nota**: Verás una advertencia sobre `builds` en `vercel.json`. Esto es normal y no afecta el funcionamiento. La advertencia aparece porque cuando usas `builds`, Vercel ignora algunas configuraciones de Project Settings, pero el build command se ejecutará correctamente.
 
 3. **Entry Point**: `api/index.js` (configurado en `vercel.json`)
 
