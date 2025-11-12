@@ -38,6 +38,24 @@ export const createMenuCategory = async (req: Request, res: Response) => {
   }
 
   try {
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
+    // Solo Super Admin y Admin pueden crear categorías (son globales)
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol !== 1 && id_rol !== 2) {
+      res.status(403).json({
+        success: false,
+        message: "No tienes permisos para crear categorías",
+      });
+      return;
+    }
+
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
       .from("menu_categorias")
@@ -75,11 +93,29 @@ export const updateMenuCategory = async (req: Request, res: Response) => {
     return;
   }
 
+  try {
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
+    // Solo Super Admin y Admin pueden actualizar categorías (son globales)
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol !== 1 && id_rol !== 2) {
+      res.status(403).json({
+        success: false,
+        message: "No tienes permisos para actualizar categorías",
+    });
+    return;
+  }
+
   const updateFields: Record<string, unknown> = {};
   if (nombre !== undefined) updateFields.nombre = nombre;
   if (descripcion !== undefined) updateFields.descripcion = descripcion;
 
-  try {
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
       .from("menu_categorias")
@@ -119,6 +155,24 @@ export const deleteMenuCategory = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
+    // Solo Super Admin y Admin pueden eliminar categorías (son globales)
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol !== 1 && id_rol !== 2) {
+      res.status(403).json({
+        success: false,
+        message: "No tienes permisos para eliminar categorías",
+      });
+      return;
+    }
+
     // Verificar si hay productos asociados a esta categoría
     const { data: menuItems, error: checkError } = await supabase
       .from("menu")

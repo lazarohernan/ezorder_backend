@@ -184,6 +184,22 @@ export const getRolById = async (req: Request, res: Response) => {
 // Crear un nuevo rol personalizado
 export const createRol = async (req: Request, res: Response) => {
   try {
+    if (!req.user_info) {
+      return res.status(403).json({
+        ok: false,
+        message: "No se encontró información del usuario autenticado"
+      });
+    }
+
+    // Solo Super Admin y Admin pueden crear roles personalizados
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol !== 1 && id_rol !== 2) {
+      return res.status(403).json({
+        ok: false,
+        message: "No tienes permisos para crear roles personalizados"
+      });
+    }
+
     const { nombre, descripcion, color, icono, permisos }: CreateRoleDTO = req.body;
 
     // Validaciones
@@ -191,6 +207,13 @@ export const createRol = async (req: Request, res: Response) => {
       return res.status(400).json({
         ok: false,
         message: "Nombre y permisos son requeridos"
+      });
+    }
+
+    if (!supabaseAdmin) {
+      return res.status(500).json({
+        ok: false,
+        message: "Error de configuración del servidor"
       });
     }
 
@@ -216,7 +239,7 @@ export const createRol = async (req: Request, res: Response) => {
         descripcion,
         color: color || '#3B82F6',
         icono: icono || 'user',
-        created_by: req.user?.id
+        created_by: req.user_info.id
       }])
       .select()
       .single();
@@ -272,6 +295,29 @@ export const createRol = async (req: Request, res: Response) => {
 // Actualizar un rol
 export const updateRol = async (req: Request, res: Response) => {
   try {
+    if (!req.user_info) {
+      return res.status(403).json({
+        ok: false,
+        message: "No se encontró información del usuario autenticado"
+      });
+    }
+
+    // Solo Super Admin y Admin pueden actualizar roles personalizados
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol !== 1 && id_rol !== 2) {
+      return res.status(403).json({
+        ok: false,
+        message: "No tienes permisos para actualizar roles personalizados"
+      });
+    }
+
+    if (!supabaseAdmin) {
+      return res.status(500).json({
+        ok: false,
+        message: "Error de configuración del servidor"
+      });
+    }
+
     const { id } = req.params;
     const { nombre, descripcion, color, icono, permisos, activo }: UpdateRoleDTO = req.body;
 
@@ -376,6 +422,29 @@ export const updateRol = async (req: Request, res: Response) => {
 // Eliminar un rol
 export const deleteRol = async (req: Request, res: Response) => {
   try {
+    if (!req.user_info) {
+      return res.status(403).json({
+        ok: false,
+        message: "No se encontró información del usuario autenticado"
+      });
+    }
+
+    // Solo Super Admin y Admin pueden eliminar roles personalizados
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol !== 1 && id_rol !== 2) {
+      return res.status(403).json({
+        ok: false,
+        message: "No tienes permisos para eliminar roles personalizados"
+      });
+    }
+
+    if (!supabaseAdmin) {
+      return res.status(500).json({
+        ok: false,
+        message: "Error de configuración del servidor"
+      });
+    }
+
     const { id } = req.params;
 
     // Verificar que no haya usuarios usando este rol

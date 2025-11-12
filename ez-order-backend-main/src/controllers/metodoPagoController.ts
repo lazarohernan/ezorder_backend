@@ -1,10 +1,13 @@
 import { Request, Response } from "express";
-import { supabase } from "../supabase/supabase";
+import { supabase, supabaseAdmin } from "../supabase/supabase";
 
-// Obtener todos los métodos de pago
 export const getMetodosPago = async (req: Request, res: Response) => {
   try {
-    const { data, error } = await supabase
+    if (!supabaseAdmin) {
+      throw new Error("supabaseAdmin no está configurado");
+    }
+
+    const { data, error } = await supabaseAdmin
       .from("metodos_de_pago")
       .select("*")
       .order("metodo", { ascending: true });
@@ -16,6 +19,7 @@ export const getMetodosPago = async (req: Request, res: Response) => {
       data,
     });
   } catch (error: any) {
+    console.error("Error al obtener métodos de pago:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error al obtener los métodos de pago",
@@ -23,12 +27,15 @@ export const getMetodosPago = async (req: Request, res: Response) => {
   }
 };
 
-// Obtener un método de pago por ID
 export const getMetodoPagoById = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
-    const { data, error } = await supabase
+    if (!supabaseAdmin) {
+      throw new Error("supabaseAdmin no está configurado");
+    }
+
+    const { data, error } = await supabaseAdmin
       .from("metodos_de_pago")
       .select("*")
       .eq("id", id)
@@ -57,11 +64,9 @@ export const getMetodoPagoById = async (req: Request, res: Response) => {
   }
 };
 
-// Crear un nuevo método de pago
 export const createMetodoPago = async (req: Request, res: Response) => {
   const { metodo, descripcion } = req.body;
 
-  // Validaciones básicas
   if (!metodo) {
     res.status(400).json({
       success: false,
@@ -71,6 +76,23 @@ export const createMetodoPago = async (req: Request, res: Response) => {
   }
 
   try {
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol !== 1) {
+      res.status(403).json({
+        success: false,
+        message: "Solo el Super Admin puede crear métodos de pago",
+      });
+      return;
+    }
+
     const { data, error } = await supabase
       .from("metodos_de_pago")
       .insert([
@@ -97,12 +119,10 @@ export const createMetodoPago = async (req: Request, res: Response) => {
   }
 };
 
-// Actualizar un método de pago
 export const updateMetodoPago = async (req: Request, res: Response) => {
   const { id } = req.params;
   const { metodo, descripcion } = req.body;
 
-  // Validaciones básicas
   if (!metodo) {
     res.status(400).json({
       success: false,
@@ -112,6 +132,23 @@ export const updateMetodoPago = async (req: Request, res: Response) => {
   }
 
   try {
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol !== 1) {
+      res.status(403).json({
+        success: false,
+        message: "Solo el Super Admin puede actualizar métodos de pago",
+      });
+      return;
+    }
+
     const { data, error } = await supabase
       .from("metodos_de_pago")
       .update({
@@ -146,12 +183,27 @@ export const updateMetodoPago = async (req: Request, res: Response) => {
   }
 };
 
-// Eliminar un método de pago
 export const deleteMetodoPago = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
-    // Verificar si el método de pago está siendo usado en pedidos
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol !== 1) {
+      res.status(403).json({
+        success: false,
+        message: "Solo el Super Admin puede eliminar métodos de pago",
+      });
+      return;
+    }
+
     const { data: pedidosConMetodo, error: errorVerificacion } = await supabase
       .from("pedidos")
       .select("id")

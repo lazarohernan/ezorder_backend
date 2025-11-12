@@ -79,6 +79,24 @@ export const createRol = async (req: Request, res: Response) => {
   }
 
   try {
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
+    // Solo Super Admin puede crear roles básicos
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol !== 1) {
+      res.status(403).json({
+        success: false,
+        message: "Solo el Super Admin puede crear roles",
+      });
+      return;
+    }
+
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
       .from("rol")
@@ -119,7 +137,25 @@ export const updateRol = async (req: Request, res: Response) => {
   }
 
   try {
-    console.log(`Usuario ${req.user?.id} está actualizando el rol ${id}`);
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
+    // Solo Super Admin puede actualizar roles básicos
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol !== 1) {
+      res.status(403).json({
+        success: false,
+        message: "Solo el Super Admin puede actualizar roles",
+      });
+      return;
+    }
+
+    console.log(`Usuario ${req.user_info.id} está actualizando el rol ${id}`);
 
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
@@ -160,7 +196,25 @@ export const deleteRol = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
-    console.log(`Usuario ${req.user?.id} está eliminando el rol ${id}`);
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
+    // Solo Super Admin puede eliminar roles básicos
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol !== 1) {
+      res.status(403).json({
+        success: false,
+        message: "Solo el Super Admin puede eliminar roles",
+      });
+      return;
+    }
+
+    console.log(`Usuario ${req.user_info.id} está eliminando el rol ${id}`);
 
     const { error } = await supabase.from("rol").delete().eq("id", id);
 

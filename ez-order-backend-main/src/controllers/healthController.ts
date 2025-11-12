@@ -4,9 +4,10 @@ import { supabase } from "../supabase/supabase";
 // Separate function to handle the database check
 async function checkDatabaseConnection(req: Request, res: Response) {
   try {
+    // Simple query to verify database connection
     const { data, error } = await supabase
-      .from("health_check")
-      .select("*")
+      .from("restaurantes")
+      .select("id")
       .limit(1);
 
     if (error) {
@@ -16,7 +17,7 @@ async function checkDatabaseConnection(req: Request, res: Response) {
     return res.status(200).json({
       status: "ok",
       message: "API and database connection functioning correctly",
-      data,
+      timestamp: new Date().toISOString(),
     });
   } catch (err: unknown) {
     const errorMessage =
