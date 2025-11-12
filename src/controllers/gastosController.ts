@@ -159,9 +159,16 @@ export const gastosController = {
   // Obtener un gasto específico
   async getGastoById(req: Request, res: Response) {
     try {
-      const { id } = req.params;
+      if (!req.user_info) {
+        return res.status(403).json({ 
+          error: 'No se encontró información del usuario autenticado' 
+        });
+      }
 
-      const { data, error } = await supabase
+      const { id } = req.params;
+      const client = supabaseAdmin || supabase;
+
+      const { data, error } = await client
         .from('gastos')
         .select('*')
         .eq('id', id)
@@ -169,6 +176,33 @@ export const gastosController = {
 
       if (error) {
         return res.status(400).json({ error: error.message });
+      }
+
+      // Verificar permisos según rol
+      const id_rol = req.user_info?.rol_id ?? 3;
+      if (id_rol === 1) {
+        // Super Admin puede ver cualquier gasto
+      } else if (id_rol === 2) {
+        // Admin debe tener acceso al restaurante del gasto
+        const { data: userRestaurants } = await client
+          .from('usuarios_restaurantes')
+          .select('restaurante_id')
+          .eq('usuario_id', req.user_info.id);
+
+        const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+        
+        if (!restaurantIds.includes(data.restaurante_id)) {
+          return res.status(403).json({ 
+            error: 'No tienes acceso a este gasto' 
+          });
+        }
+      } else {
+        // Usuarios normales solo pueden ver gastos de su restaurante
+        if (req.user_info.restaurante_id !== data.restaurante_id) {
+          return res.status(403).json({ 
+            error: 'No tienes acceso a este gasto' 
+          });
+        }
       }
 
       const [dataWithRelations] = await enrichGastosWithRelatedData(data ? [data] : []);
@@ -183,6 +217,12 @@ export const gastosController = {
   // Crear un nuevo gasto
   async createGasto(req: Request, res: Response) {
     try {
+      if (!req.user_info) {
+        return res.status(403).json({ 
+          error: 'No se encontró información del usuario autenticado' 
+        });
+      }
+
       const {
         restaurante_id,
         usuario_id,
@@ -203,6 +243,33 @@ export const gastosController = {
 
       if (Number(monto) <= 0) {
         return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+      }
+
+      // Verificar permisos según rol
+      const id_rol = req.user_info?.rol_id ?? 3;
+      if (id_rol === 1) {
+        // Super Admin puede crear gastos en cualquier restaurante
+      } else if (id_rol === 2) {
+        // Admin debe tener acceso al restaurante
+        const { data: userRestaurants } = await supabaseAdmin
+          .from('usuarios_restaurantes')
+          .select('restaurante_id')
+          .eq('usuario_id', req.user_info.id);
+
+        const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+        
+        if (!restaurantIds.includes(restaurante_id)) {
+          return res.status(403).json({ 
+            error: 'No tienes acceso a este restaurante' 
+          });
+        }
+      } else {
+        // Usuarios normales solo pueden crear gastos en su restaurante
+        if (req.user_info.restaurante_id !== restaurante_id) {
+          return res.status(403).json({ 
+            error: 'No puedes crear gastos para este restaurante' 
+          });
+        }
       }
 
       const { data, error } = await supabase
@@ -236,6 +303,12 @@ export const gastosController = {
   // Actualizar un gasto
   async updateGasto(req: Request, res: Response) {
     try {
+      if (!req.user_info) {
+        return res.status(403).json({ 
+          error: 'No se encontró información del usuario autenticado' 
+        });
+      }
+
       const { id } = req.params;
       const {
         fecha_gasto,
@@ -248,6 +321,46 @@ export const gastosController = {
 
       if (monto !== undefined && Number(monto) <= 0) {
         return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+      }
+
+      // Primero obtener el gasto para verificar permisos
+      const { data: gastoExistente, error: errorBuscar } = await supabase
+        .from('gastos')
+        .select('id, restaurante_id')
+        .eq('id', id)
+        .single();
+
+      if (errorBuscar || !gastoExistente) {
+        return res.status(404).json({ 
+          error: 'Gasto no encontrado' 
+        });
+      }
+
+      // Verificar permisos según rol
+      const id_rol = req.user_info?.rol_id ?? 3;
+      if (id_rol === 1) {
+        // Super Admin puede actualizar cualquier gasto
+      } else if (id_rol === 2) {
+        // Admin debe tener acceso al restaurante del gasto
+        const { data: userRestaurants } = await supabaseAdmin
+          .from('usuarios_restaurantes')
+          .select('restaurante_id')
+          .eq('usuario_id', req.user_info.id);
+
+        const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+        
+        if (!restaurantIds.includes(gastoExistente.restaurante_id)) {
+          return res.status(403).json({ 
+            error: 'No tienes acceso a este gasto' 
+          });
+        }
+      } else {
+        // Usuarios normales solo pueden actualizar gastos de su restaurante
+        if (req.user_info.restaurante_id !== gastoExistente.restaurante_id) {
+          return res.status(403).json({ 
+            error: 'No tienes acceso a este gasto' 
+          });
+        }
       }
 
       const updateData: any = {};
@@ -281,7 +394,53 @@ export const gastosController = {
   // Eliminar un gasto
   async deleteGasto(req: Request, res: Response) {
     try {
+      if (!req.user_info) {
+        return res.status(403).json({ 
+          error: 'No se encontró información del usuario autenticado' 
+        });
+      }
+
       const { id } = req.params;
+
+      // Primero obtener el gasto para verificar permisos
+      const { data: gastoExistente, error: errorBuscar } = await supabase
+        .from('gastos')
+        .select('id, restaurante_id')
+        .eq('id', id)
+        .single();
+
+      if (errorBuscar || !gastoExistente) {
+        return res.status(404).json({ 
+          error: 'Gasto no encontrado' 
+        });
+      }
+
+      // Verificar permisos según rol
+      const id_rol = req.user_info?.rol_id ?? 3;
+      if (id_rol === 1) {
+        // Super Admin puede eliminar cualquier gasto
+      } else if (id_rol === 2) {
+        // Admin debe tener acceso al restaurante del gasto
+        const { data: userRestaurants } = await supabaseAdmin
+          .from('usuarios_restaurantes')
+          .select('restaurante_id')
+          .eq('usuario_id', req.user_info.id);
+
+        const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+        
+        if (!restaurantIds.includes(gastoExistente.restaurante_id)) {
+          return res.status(403).json({ 
+            error: 'No tienes acceso a este gasto' 
+          });
+        }
+      } else {
+        // Usuarios normales solo pueden eliminar gastos de su restaurante
+        if (req.user_info.restaurante_id !== gastoExistente.restaurante_id) {
+          return res.status(403).json({ 
+            error: 'No tienes acceso a este gasto' 
+          });
+        }
+      }
 
       const { error } = await supabase
         .from('gastos')

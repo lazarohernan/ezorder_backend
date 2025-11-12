@@ -545,8 +545,6 @@ export const updatePassword = async (req: Request, res: Response) => {
     console.log('\n\n========================================');
     console.log('🔐 UPDATE PASSWORD REQUEST RECEIVED');
     console.log('========================================');
-    console.log('📦 Body:', JSON.stringify(req.body, null, 2));
-    console.log('📋 Authorization Header:', req.headers.authorization ? 'Present' : 'Missing');
     
     // Obtener el token del header Authorization
     const authHeader = req.headers.authorization;
@@ -563,16 +561,8 @@ export const updatePassword = async (req: Request, res: Response) => {
     const accessToken = authHeader.substring(7); // Remover 'Bearer '
     const { password, refresh_token } = req.body;
     
-    console.log('Access Token length:', accessToken.length);
-    console.log('Refresh Token received:', refresh_token ? 'YES' : 'NO');
-    console.log('Refresh Token length:', refresh_token?.length);
-    console.log('Token preview:', accessToken.substring(0, 30) + '...');
-    console.log('Password received:', password ? 'YES' : 'NO');
-    console.log('Password length:', password?.length);
-
     // Validar que se proporcione la contraseña
     if (!password) {
-      console.log('❌ Contraseña no proporcionada');
       res.status(400).json({
         ok: false,
         message: "La contraseña es obligatoria",
@@ -582,15 +572,12 @@ export const updatePassword = async (req: Request, res: Response) => {
 
     // Validar longitud mínima
     if (password.length < 6) {
-      console.log('❌ Contraseña muy corta:', password.length);
       res.status(400).json({
         ok: false,
         message: "La contraseña debe tener al menos 6 caracteres",
       });
       return;
     }
-    
-    console.log('✅ Validaciones básicas pasadas');
 
     // Crear un cliente de Supabase con el access_token del usuario para verificar
     const { createClient } = await import('@supabase/supabase-js');
@@ -606,7 +593,6 @@ export const updatePassword = async (req: Request, res: Response) => {
     }
 
     // Crear cliente para verificar el token
-    console.log('🔧 Creando cliente Supabase...');
     const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         autoRefreshToken: false,
@@ -615,7 +601,6 @@ export const updatePassword = async (req: Request, res: Response) => {
     });
 
     // Establecer la sesión con el access_token y refresh_token
-    console.log('🔍 Estableciendo sesión con el token...');
     const { data: sessionData, error: sessionError } = await supabaseClient.auth.setSession({
       access_token: accessToken,
       refresh_token: refresh_token || '', // Usar el refresh_token si está disponible
@@ -631,17 +616,12 @@ export const updatePassword = async (req: Request, res: Response) => {
       return;
     }
 
-    console.log('✅ Sesión establecida. Usuario:', sessionData.user.email);
-    console.log('📝 Actualizando contraseña...');
-
     // Ahora actualizar la contraseña con la sesión activa
     const { data, error } = await supabaseClient.auth.updateUser({
       password: password,
     });
 
     if (error) {
-      console.error("❌ Error al actualizar contraseña:", error);
-      console.error("Error details:", JSON.stringify(error, null, 2));
       res.status(400).json({
         ok: false,
         message: "No se pudo actualizar la contraseña",
@@ -649,8 +629,6 @@ export const updatePassword = async (req: Request, res: Response) => {
       });
       return;
     }
-
-    console.log('✅ Contraseña actualizada exitosamente');
 
     // Respuesta exitosa
     res.status(200).json({

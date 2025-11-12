@@ -1,8 +1,12 @@
 import express from "express";
 import fileUpload from "express-fileupload";
 import { uploadFile } from "../controllers/uploadsController";
+import { requireAuth } from "../middlewares/auth";
 
 const router = express.Router();
+
+// Aplicar autenticación a todas las rutas de uploads
+router.use(requireAuth);
 
 // Configuración de fileUpload
 router.use(

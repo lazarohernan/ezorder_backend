@@ -352,19 +352,82 @@ export const updateCliente = async (req: Request, res: Response) => {
   }
 
   try {
-    console.log(`Usuario ${req.user?.id} está actualizando el cliente ${id}`);
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
+    console.log(`Usuario ${req.user_info.id} está actualizando el cliente ${id}`);
+
+    // Usar supabaseAdmin para bypassear RLS
+    const client = supabaseAdmin || supabase;
+
+    // Primero obtener el cliente para verificar permisos
+    const { data: clienteExistente, error: errorBuscar } = await client
+      .from("clientes")
+      .select("id, restaurante_id")
+      .eq("id", id)
+      .single();
+
+    if (errorBuscar || !clienteExistente) {
+      res.status(404).json({
+        success: false,
+        message: "Cliente no encontrado",
+      });
+      return;
+    }
+
+    // Verificar permisos según rol
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol === 1) {
+      // Super Admin puede actualizar cualquier cliente
+    } else if (id_rol === 2) {
+      // Admin debe tener acceso al restaurante del cliente
+      const { data: userRestaurants } = await client
+        .from("usuarios_restaurantes")
+        .select("restaurante_id")
+        .eq("usuario_id", req.user_info.id);
+
+      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+      
+      if (!restaurantIds.includes(clienteExistente.restaurante_id)) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este cliente",
+        });
+        return;
+      }
+    } else {
+      // Usuarios normales solo pueden actualizar clientes de su restaurante
+      if (req.user_info.restaurante_id !== clienteExistente.restaurante_id) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este cliente",
+        });
+        return;
+      }
+    }
+
+    // Prevenir cambio de restaurante_id si se intenta modificar
+    if (restaurante_id && restaurante_id !== clienteExistente.restaurante_id) {
+      res.status(403).json({
+        success: false,
+        message: "No puedes cambiar el restaurante de un cliente",
+      });
+      return;
+    }
 
     // Crear objeto con solo los campos proporcionados
     const updateFields: any = {};
     if (nombre_cliente) updateFields.nombre_cliente = nombre_cliente;
-    if (restaurante_id) updateFields.restaurante_id = restaurante_id;
     if (rtn_cliente !== undefined) updateFields.rtn_cliente = rtn_cliente;
     if (tel_cliente !== undefined) updateFields.tel_cliente = tel_cliente;
     if (correo_cliente !== undefined)
       updateFields.correo_cliente = correo_cliente;
 
-    // Usar supabaseAdmin para bypassear RLS
-    const client = supabaseAdmin || supabase;
     const { data, error } = await client
       .from("clientes")
       .update(updateFields)
@@ -403,10 +466,65 @@ export const deleteCliente = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
-    console.log(`Usuario ${req.user?.id} está eliminando el cliente ${id}`);
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
+    console.log(`Usuario ${req.user_info.id} está eliminando el cliente ${id}`);
 
     // Usar supabaseAdmin para bypassear RLS
     const client = supabaseAdmin || supabase;
+
+    // Primero obtener el cliente para verificar permisos
+    const { data: clienteExistente, error: errorBuscar } = await client
+      .from("clientes")
+      .select("id, restaurante_id")
+      .eq("id", id)
+      .single();
+
+    if (errorBuscar || !clienteExistente) {
+      res.status(404).json({
+        success: false,
+        message: "Cliente no encontrado",
+      });
+      return;
+    }
+
+    // Verificar permisos según rol
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol === 1) {
+      // Super Admin puede eliminar cualquier cliente
+    } else if (id_rol === 2) {
+      // Admin debe tener acceso al restaurante del cliente
+      const { data: userRestaurants } = await client
+        .from("usuarios_restaurantes")
+        .select("restaurante_id")
+        .eq("usuario_id", req.user_info.id);
+
+      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+      
+      if (!restaurantIds.includes(clienteExistente.restaurante_id)) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este cliente",
+        });
+        return;
+      }
+    } else {
+      // Usuarios normales solo pueden eliminar clientes de su restaurante
+      if (req.user_info.restaurante_id !== clienteExistente.restaurante_id) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este cliente",
+        });
+        return;
+      }
+    }
+
     const { error } = await client.from("clientes").delete().eq("id", id);
 
     if (error) throw error;

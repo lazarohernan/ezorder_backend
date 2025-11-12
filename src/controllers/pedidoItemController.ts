@@ -4,8 +4,18 @@ import { supabase, supabaseAdmin } from "../supabase/supabase";
 // Obtener todos los ítems de pedido
 export const getPedidoItems = async (req: Request, res: Response) => {
   try {
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
     const client = supabaseAdmin || supabase;
-    const { data, error } = await client
+    const id_rol = req.user_info?.rol_id ?? 3;
+
+    let query = client
       .from("pedido_items")
       .select(
         `
@@ -18,8 +28,73 @@ export const getPedidoItems = async (req: Request, res: Response) => {
           restaurantes(nombre_restaurante)
         )
       `
-      )
-      .order("created_at", { ascending: false });
+      );
+
+    // Filtrar por restaurante según rol
+    if (id_rol === 1) {
+      // Super Admin ve todos los items
+    } else if (id_rol === 2) {
+      // Admin ve items de pedidos de sus restaurantes
+      const { data: userRestaurants } = await client
+        .from("usuarios_restaurantes")
+        .select("restaurante_id")
+        .eq("usuario_id", req.user_info.id);
+
+      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+      
+      if (restaurantIds.length > 0) {
+        // Filtrar items cuyos pedidos pertenezcan a los restaurantes del admin
+        const { data: pedidosAdmin } = await client
+          .from("pedidos")
+          .select("id")
+          .in("restaurante_id", restaurantIds);
+
+        const pedidoIds = pedidosAdmin?.map((p: any) => p.id) || [];
+        
+        if (pedidoIds.length > 0) {
+          query = query.in("pedido_id", pedidoIds);
+        } else {
+          // Si no tiene pedidos, devolver vacío
+          return res.status(200).json({
+            success: true,
+            data: [],
+          });
+        }
+      } else {
+        // Si no tiene restaurantes, devolver vacío
+        return res.status(200).json({
+          success: true,
+          data: [],
+        });
+      }
+    } else {
+      // Usuarios normales solo ven items de pedidos de su restaurante
+      const restaurante_id = req.user_info?.restaurante_id;
+      if (!restaurante_id) {
+        return res.status(403).json({
+          success: false,
+          message: "El usuario no tiene un restaurante asignado",
+        });
+      }
+
+      const { data: pedidosUsuario } = await client
+        .from("pedidos")
+        .select("id")
+        .eq("restaurante_id", restaurante_id);
+
+      const pedidoIds = pedidosUsuario?.map((p: any) => p.id) || [];
+      
+      if (pedidoIds.length > 0) {
+        query = query.in("pedido_id", pedidoIds);
+      } else {
+        return res.status(200).json({
+          success: true,
+          data: [],
+        });
+      }
+    }
+
+    const { data, error } = await query.order("created_at", { ascending: false });
 
     if (error) throw error;
 
@@ -42,6 +117,14 @@ export const getPedidoItemById = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
       .from("pedido_items")
@@ -71,6 +154,39 @@ export const getPedidoItemById = async (req: Request, res: Response) => {
       throw error;
     }
 
+    // Verificar permisos según rol
+    const id_rol = req.user_info?.rol_id ?? 3;
+    const pedidoRestauranteId = (data.pedidos as any)?.restaurante_id;
+
+    if (id_rol === 1) {
+      // Super Admin puede ver cualquier item
+    } else if (id_rol === 2) {
+      // Admin debe tener acceso al restaurante del pedido
+      const { data: userRestaurants } = await client
+        .from("usuarios_restaurantes")
+        .select("restaurante_id")
+        .eq("usuario_id", req.user_info.id);
+
+      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+      
+      if (!restaurantIds.includes(pedidoRestauranteId)) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este ítem de pedido",
+        });
+        return;
+      }
+    } else {
+      // Usuarios normales solo pueden ver items de pedidos de su restaurante
+      if (req.user_info.restaurante_id !== pedidoRestauranteId) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este ítem de pedido",
+        });
+        return;
+      }
+    }
+
     res.status(200).json({
       success: true,
       data,
@@ -92,8 +208,63 @@ export const getItemsByPedidoId = async (req: Request, res: Response) => {
   console.log("Buscando items para pedido_id:", pedido_id);
 
   try {
-    // Primero intentamos con el query simple sin relaciones para diagnosticar
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
     const client = supabaseAdmin || supabase;
+
+    // Primero verificar que el pedido existe y obtener su restaurante_id
+    const { data: pedido, error: pedidoError } = await client
+      .from("pedidos")
+      .select("id, restaurante_id")
+      .eq("id", pedido_id)
+      .single();
+
+    if (pedidoError || !pedido) {
+      res.status(404).json({
+        success: false,
+        message: "Pedido no encontrado",
+      });
+      return;
+    }
+
+    // Verificar permisos según rol
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol === 1) {
+      // Super Admin puede ver items de cualquier pedido
+    } else if (id_rol === 2) {
+      // Admin debe tener acceso al restaurante del pedido
+      const { data: userRestaurants } = await client
+        .from("usuarios_restaurantes")
+        .select("restaurante_id")
+        .eq("usuario_id", req.user_info.id);
+
+      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+      
+      if (!restaurantIds.includes(pedido.restaurante_id)) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este pedido",
+        });
+        return;
+      }
+    } else {
+      // Usuarios normales solo pueden ver items de pedidos de su restaurante
+      if (req.user_info.restaurante_id !== pedido.restaurante_id) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este pedido",
+        });
+        return;
+      }
+    }
+
+    // Obtener items del pedido
     const { data, error } = await client
       .from("pedido_items")
       .select("*")
@@ -138,7 +309,70 @@ export const createPedidoItem = async (req: Request, res: Response) => {
   } = req.body;
 
   try {
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
+    if (!pedido_id) {
+      res.status(400).json({
+        success: false,
+        message: "El pedido_id es requerido",
+      });
+      return;
+    }
+
     const client = supabaseAdmin || supabase;
+
+    // Primero verificar que el pedido existe y obtener su restaurante_id
+    const { data: pedido, error: pedidoError } = await client
+      .from("pedidos")
+      .select("id, restaurante_id")
+      .eq("id", pedido_id)
+      .single();
+
+    if (pedidoError || !pedido) {
+      res.status(404).json({
+        success: false,
+        message: "Pedido no encontrado",
+      });
+      return;
+    }
+
+    // Verificar permisos según rol
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol === 1) {
+      // Super Admin puede crear items en cualquier pedido
+    } else if (id_rol === 2) {
+      // Admin debe tener acceso al restaurante del pedido
+      const { data: userRestaurants } = await client
+        .from("usuarios_restaurantes")
+        .select("restaurante_id")
+        .eq("usuario_id", req.user_info.id);
+
+      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+      
+      if (!restaurantIds.includes(pedido.restaurante_id)) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este pedido",
+        });
+        return;
+      }
+    } else {
+      // Usuarios normales solo pueden crear items en pedidos de su restaurante
+      if (req.user_info.restaurante_id !== pedido.restaurante_id) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este pedido",
+        });
+        return;
+      }
+    }
+
     const { data, error } = await client
       .from("pedido_items")
       .insert([
@@ -187,7 +421,71 @@ export const updatePedidoItem = async (req: Request, res: Response) => {
   }
 
   try {
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
     const client = supabaseAdmin || supabase;
+
+    // Primero obtener el item y su pedido para verificar permisos
+    const { data: itemExistente, error: itemError } = await client
+      .from("pedido_items")
+      .select(`
+        id,
+        pedido_id,
+        pedidos:pedido_id (
+          id,
+          restaurante_id
+        )
+      `)
+      .eq("id", id)
+      .single();
+
+    if (itemError || !itemExistente) {
+      res.status(404).json({
+        success: false,
+        message: "Ítem de pedido no encontrado",
+      });
+      return;
+    }
+
+    const pedidoRestauranteId = (itemExistente.pedidos as any)?.restaurante_id;
+
+    // Verificar permisos según rol
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol === 1) {
+      // Super Admin puede actualizar cualquier item
+    } else if (id_rol === 2) {
+      // Admin debe tener acceso al restaurante del pedido
+      const { data: userRestaurants } = await client
+        .from("usuarios_restaurantes")
+        .select("restaurante_id")
+        .eq("usuario_id", req.user_info.id);
+
+      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+      
+      if (!restaurantIds.includes(pedidoRestauranteId)) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este ítem de pedido",
+        });
+        return;
+      }
+    } else {
+      // Usuarios normales solo pueden actualizar items de pedidos de su restaurante
+      if (req.user_info.restaurante_id !== pedidoRestauranteId) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este ítem de pedido",
+        });
+        return;
+      }
+    }
+
     const { data, error } = await client
       .from("pedido_items")
       .update(updates)
@@ -226,7 +524,72 @@ export const deletePedidoItem = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
-    const { error } = await supabase.from("pedido_items").delete().eq("id", id);
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
+    const client = supabaseAdmin || supabase;
+
+    // Primero obtener el item y su pedido para verificar permisos
+    const { data: itemExistente, error: itemError } = await client
+      .from("pedido_items")
+      .select(`
+        id,
+        pedido_id,
+        pedidos:pedido_id (
+          id,
+          restaurante_id
+        )
+      `)
+      .eq("id", id)
+      .single();
+
+    if (itemError || !itemExistente) {
+      res.status(404).json({
+        success: false,
+        message: "Ítem de pedido no encontrado",
+      });
+      return;
+    }
+
+    const pedidoRestauranteId = (itemExistente.pedidos as any)?.restaurante_id;
+
+    // Verificar permisos según rol
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol === 1) {
+      // Super Admin puede eliminar cualquier item
+    } else if (id_rol === 2) {
+      // Admin debe tener acceso al restaurante del pedido
+      const { data: userRestaurants } = await client
+        .from("usuarios_restaurantes")
+        .select("restaurante_id")
+        .eq("usuario_id", req.user_info.id);
+
+      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+      
+      if (!restaurantIds.includes(pedidoRestauranteId)) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este ítem de pedido",
+        });
+        return;
+      }
+    } else {
+      // Usuarios normales solo pueden eliminar items de pedidos de su restaurante
+      if (req.user_info.restaurante_id !== pedidoRestauranteId) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este ítem de pedido",
+        });
+        return;
+      }
+    }
+
+    const { error } = await client.from("pedido_items").delete().eq("id", id);
 
     if (error) {
       if (error.code === "PGRST116") {
@@ -258,7 +621,71 @@ export const marcarEnviadoACocina = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
     const client = supabaseAdmin || supabase;
+
+    // Primero obtener el item y su pedido para verificar permisos
+    const { data: itemExistente, error: itemError } = await client
+      .from("pedido_items")
+      .select(`
+        id,
+        pedido_id,
+        pedidos:pedido_id (
+          id,
+          restaurante_id
+        )
+      `)
+      .eq("id", id)
+      .single();
+
+    if (itemError || !itemExistente) {
+      res.status(404).json({
+        success: false,
+        message: "Ítem de pedido no encontrado",
+      });
+      return;
+    }
+
+    const pedidoRestauranteId = (itemExistente.pedidos as any)?.restaurante_id;
+
+    // Verificar permisos según rol
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol === 1) {
+      // Super Admin puede marcar cualquier item
+    } else if (id_rol === 2) {
+      // Admin debe tener acceso al restaurante del pedido
+      const { data: userRestaurants } = await client
+        .from("usuarios_restaurantes")
+        .select("restaurante_id")
+        .eq("usuario_id", req.user_info.id);
+
+      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+      
+      if (!restaurantIds.includes(pedidoRestauranteId)) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este ítem de pedido",
+        });
+        return;
+      }
+    } else {
+      // Usuarios normales solo pueden marcar items de pedidos de su restaurante
+      if (req.user_info.restaurante_id !== pedidoRestauranteId) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a este ítem de pedido",
+        });
+        return;
+      }
+    }
+
     const { data, error } = await client
       .from("pedido_items")
       .update({ enviado_a_cocina: true, updated_at: new Date().toISOString() })
@@ -305,6 +732,80 @@ export const createPedidoItemsBatch = async (req: Request, res: Response) => {
   }
 
   try {
+    if (!req.user_info) {
+      res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+      return;
+    }
+
+    const client = supabaseAdmin || supabase;
+
+    // Obtener todos los pedido_ids únicos de los items
+    const pedidoIds = [...new Set(items.map((item: any) => item.pedido_id))];
+
+    if (pedidoIds.length === 0) {
+      res.status(400).json({
+        success: false,
+        message: "Todos los items deben tener un pedido_id válido",
+      });
+      return;
+    }
+
+    // Verificar que todos los pedidos pertenezcan al restaurante del usuario
+    const { data: pedidos, error: pedidosError } = await client
+      .from("pedidos")
+      .select("id, restaurante_id")
+      .in("id", pedidoIds);
+
+    if (pedidosError || !pedidos || pedidos.length !== pedidoIds.length) {
+      res.status(400).json({
+        success: false,
+        message: "Uno o más pedidos no fueron encontrados",
+      });
+      return;
+    }
+
+    // Verificar permisos según rol
+    const id_rol = req.user_info?.rol_id ?? 3;
+    if (id_rol === 1) {
+      // Super Admin puede crear items en cualquier pedido
+    } else if (id_rol === 2) {
+      // Admin debe tener acceso a todos los restaurantes de los pedidos
+      const { data: userRestaurants } = await client
+        .from("usuarios_restaurantes")
+        .select("restaurante_id")
+        .eq("usuario_id", req.user_info.id);
+
+      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+      
+      const pedidosRestaurantes = pedidos.map((p: any) => p.restaurante_id);
+      const todosPermitidos = pedidosRestaurantes.every((rid: string) => restaurantIds.includes(rid));
+      
+      if (!todosPermitidos) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a uno o más de los pedidos especificados",
+        });
+        return;
+      }
+    } else {
+      // Usuarios normales solo pueden crear items en pedidos de su restaurante
+      const pedidosRestaurantes = pedidos.map((p: any) => p.restaurante_id);
+      const todosDelMismoRestaurante = pedidosRestaurantes.every(
+        (rid: string) => rid === req.user_info.restaurante_id
+      );
+      
+      if (!todosDelMismoRestaurante) {
+        res.status(403).json({
+          success: false,
+          message: "No tienes acceso a uno o más de los pedidos especificados",
+        });
+        return;
+      }
+    }
+    
     // Preparar los items para inserción, calculando totales si no se proporcionan
     const itemsToInsert = items.map((item: any) => {
       const {
@@ -334,13 +835,63 @@ export const createPedidoItemsBatch = async (req: Request, res: Response) => {
       };
     });
 
-    const client = supabaseAdmin || supabase;
+    // Insertar items de pedido
     const { data, error } = await client
       .from("pedido_items")
       .insert(itemsToInsert)
       .select();
 
     if (error) throw error;
+
+    // Descontar stock para productos que requieren inventario
+    for (const item of itemsToInsert) {
+      // Verificar si el producto requiere inventario
+      const { data: menu, error: menuError } = await client
+        .from("menu")
+        .select("requiere_inventario")
+        .eq("id", item.menu_id)
+        .single();
+
+      if (!menuError && menu?.requiere_inventario) {
+        // Obtener el inventario
+        const { data: inventario, error: inventarioError } = await client
+          .from("inventario")
+          .select("id, stock_actual")
+          .eq("menu_id", item.menu_id)
+          .eq("activo", true)
+          .single();
+
+        if (!inventarioError && inventario) {
+          // Verificar stock suficiente
+          if (inventario.stock_actual < item.cantidad) {
+            console.warn(
+              `Stock insuficiente para ${item.nombre_menu}. Stock: ${inventario.stock_actual}, Solicitado: ${item.cantidad}`
+            );
+            // Continuar pero registrar el problema
+          }
+
+          // Crear movimiento de salida
+          const { error: movimientoError } = await client
+            .from("movimientos_inventario")
+            .insert({
+              inventario_id: inventario.id,
+              tipo_movimiento: "salida",
+              cantidad: item.cantidad,
+              motivo: `Venta - Pedido ${item.pedido_id}`,
+              referencia: item.pedido_id,
+              usuario_id: req.user_info.id,
+            });
+
+          if (movimientoError) {
+            console.error(
+              `Error al crear movimiento de inventario para ${item.nombre_menu}:`,
+              movimientoError
+            );
+            // No fallar el pedido por esto, solo registrar
+          }
+        }
+      }
+    }
 
     res.status(201).json({
       success: true,

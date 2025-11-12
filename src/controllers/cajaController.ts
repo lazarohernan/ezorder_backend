@@ -55,7 +55,7 @@ export const cajaController = {
   // Obtener todas las cajas de todos los restaurantes (solo administradores)
   async getAllCajas(req: Request, res: Response) {
     try {
-      const { page = 1, limit = 10, estado, restaurante_id } = req.query;
+      const { page = 1, limit = 10, estado, restaurante_id, fecha_desde, fecha_hasta } = req.query;
 
       const client = supabaseAdmin || supabase;
       let query = client
@@ -64,7 +64,7 @@ export const cajaController = {
           *,
           restaurantes:restaurante_id (
             id,
-            nombre
+            nombre_restaurante
           )
         `)
         .order('fecha_apertura', { ascending: false });
@@ -78,6 +78,17 @@ export const cajaController = {
         query = query.eq('restaurante_id', restaurante_id);
       }
 
+      // Filtros de fecha
+      if (fecha_desde) {
+        const fechaDesde = getStartOfDayHonduras(fecha_desde as string);
+        query = query.gte('fecha_apertura', toISOStringHonduras(fechaDesde));
+      }
+
+      if (fecha_hasta) {
+        const fechaHasta = getEndOfDayHonduras(fecha_hasta as string);
+        query = query.lte('fecha_apertura', toISOStringHonduras(fechaHasta));
+      }
+
       const from = (Number(page) - 1) * Number(limit);
       const to = from + Number(limit) - 1;
 
@@ -87,14 +98,33 @@ export const cajaController = {
           *,
           restaurantes:restaurante_id (
             id,
-            nombre
+            nombre_restaurante
           )
         `);
 
-      const { count } = await client
+      let countQuery = client
         .from('caja')
-        .select('*', { count: 'exact', head: true })
-        .eq(restaurante_id ? 'restaurante_id' : '', restaurante_id || '');
+        .select('*', { count: 'exact', head: true });
+
+      if (estado) {
+        countQuery = countQuery.eq('estado', estado);
+      }
+
+      if (restaurante_id) {
+        countQuery = countQuery.eq('restaurante_id', restaurante_id);
+      }
+
+      if (fecha_desde) {
+        const fechaDesde = getStartOfDayHonduras(fecha_desde as string);
+        countQuery = countQuery.gte('fecha_apertura', toISOStringHonduras(fechaDesde));
+      }
+
+      if (fecha_hasta) {
+        const fechaHasta = getEndOfDayHonduras(fecha_hasta as string);
+        countQuery = countQuery.lte('fecha_apertura', toISOStringHonduras(fechaHasta));
+      }
+
+      const { count } = await countQuery;
 
       if (error) {
         return res.status(400).json({ error: error.message });
@@ -105,7 +135,7 @@ export const cajaController = {
       // Agregar información del restaurante a cada caja
       const dataWithRestaurant = dataWithUsuarios.map(caja => ({
         ...caja,
-        restaurante_nombre: caja.restaurantes?.nombre || 'Restaurante desconocido'
+        restaurante_nombre: caja.restaurantes?.nombre_restaurante || 'Restaurante desconocido'
       }));
 
       res.json({
@@ -135,7 +165,7 @@ export const cajaController = {
           *,
           restaurantes:restaurante_id (
             id,
-            nombre
+            nombre_restaurante
           )
         `)
         .eq('estado', 'abierta')
@@ -154,15 +184,20 @@ export const cajaController = {
           *,
           restaurantes:restaurante_id (
             id,
-            nombre
+            nombre_restaurante
           )
         `);
 
-      const { count } = await client
+      let countQuery = client
         .from('caja')
         .select('*', { count: 'exact', head: true })
-        .eq('estado', 'abierta')
-        .eq(restaurante_id ? 'restaurante_id' : '', restaurante_id || '');
+        .eq('estado', 'abierta');
+
+      if (restaurante_id) {
+        countQuery = countQuery.eq('restaurante_id', restaurante_id);
+      }
+
+      const { count } = await countQuery;
 
       if (error) {
         return res.status(400).json({ error: error.message });
@@ -173,7 +208,7 @@ export const cajaController = {
       // Agregar información del restaurante a cada caja
       const dataWithRestaurant = dataWithUsuarios.map(caja => ({
         ...caja,
-        restaurante_nombre: caja.restaurantes?.nombre || 'Restaurante desconocido'
+        restaurante_nombre: caja.restaurantes?.nombre_restaurante || 'Restaurante desconocido'
       }));
 
       res.json({
@@ -195,12 +230,18 @@ export const cajaController = {
   async getCajas(req: Request, res: Response) {
     try {
       const { restaurante_id } = req.params;
-      const { page = 1, limit = 10, estado } = req.query;
+      const { page = 1, limit = 10, estado, fecha_desde, fecha_hasta } = req.query;
 
       const client = supabaseAdmin || supabase;
       let query = client
         .from('caja')
-        .select('*')
+        .select(`
+          *,
+          restaurantes:restaurante_id (
+            id,
+            nombre_restaurante
+          )
+        `)
         .eq('restaurante_id', restaurante_id)
         .order('fecha_apertura', { ascending: false });
 
@@ -208,17 +249,50 @@ export const cajaController = {
         query = query.eq('estado', estado);
       }
 
+      // Filtros de fecha
+      if (fecha_desde) {
+        const fechaDesde = getStartOfDayHonduras(fecha_desde as string);
+        query = query.gte('fecha_apertura', toISOStringHonduras(fechaDesde));
+      }
+
+      if (fecha_hasta) {
+        const fechaHasta = getEndOfDayHonduras(fecha_hasta as string);
+        query = query.lte('fecha_apertura', toISOStringHonduras(fechaHasta));
+      }
+
       const from = (Number(page) - 1) * Number(limit);
       const to = from + Number(limit) - 1;
 
       const { data, error } = await query
         .range(from, to)
-        .select('*');
+        .select(`
+          *,
+          restaurantes:restaurante_id (
+            id,
+            nombre_restaurante
+          )
+        `);
 
-      const { count } = await client
+      let countQuery = client
         .from('caja')
         .select('*', { count: 'exact', head: true })
         .eq('restaurante_id', restaurante_id);
+
+      if (estado) {
+        countQuery = countQuery.eq('estado', estado);
+      }
+
+      if (fecha_desde) {
+        const fechaDesde = getStartOfDayHonduras(fecha_desde as string);
+        countQuery = countQuery.gte('fecha_apertura', toISOStringHonduras(fechaDesde));
+      }
+
+      if (fecha_hasta) {
+        const fechaHasta = getEndOfDayHonduras(fecha_hasta as string);
+        countQuery = countQuery.lte('fecha_apertura', toISOStringHonduras(fechaHasta));
+      }
+
+      const { count } = await countQuery;
 
       if (error) {
         return res.status(400).json({ error: error.message });
@@ -226,8 +300,14 @@ export const cajaController = {
 
       const dataWithUsuarios = await enrichCajasWithUsuarioNombre(data || []);
 
+      // Agregar información del restaurante a cada caja
+      const dataWithRestaurant = dataWithUsuarios.map(caja => ({
+        ...caja,
+        restaurante_nombre: (caja as any).restaurantes?.nombre_restaurante || null
+      }));
+
       res.json({
-        data: dataWithUsuarios,
+        data: dataWithRestaurant,
         pagination: {
           page: Number(page),
           limit: Number(limit),
@@ -249,18 +329,32 @@ export const cajaController = {
       const client = supabaseAdmin || supabase;
       const { data, error } = await client
         .from('caja')
-        .select('*')
+        .select(`
+          *,
+          restaurantes:restaurante_id (
+            id,
+            nombre_restaurante
+          )
+        `)
         .eq('restaurante_id', restaurante_id)
         .eq('estado', 'abierta')
         .single();
 
       if (error && error.code !== 'PGRST116') {
+        console.error('Error al obtener caja actual:', error);
         return res.status(400).json({ error: error.message });
       }
 
-      const [cajaActualWithNombre] = await enrichCajasWithUsuarioNombre(data ? [data] : []);
+      const cajaActual = error && error.code === 'PGRST116' ? null : data;
+      const [cajaActualWithNombre] = await enrichCajasWithUsuarioNombre(cajaActual ? [cajaActual] : []);
 
-      res.json({ data: cajaActualWithNombre || null });
+      // Agregar información del restaurante
+      const cajaWithRestaurant = cajaActualWithNombre ? {
+        ...cajaActualWithNombre,
+        restaurante_nombre: (cajaActual as any)?.restaurantes?.nombre_restaurante || 'Restaurante desconocido'
+      } : null;
+
+      res.json({ data: cajaWithRestaurant });
     } catch (error) {
       console.error('Error getting caja actual:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
@@ -277,7 +371,13 @@ export const cajaController = {
       // Obtener caja actual
       const { data: cajaActual, error: cajaError } = await client
         .from('caja')
-        .select('*')
+        .select(`
+          *,
+          restaurantes:restaurante_id (
+            id,
+            nombre_restaurante
+          )
+        `)
         .eq('restaurante_id', restaurante_id)
         .eq('estado', 'abierta')
         .single();
@@ -289,6 +389,12 @@ export const cajaController = {
       const [cajaActualWithNombre] = await enrichCajasWithUsuarioNombre(
         cajaActual ? [cajaActual] : []
       );
+
+      // Agregar información del restaurante a la caja actual
+      const cajaActualWithRestaurant = cajaActualWithNombre ? {
+        ...cajaActualWithNombre,
+        restaurante_nombre: (cajaActual as any)?.restaurantes?.nombre_restaurante || 'Restaurante desconocido'
+      } : null;
 
       // Calcular fecha de inicio del día
       const fechaInicio = fecha ? getStartOfDayHonduras(fecha as string) : getStartOfDayHonduras();
@@ -328,18 +434,18 @@ export const cajaController = {
       const totalGastosDia = gastos?.reduce((sum, gasto) => sum + Number(gasto.monto), 0) || 0;
 
       const resumen = {
-        caja_actual: cajaActualWithNombre || null,
+        caja_actual: cajaActualWithRestaurant || null,
         total_ventas_dia: totalVentasDia,
         ventas_efectivo: ventasEfectivo,
         ventas_pos: ventasPOS,
         ventas_transferencia: ventasTransferencia,
-        total_ingresos_dia: cajaActualWithNombre?.total_ingresos || 0,
-        total_egresos_dia: cajaActualWithNombre?.total_egresos || 0,
+        total_ingresos_dia: cajaActualWithRestaurant?.total_ingresos || 0,
+        total_egresos_dia: cajaActualWithRestaurant?.total_egresos || 0,
         total_gastos_dia: totalGastosDia,
         gastos_dia: gastos || [],
-        diferencia: cajaActualWithNombre
-          ? Number(cajaActualWithNombre.monto_final || 0) -
-            Number(cajaActualWithNombre.monto_inicial) -
+        diferencia: cajaActualWithRestaurant
+          ? Number(cajaActualWithRestaurant.monto_final || 0) -
+            Number(cajaActualWithRestaurant.monto_inicial) -
             totalVentasDia
           : 0
       };
@@ -354,6 +460,12 @@ export const cajaController = {
   // Abrir caja
   async abrirCaja(req: Request, res: Response) {
     try {
+      if (!req.user_info) {
+        return res.status(403).json({ 
+          error: 'No se encontró información del usuario autenticado' 
+        });
+      }
+
       const { restaurante_id, usuario_id, monto_inicial, observaciones } = req.body;
 
       // Validar campos requeridos
@@ -373,6 +485,34 @@ export const cajaController = {
         return res.status(400).json({ 
           error: 'El campo monto_inicial es requerido' 
         });
+      }
+
+      // Verificar permisos según rol
+      const id_rol = req.user_info?.rol_id ?? 3;
+      if (id_rol === 1) {
+        // Super Admin puede abrir caja en cualquier restaurante
+      } else if (id_rol === 2) {
+        // Admin debe tener acceso al restaurante
+        const client = supabaseAdmin || supabase;
+        const { data: userRestaurants } = await client
+          .from('usuarios_restaurantes')
+          .select('restaurante_id')
+          .eq('usuario_id', req.user_info.id);
+
+        const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+        
+        if (!restaurantIds.includes(restaurante_id)) {
+          return res.status(403).json({ 
+            error: 'No tienes acceso a este restaurante' 
+          });
+        }
+      } else {
+        // Usuarios normales solo pueden abrir caja en su restaurante
+        if (req.user_info.restaurante_id !== restaurante_id) {
+          return res.status(403).json({ 
+            error: 'No puedes abrir caja para este restaurante' 
+          });
+        }
       }
 
       const client = supabaseAdmin || supabase;
@@ -466,8 +606,21 @@ export const cajaController = {
   // Cerrar caja
   async cerrarCaja(req: Request, res: Response) {
     try {
+      if (!req.user_info) {
+        return res.status(403).json({ 
+          error: 'No se encontró información del usuario autenticado' 
+        });
+      }
+
       const { id } = req.params;
-      const { monto_final, observaciones } = req.body;
+      const {
+        monto_final,
+        observaciones,
+        ventas_pos_reportadas,
+        ventas_transferencia_reportadas,
+        gastos_reportados,
+        ventas_efectivo_reportadas
+      } = req.body;
 
       const client = supabaseAdmin || supabase;
       // Obtener caja actual
@@ -480,6 +633,33 @@ export const cajaController = {
 
       if (cajaError) {
         return res.status(400).json({ error: 'Caja no encontrada o ya cerrada' });
+      }
+
+      // Verificar permisos según rol
+      const id_rol = req.user_info?.rol_id ?? 3;
+      if (id_rol === 1) {
+        // Super Admin puede cerrar cualquier caja
+      } else if (id_rol === 2) {
+        // Admin debe tener acceso al restaurante de la caja
+        const { data: userRestaurants } = await client
+          .from('usuarios_restaurantes')
+          .select('restaurante_id')
+          .eq('usuario_id', req.user_info.id);
+
+        const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+        
+        if (!restaurantIds.includes(cajaActual.restaurante_id)) {
+          return res.status(403).json({ 
+            error: 'No tienes acceso a esta caja' 
+          });
+        }
+      } else {
+        // Usuarios normales solo pueden cerrar cajas de su restaurante
+        if (req.user_info.restaurante_id !== cajaActual.restaurante_id) {
+          return res.status(403).json({ 
+            error: 'No tienes acceso a esta caja' 
+          });
+        }
       }
 
       // Calcular totales del día
@@ -500,6 +680,7 @@ export const cajaController = {
       }
 
       // Calcular ventas por método de pago
+      const ventasEfectivo = todasVentas?.filter(v => v.metodo_pago_id === 1).reduce((sum, v) => sum + Number(v.total), 0) || 0;
       const ventasPOS = todasVentas?.filter(v => v.metodo_pago_id === 2).reduce((sum, v) => sum + Number(v.total), 0) || 0;
       const ventasTransferencia = todasVentas?.filter(v => v.metodo_pago_id === 3).reduce((sum, v) => sum + Number(v.total), 0) || 0;
       const totalVentasDia = todasVentas?.reduce((sum, venta) => sum + Number(venta.total), 0) || 0;
@@ -520,25 +701,50 @@ export const cajaController = {
 
       // VALIDACIÓN: Calcular el efectivo que debe haber en caja
       const montoInicial = Number(cajaActual.monto_inicial);
-      const efectivoEsperado = montoInicial + totalVentasDia - totalGastos;
+      const ingresosAdicionales = Number(cajaActual.total_ingresos || 0);
+      const efectivoEsperado = montoInicial + ventasEfectivo + ingresosAdicionales - totalGastos;
       const efectivoReal = Number(monto_final);
-      const diferencia = efectivoReal - efectivoEsperado;
+
+      const parseReportado = (valor: unknown): number | null => {
+        if (valor === undefined || valor === null || valor === '') return null;
+        const parsed = Number(valor);
+        return Number.isFinite(parsed) ? parsed : null;
+      };
+
+      const reportadoPOS = parseReportado(ventas_pos_reportadas);
+      const reportadoTransferencia = parseReportado(ventas_transferencia_reportadas);
+      const reportadoGastos = parseReportado(gastos_reportados);
+      const reportadoEfectivoVentas = parseReportado(ventas_efectivo_reportadas);
+
+      const diferenciaEfectivo = efectivoReal - efectivoEsperado;
+      const diferenciaPOS = reportadoPOS !== null ? reportadoPOS - ventasPOS : null;
+      const diferenciaTransferencia = reportadoTransferencia !== null ? reportadoTransferencia - ventasTransferencia : null;
+      const diferenciaGastos = reportadoGastos !== null ? reportadoGastos - totalGastos : null;
+      const diferenciaVentasEfectivo = reportadoEfectivoVentas !== null ? reportadoEfectivoVentas - ventasEfectivo : null;
 
       // Crear mensaje de validación según el diagrama
       let mensajeValidacion = '';
-      let cuadra = true;
+      const tolerancia = 0.01;
 
-      if (Math.abs(diferencia) > 0.01) { // Tolerancia de 1 centavo
-        cuadra = false;
-        if (diferencia > 0) {
-          mensajeValidacion = `⚠️ CAJA NO CUADRA - Hay un sobrante de $${Math.abs(diferencia).toFixed(2)}`;
-        } else {
-          mensajeValidacion = `⚠️ CAJA NO CUADRA - Hay un faltante de $${Math.abs(diferencia).toFixed(2)}`;
-        }
-        console.log(`${mensajeValidacion}. Efectivo esperado: $${efectivoEsperado.toFixed(2)}, Efectivo real: $${efectivoReal.toFixed(2)}`);
+      const diferenciasEvaluables = [
+        diferenciaEfectivo,
+        diferenciaPOS,
+        diferenciaTransferencia,
+        diferenciaGastos,
+        diferenciaVentasEfectivo
+      ].filter((diff): diff is number => diff !== null);
+
+      const cuadra = diferenciasEvaluables.every(diff => Math.abs(diff) <= tolerancia);
+
+      if (cuadra) {
+        mensajeValidacion = '✅ CAJA CUADRA EN 0 - Los montos coinciden correctamente';
+        console.log(`Caja cerrada correctamente. Total ventas efectivo: $${ventasEfectivo.toFixed(2)}, POS: $${ventasPOS.toFixed(2)}, Transferencia: $${ventasTransferencia.toFixed(2)}, Gastos: $${totalGastos.toFixed(2)}`);
       } else {
-        mensajeValidacion = '✅ CAJA CUADRA - Los montos coinciden correctamente';
-        console.log(`Caja cerrada correctamente. Total ventas: $${totalVentasDia.toFixed(2)}, Gastos: $${totalGastos.toFixed(2)}`);
+        const detalle = diferenciaEfectivo > tolerancia
+          ? `efectivo ${diferenciaEfectivo > 0 ? 'sobrante' : 'faltante'} $${Math.abs(diferenciaEfectivo).toFixed(2)}`
+          : 'existen diferencias en los montos reportados';
+        mensajeValidacion = `⚠️ CAJA NO CUADRA - Se detectó ${detalle}`;
+        console.warn(`${mensajeValidacion}. Esperado: $${efectivoEsperado.toFixed(2)}, Real: $${efectivoReal.toFixed(2)}`);
       }
 
       // Actualizar caja con toda la información
@@ -548,7 +754,7 @@ export const cajaController = {
           fecha_cierre: toISOStringHonduras(getHondurasDate()),
           monto_final: efectivoReal,
           total_ventas: totalVentasDia,
-          total_ingresos: ventasPOS + ventasTransferencia,
+          total_ingresos: Number(cajaActual.total_ingresos || 0),
           total_egresos: totalGastos,
           estado: 'cerrada',
           observaciones: observaciones || cajaActual.observaciones
@@ -570,7 +776,28 @@ export const cajaController = {
           mensaje: mensajeValidacion,
           efectivo_esperado: efectivoEsperado,
           efectivo_real: efectivoReal,
-          diferencia: diferencia,
+          diferencias: {
+            efectivo: diferenciaEfectivo,
+            ventas_pos: diferenciaPOS,
+            ventas_transferencia: diferenciaTransferencia,
+            gastos: diferenciaGastos,
+            ventas_efectivo: diferenciaVentasEfectivo
+          },
+          diferencia: diferenciaEfectivo,
+          esperado: {
+            efectivo: efectivoEsperado,
+            ventas_efectivo: ventasEfectivo,
+            ventas_pos: ventasPOS,
+            ventas_transferencia: ventasTransferencia,
+            gastos: totalGastos
+          },
+          reportado: {
+            efectivo: efectivoReal,
+            ventas_efectivo: reportadoEfectivoVentas ?? ventasEfectivo,
+            ventas_pos: reportadoPOS ?? ventasPOS,
+            ventas_transferencia: reportadoTransferencia ?? ventasTransferencia,
+            gastos: reportadoGastos ?? totalGastos
+          },
           detalles: {
             monto_inicial: montoInicial,
             ventas_pos: ventasPOS,
@@ -589,10 +816,63 @@ export const cajaController = {
   // Actualizar caja (para ingresos/egresos adicionales)
   async actualizarCaja(req: Request, res: Response) {
     try {
+      if (!req.user_info) {
+        return res.status(403).json({ 
+          error: 'No se encontró información del usuario autenticado' 
+        });
+      }
+
       const { id } = req.params;
       const { total_ingresos, total_egresos, observaciones } = req.body;
 
       const client = supabaseAdmin || supabase;
+
+      // Primero obtener la caja para verificar permisos
+      const { data: cajaExistente, error: errorBuscar } = await client
+        .from('caja')
+        .select('id, restaurante_id, estado')
+        .eq('id', id)
+        .single();
+
+      if (errorBuscar || !cajaExistente) {
+        return res.status(404).json({ 
+          error: 'Caja no encontrada' 
+        });
+      }
+
+      if (cajaExistente.estado !== 'abierta') {
+        return res.status(400).json({ 
+          error: 'Solo se pueden actualizar cajas abiertas' 
+        });
+      }
+
+      // Verificar permisos según rol
+      const id_rol = req.user_info?.rol_id ?? 3;
+      if (id_rol === 1) {
+        // Super Admin puede actualizar cualquier caja
+      } else if (id_rol === 2) {
+        // Admin debe tener acceso al restaurante de la caja
+        const { data: userRestaurants } = await client
+          .from('usuarios_restaurantes')
+          .select('restaurante_id')
+          .eq('usuario_id', req.user_info.id);
+
+        const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+        
+        if (!restaurantIds.includes(cajaExistente.restaurante_id)) {
+          return res.status(403).json({ 
+            error: 'No tienes acceso a esta caja' 
+          });
+        }
+      } else {
+        // Usuarios normales solo pueden actualizar cajas de su restaurante
+        if (req.user_info.restaurante_id !== cajaExistente.restaurante_id) {
+          return res.status(403).json({ 
+            error: 'No tienes acceso a esta caja' 
+          });
+        }
+      }
+
       const { data, error } = await client
         .from('caja')
         .update({
@@ -621,49 +901,62 @@ export const cajaController = {
   // Obtener una caja específica
   async getCajaById(req: Request, res: Response) {
     try {
-      const { id } = req.params;
+      if (!req.user_info) {
+        return res.status(403).json({
+          error: 'No se encontró información del usuario autenticado'
+        });
+      }
 
+      const { id } = req.params;
       const client = supabaseAdmin || supabase;
 
-      // Obtener la caja con validación de restaurante
-      let query = client
+      // Obtener la caja
+      const { data: caja, error } = await client
         .from('caja')
         .select('*')
-        .eq('id', id);
+        .eq('id', id)
+        .single();
 
-      // Para usuarios no administradores, filtrar por restaurante asignado
-      if (req.user_info) {
-        const isSuperAdmin = req.user_info.rol_id === 1 || req.user_info.rol_id === 2 || req.user_info.es_super_admin;
-        const hasSuperAdminRole = req.user_info.rol_personalizado_id &&
-          (await client
-            .from('roles_personalizados')
-            .select('es_super_admin')
-            .eq('id', req.user_info.rol_personalizado_id)
-            .single()
-          ).data?.es_super_admin;
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return res.status(404).json({ error: 'Caja no encontrada' });
+        }
+        return res.status(400).json({ error: error.message });
+      }
 
-        if (!isSuperAdmin && !hasSuperAdminRole) {
-          // Usuario normal: solo puede ver cajas de su restaurante
+      // Verificar permisos según rol
+      const id_rol = req.user_info?.rol_id ?? 3;
+      if (id_rol === 1) {
+        // Super Admin puede ver cualquier caja
+      } else if (id_rol === 2) {
+        // Admin debe tener acceso al restaurante de la caja
+        const { data: userRestaurants } = await client
+          .from('usuarios_restaurantes')
+          .select('restaurante_id')
+          .eq('usuario_id', req.user_info.id);
+
+        const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+
+        if (!restaurantIds.includes(caja.restaurante_id)) {
+          return res.status(403).json({
+            error: 'No tienes acceso a esta caja'
+          });
+        }
+      } else {
+        // Usuarios normales solo pueden ver cajas de su restaurante
           if (!req.user_info.restaurante_id) {
             return res.status(403).json({
               error: 'No tienes un restaurante asignado'
             });
           }
-          query = query.eq('restaurante_id', req.user_info.restaurante_id);
+        if (req.user_info.restaurante_id !== caja.restaurante_id) {
+          return res.status(403).json({
+            error: 'No tienes acceso a esta caja'
+          });
         }
-        // Administradores pueden ver todas las cajas
       }
 
-      const { data, error } = await query.single();
-
-      if (error) {
-        if (error.code === 'PGRST116') {
-          return res.status(404).json({ error: 'Caja no encontrada o no tienes acceso' });
-        }
-        return res.status(400).json({ error: error.message });
-      }
-
-      const [dataWithNombre] = await enrichCajasWithUsuarioNombre(data ? [data] : []);
+      const [dataWithNombre] = await enrichCajasWithUsuarioNombre([caja]);
 
       res.json({ data: dataWithNombre || null });
     } catch (error) {
