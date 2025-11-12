@@ -1,0 +1,8 @@
+node_modules
+src
+*.ts
+!api
+*.log
+.env.local
+.env.*.local
+
