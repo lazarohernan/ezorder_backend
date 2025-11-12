@@ -1,9 +1,5 @@
 node_modules
-src
-*.ts
-!api
 *.log
 .env.local
 .env.*.local
-# Mantener dist/ para que api/index.js pueda importar los archivos compilados
 
