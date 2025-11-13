@@ -4,9 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node dist/index.js",
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "build": "tsc",
+    "start": "node ez-order-backend-main/dist/index.js",
+    "dev": "cd ez-order-backend-main && ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "cd ez-order-backend-main && tsc --project tsconfig.json",
     "vercel-build": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
