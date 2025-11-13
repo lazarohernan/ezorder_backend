@@ -28,10 +28,29 @@ const notificacionesRoutes = require('../dist/routes/notificaciones').default ||
 const app = express();
 
 // Configuración de CORS para Vercel
+const allowedOrigins = process.env.FRONTEND_URL 
+  ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
+  : ['http://localhost:5173'];
+
+// Función para validar el origen
 const corsOptions = {
-  origin: process.env.FRONTEND_URL 
-    ? process.env.FRONTEND_URL.split(',') 
-    : ['http://localhost:5173', 'https://*.vercel.app'],
+  origin: function (origin, callback) {
+    // Permitir requests sin origen (como mobile apps o curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Verificar si el origen está en la lista permitida
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Permitir cualquier subdominio de vercel.app si no hay FRONTEND_URL configurado
+    if (!process.env.FRONTEND_URL && origin.endsWith('.vercel.app')) {
+      return callback(null, true);
+    }
+    
+    // Rechazar otros orígenes
+    callback(new Error('Not allowed by CORS'));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
