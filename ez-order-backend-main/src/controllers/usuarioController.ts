@@ -242,14 +242,14 @@ export const inviteUsuario = async (req: Request, res: Response) => {
       }
     }
 
-    const { data: existingInvite } = await supabaseAdmin
+    const { data: existingInvite, error: inviteError } = await supabaseAdmin
       .from("invitaciones")
       .select("*")
       .eq("email", email)
       .eq("estado", "pendiente")
-      .single();
+      .maybeSingle();
 
-    if (existingInvite) {
+    if (existingInvite && !inviteError) {
       res.status(400).json({
         success: false,
         message: "Ya existe una invitación pendiente para este correo electrónico",
@@ -258,7 +258,7 @@ export const inviteUsuario = async (req: Request, res: Response) => {
     }
 
     const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers();
-    const userExists = existingUser?.users.some(u => u.email === email);
+    const userExists = existingUser?.users.some((u: any) => u.email === email);
 
     if (userExists) {
       res.status(400).json({
@@ -290,7 +290,7 @@ export const inviteUsuario = async (req: Request, res: Response) => {
       return;
     }
 
-    const { data: invitacion, error: inviteError } = await supabaseAdmin
+    const { data: invitacion, error: insertError } = await supabaseAdmin
       .from("invitaciones")
       .insert([
         {
@@ -306,7 +306,7 @@ export const inviteUsuario = async (req: Request, res: Response) => {
       .select()
       .single();
 
-    if (inviteError) {
+    if (insertError) {
       // No fallar si no se puede guardar el tracking
     }
 
