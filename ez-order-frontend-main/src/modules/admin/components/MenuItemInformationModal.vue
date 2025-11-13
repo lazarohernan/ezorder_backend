@@ -41,7 +41,7 @@
             <p v-if="aplicaImpuesto" class="mt-1 text-xs text-gray-500">
               ISV ({{ menu.porcentaje_impuesto }}%):
               <span class="font-medium text-gray-700">
-                {{ formatCurrencyHNL(impuestoCalculado.value) }}
+                {{ formatCurrencyHNL(impuestoCalculado) }}
               </span>
             </p>
             <p v-else-if="menu.es_exento || menu.es_exonerado" class="mt-1 text-xs text-orange-500">
@@ -52,7 +52,7 @@
           <div class="rounded-xl border border-gray-100 bg-white/80 p-4">
             <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Total a pagar</p>
             <p class="text-xl font-bold text-emerald-600">
-              {{ formatCurrencyHNL(precioConImpuesto.value) }}
+              {{ formatCurrencyHNL(precioConImpuesto) }}
             </p>
             <p class="mt-1 text-xs text-gray-500">
               Incluye impuestos y exenciones aplicables.

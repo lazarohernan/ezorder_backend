@@ -910,16 +910,16 @@ const restauranteId = computed(() => {
 });
 
 // Computed para opciones de filtros
-const restauranteOptions = computed(() => {
-  const options = [
+const restauranteOptions = computed<Array<{ label: string; value: string; badge?: string }>>(() => {
+  const options: Array<{ label: string; value: string; badge?: string }> = [
     { label: 'Todos los restaurantes', value: '' }
   ];
   
   restaurantes.value.forEach((r) => {
     const isPrincipal = r.id === restauranteId.value;
     options.push({
-    label: r.nombre_restaurante,
-    value: r.id || '',
+      label: r.nombre_restaurante,
+      value: r.id || '',
       badge: isPrincipal ? 'Principal' : undefined
     });
   });
@@ -928,16 +928,16 @@ const restauranteOptions = computed(() => {
 });
 
 // Computed para opciones del formulario
-const formRestauranteOptions = computed(() => {
-  const options = [
+const formRestauranteOptions = computed<Array<{ label: string; value: string; badge?: string }>>(() => {
+  const options: Array<{ label: string; value: string; badge?: string }> = [
     { label: 'Seleccionar restaurante', value: '' }
   ];
   
   restaurantes.value.forEach((r) => {
     const isPrincipal = r.id === restauranteId.value;
     options.push({
-    label: r.nombre_restaurante,
-    value: r.id || '',
+      label: r.nombre_restaurante,
+      value: r.id || '',
       badge: isPrincipal ? 'Principal' : undefined
     });
   });

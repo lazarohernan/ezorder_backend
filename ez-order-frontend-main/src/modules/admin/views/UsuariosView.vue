@@ -147,8 +147,8 @@ const rolesPersonalizadosOptions = computed(() => [
     }))
 ]);
 
-const restaurantesOptions = computed(() => {
-  const options = [
+const restaurantesOptions = computed<Array<{ label: string; value: string | null; badge?: string }>>(() => {
+  const options: Array<{ label: string; value: string | null; badge?: string }> = [
     { value: null, label: 'Seleccione un restaurante' }
   ];
   

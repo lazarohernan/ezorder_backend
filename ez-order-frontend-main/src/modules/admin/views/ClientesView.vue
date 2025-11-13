@@ -718,16 +718,16 @@ const restauranteId = computed(() => {
 });
 
 // Computed properties para opciones de CustomSelect
-const restauranteOptions = computed(() => {
-  const options = [
+const restauranteOptions = computed<Array<{ label: string; value: string; badge?: string }>>(() => {
+  const options: Array<{ label: string; value: string; badge?: string }> = [
     { label: 'Todos los restaurantes', value: '' }
   ];
   
   restaurantes.value.forEach((r) => {
     const isPrincipal = r.id === restauranteId.value;
     options.push({
-    label: r.nombre_restaurante,
-    value: r.id || '',
+      label: r.nombre_restaurante,
+      value: r.id || '',
       badge: isPrincipal ? 'Principal' : undefined
     });
   });

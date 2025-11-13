@@ -659,7 +659,7 @@
                   Cerrar
                 </button>
                 <button
-                  @click="openModal('edit', selectedRestaurante)"
+                  @click="openModal('edit', selectedRestaurante || undefined)"
                   class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-6 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:from-orange-600 hover:to-orange-700 shadow-lg"
                 >
                   <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
