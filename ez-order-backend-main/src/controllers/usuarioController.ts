@@ -249,7 +249,16 @@ export const inviteUsuario = async (req: Request, res: Response) => {
       .eq("estado", "pendiente")
       .maybeSingle();
 
-    if (existingInvite && !inviteError) {
+    if (inviteError) {
+      res.status(500).json({
+        success: false,
+        message: "Error al verificar invitaciones existentes",
+        error: inviteError.message,
+      });
+      return;
+    }
+
+    if (existingInvite) {
       res.status(400).json({
         success: false,
         message: "Ya existe una invitación pendiente para este correo electrónico",
