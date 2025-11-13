@@ -6,23 +6,23 @@ const cors = require('cors');
 const path = require('path');
 
 // Import routes
-const healthRoutes = require('../dist/routes/health');
-const authRoutes = require('../dist/routes/auth');
-const restaurantesRoutes = require('../dist/routes/restaurantes');
-const uploadsRoutes = require('../dist/routes/uploads');
-const usuariosRoutes = require('../dist/routes/usuarios');
-const rolesRoutes = require('../dist/routes/roles');
-const rolesPersonalizadosRoutes = require('../dist/routes/roles_personalizados');
-const menuRoutes = require('../dist/routes/menu');
-const menuCategoriesRoutes = require('../dist/routes/menuCategories');
-const clientesRoutes = require('../dist/routes/clientes');
-const pedidosRoutes = require('../dist/routes/pedidos');
-const pedidoItemsRoutes = require('../dist/routes/pedidoItems');
-const metodoPagoRoutes = require('../dist/routes/metodoPagoRoutes');
-const inventarioRoutes = require('../dist/routes/inventario');
-const cajaRoutes = require('../dist/routes/caja');
-const gastosRoutes = require('../dist/routes/gastos');
-const notificacionesRoutes = require('../dist/routes/notificaciones');
+const healthRoutes = require('../ez-order-backend-main/dist/routes/health');
+const authRoutes = require('../ez-order-backend-main/dist/routes/auth');
+const restaurantesRoutes = require('../ez-order-backend-main/dist/routes/restaurantes');
+const uploadsRoutes = require('../ez-order-backend-main/dist/routes/uploads');
+const usuariosRoutes = require('../ez-order-backend-main/dist/routes/usuarios');
+const rolesRoutes = require('../ez-order-backend-main/dist/routes/roles');
+const rolesPersonalizadosRoutes = require('../ez-order-backend-main/dist/routes/roles_personalizados');
+const menuRoutes = require('../ez-order-backend-main/dist/routes/menu');
+const menuCategoriesRoutes = require('../ez-order-backend-main/dist/routes/menuCategories');
+const clientesRoutes = require('../ez-order-backend-main/dist/routes/clientes');
+const pedidosRoutes = require('../ez-order-backend-main/dist/routes/pedidos');
+const pedidoItemsRoutes = require('../ez-order-backend-main/dist/routes/pedidoItems');
+const metodoPagoRoutes = require('../ez-order-backend-main/dist/routes/metodoPagoRoutes');
+const inventarioRoutes = require('../ez-order-backend-main/dist/routes/inventario');
+const cajaRoutes = require('../ez-order-backend-main/dist/routes/caja');
+const gastosRoutes = require('../ez-order-backend-main/dist/routes/gastos');
+const notificacionesRoutes = require('../ez-order-backend-main/dist/routes/notificaciones');
 
 // Initialize express
 const app = express();
