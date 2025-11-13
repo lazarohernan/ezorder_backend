@@ -3,41 +3,25 @@
 
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
-const fs = require('fs');
 
-// Verificar que dist existe
-const distPath = path.join(__dirname, '../dist');
-if (!fs.existsSync(distPath)) {
-  console.error('ERROR: dist directory not found at:', distPath);
-  console.error('Current working directory:', process.cwd());
-  console.error('__dirname:', __dirname);
-}
-
-// Import routes con manejo de errores
-let healthRoutes;
-try {
-  healthRoutes = require('../dist/routes/health');
-} catch (error) {
-  console.error('Error loading health routes:', error);
-  throw error;
-}
-const authRoutes = require('../dist/routes/auth');
-const restaurantesRoutes = require('../dist/routes/restaurantes');
-const uploadsRoutes = require('../dist/routes/uploads');
-const usuariosRoutes = require('../dist/routes/usuarios');
-const rolesRoutes = require('../dist/routes/roles');
-const rolesPersonalizadosRoutes = require('../dist/routes/roles_personalizados');
-const menuRoutes = require('../dist/routes/menu');
-const menuCategoriesRoutes = require('../dist/routes/menuCategories');
-const clientesRoutes = require('../dist/routes/clientes');
-const pedidosRoutes = require('../dist/routes/pedidos');
-const pedidoItemsRoutes = require('../dist/routes/pedidoItems');
-const metodoPagoRoutes = require('../dist/routes/metodoPagoRoutes');
-const inventarioRoutes = require('../dist/routes/inventario');
-const cajaRoutes = require('../dist/routes/caja');
-const gastosRoutes = require('../dist/routes/gastos');
-const notificacionesRoutes = require('../dist/routes/notificaciones');
+// Import routes - TypeScript compila con exports.default, necesitamos acceder a .default
+const healthRoutes = require('../dist/routes/health').default || require('../dist/routes/health');
+const authRoutes = require('../dist/routes/auth').default || require('../dist/routes/auth');
+const restaurantesRoutes = require('../dist/routes/restaurantes').default || require('../dist/routes/restaurantes');
+const uploadsRoutes = require('../dist/routes/uploads').default || require('../dist/routes/uploads');
+const usuariosRoutes = require('../dist/routes/usuarios').default || require('../dist/routes/usuarios');
+const rolesRoutes = require('../dist/routes/roles').default || require('../dist/routes/roles');
+const rolesPersonalizadosRoutes = require('../dist/routes/roles_personalizados').default || require('../dist/routes/roles_personalizados');
+const menuRoutes = require('../dist/routes/menu').default || require('../dist/routes/menu');
+const menuCategoriesRoutes = require('../dist/routes/menuCategories').default || require('../dist/routes/menuCategories');
+const clientesRoutes = require('../dist/routes/clientes').default || require('../dist/routes/clientes');
+const pedidosRoutes = require('../dist/routes/pedidos').default || require('../dist/routes/pedidos');
+const pedidoItemsRoutes = require('../dist/routes/pedidoItems').default || require('../dist/routes/pedidoItems');
+const metodoPagoRoutes = require('../dist/routes/metodoPagoRoutes').default || require('../dist/routes/metodoPagoRoutes');
+const inventarioRoutes = require('../dist/routes/inventario').default || require('../dist/routes/inventario');
+const cajaRoutes = require('../dist/routes/caja').default || require('../dist/routes/caja');
+const gastosRoutes = require('../dist/routes/gastos').default || require('../dist/routes/gastos');
+const notificacionesRoutes = require('../dist/routes/notificaciones').default || require('../dist/routes/notificaciones');
 
 // Initialize express
 const app = express();
