@@ -4,9 +4,24 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 
-// Import routes
-const healthRoutes = require('../dist/routes/health');
+// Verificar que dist existe
+const distPath = path.join(__dirname, '../dist');
+if (!fs.existsSync(distPath)) {
+  console.error('ERROR: dist directory not found at:', distPath);
+  console.error('Current working directory:', process.cwd());
+  console.error('__dirname:', __dirname);
+}
+
+// Import routes con manejo de errores
+let healthRoutes;
+try {
+  healthRoutes = require('../dist/routes/health');
+} catch (error) {
+  console.error('Error loading health routes:', error);
+  throw error;
+}
 const authRoutes = require('../dist/routes/auth');
 const restaurantesRoutes = require('../dist/routes/restaurantes');
 const uploadsRoutes = require('../dist/routes/uploads');
