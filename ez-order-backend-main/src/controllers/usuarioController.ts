@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import type { User } from "@supabase/supabase-js";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
 
 export const getUsuarios = async (req: Request, res: Response) => {
@@ -267,7 +268,8 @@ export const inviteUsuario = async (req: Request, res: Response) => {
     }
 
     const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers();
-    const userExists = existingUser?.users.some((u: any) => u.email === email);
+    const users: User[] = (existingUser?.users ?? []) as User[];
+    const userExists = users.some((u) => u.email === email);
 
     if (userExists) {
       res.status(400).json({
