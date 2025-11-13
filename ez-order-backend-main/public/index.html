@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EZ Order - Status</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            animation: fadeIn 0.6s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .logo {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 1rem;
+            font-weight: 400;
+        }
+
+        .status-card {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .status-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #10b981;
+            box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
+            }
+            50% {
+                box-shadow: 0 0 0 8px rgba(16, 185, 129, 0.1);
+            }
+        }
+
+        .status-text {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #10b981;
+        }
+
+        .status-message {
+            font-size: 1rem;
+            color: #555;
+            margin-top: 10px;
+        }
+
+        .info-grid {
+            display: grid;
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .info-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .info-value {
+            font-weight: 500;
+            color: #333;
+            font-size: 0.95rem;
+        }
+
+        .refresh-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 20px;
+        }
+
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .refresh-btn:active {
+            transform: translateY(0);
+        }
+
+        .loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        .error {
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+        }
+
+        .error .status-dot {
+            background: #ef4444;
+            box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.2);
+        }
+
+        .error .status-text {
+            color: #ef4444;
+        }
+
+        .timestamp {
+            font-size: 0.85rem;
+            color: #999;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">EZ Order</div>
+            <div class="subtitle">Backend Status Monitor</div>
+        </div>
+
+        <div class="status-card" id="statusCard">
+            <div class="status-indicator">
+                <div class="status-dot"></div>
+                <div class="status-text" id="statusText">Checking...</div>
+            </div>
+            <div class="status-message" id="statusMessage">Verifying connection...</div>
+            <div class="timestamp" id="timestamp"></div>
+        </div>
+
+        <div class="info-grid">
+            <div class="info-item">
+                <span class="info-label">API Status</span>
+                <span class="info-value" id="apiStatus">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Database</span>
+                <span class="info-value" id="databaseStatus">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Response Time</span>
+                <span class="info-value" id="responseTime">-</span>
+            </div>
+        </div>
+
+        <button class="refresh-btn" id="refreshBtn" onclick="checkStatus()">
+            Refresh Status
+        </button>
+    </div>
+
+    <script>
+        async function checkStatus() {
+            const statusCard = document.getElementById('statusCard');
+            const statusText = document.getElementById('statusText');
+            const statusMessage = document.getElementById('statusMessage');
+            const timestamp = document.getElementById('timestamp');
+            const apiStatus = document.getElementById('apiStatus');
+            const databaseStatus = document.getElementById('databaseStatus');
+            const responseTime = document.getElementById('responseTime');
+            const refreshBtn = document.getElementById('refreshBtn');
+
+            // Reset UI
+            statusCard.classList.remove('error', 'loading');
+            statusCard.classList.add('loading');
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = 'Checking...';
+
+            const startTime = performance.now();
+
+            try {
+                const response = await fetch('/api/health');
+                const endTime = performance.now();
+                const responseTimeMs = Math.round(endTime - startTime);
+
+                statusCard.classList.remove('loading');
+
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Success state
+                    statusCard.classList.remove('error');
+                    statusText.textContent = 'Online';
+                    statusMessage.textContent = data.message || 'All systems operational';
+                    timestamp.textContent = `Last checked: ${new Date(data.timestamp).toLocaleString()}`;
+                    
+                    apiStatus.textContent = '✓ Operational';
+                    databaseStatus.textContent = '✓ Connected';
+                    responseTime.textContent = `${responseTimeMs}ms`;
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                // Error state
+                statusCard.classList.remove('loading');
+                statusCard.classList.add('error');
+                statusText.textContent = 'Offline';
+                statusMessage.textContent = error.message || 'Unable to connect to server';
+                timestamp.textContent = `Error at: ${new Date().toLocaleString()}`;
+                
+                apiStatus.textContent = '✗ Unavailable';
+                databaseStatus.textContent = '✗ Disconnected';
+                responseTime.textContent = '-';
+            } finally {
+                refreshBtn.disabled = false;
+                refreshBtn.textContent = 'Refresh Status';
+            }
+        }
+
+        // Check status on page load
+        checkStatus();
+
+        // Auto-refresh every 30 seconds
+        setInterval(checkStatus, 30000);
+    </script>
+</body>
+</html>
+

@@ -3,6 +3,7 @@
 
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 
 // Import routes - TypeScript compila con exports.default, necesitamos acceder a .default
 const healthRoutes = require('../dist/routes/health').default || require('../dist/routes/health');
@@ -41,9 +42,12 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
+// Serve static files from public directory
+app.use(express.static(path.join(__dirname, '../public')));
+
 // Routes
 app.get('/', (req, res) => {
-  res.send('¡Bienvenido a la API de EZOrder!');
+  res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 // Use routes
