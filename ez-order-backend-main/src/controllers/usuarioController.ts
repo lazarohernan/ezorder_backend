@@ -267,9 +267,16 @@ export const inviteUsuario = async (req: Request, res: Response) => {
       return;
     }
 
-    const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers();
-    const users: User[] = (existingUser?.users ?? []) as User[];
-    const userExists = users.some((u) => u.email === email);
+    const usersResponse = await supabaseAdmin.auth.admin.listUsers();
+    if (usersResponse.error) {
+      res.status(500).json({
+        success: false,
+        message: "Error al verificar usuarios existentes",
+        error: usersResponse.error.message,
+      });
+      return;
+    }
+    const userExists = usersResponse.data.users.some((u: User) => u.email === email);
 
     if (userExists) {
       res.status(400).json({
