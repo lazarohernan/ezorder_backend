@@ -219,6 +219,13 @@ export const inviteUsuario = async (req: Request, res: Response) => {
     }
 
     if (id_rol === 2 && restaurante_id) {
+      if (!supabaseAdmin) {
+        res.status(500).json({
+          success: false,
+          message: "Configuración de servidor incompleta",
+        });
+        return;
+      }
       const { data: userRestaurants } = await supabaseAdmin
         .from("usuarios_restaurantes")
         .select("restaurante_id")
@@ -359,6 +366,13 @@ export const createUsuario = async (req: Request, res: Response) => {
     }
 
     if (id_rol === 2 && restaurante_id) {
+      if (!supabaseAdmin) {
+        res.status(500).json({
+          success: false,
+          message: "Configuración de servidor incompleta",
+        });
+        return;
+      }
       const { data: userRestaurants } = await supabaseAdmin
         .from("usuarios_restaurantes")
         .select("restaurante_id")

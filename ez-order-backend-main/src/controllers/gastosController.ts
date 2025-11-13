@@ -251,6 +251,9 @@ export const gastosController = {
         // Super Admin puede crear gastos en cualquier restaurante
       } else if (id_rol === 2) {
         // Admin debe tener acceso al restaurante
+        if (!supabaseAdmin) {
+          return res.status(500).json({ error: 'Configuración de servidor incompleta' });
+        }
         const { data: userRestaurants } = await supabaseAdmin
           .from('usuarios_restaurantes')
           .select('restaurante_id')
@@ -342,6 +345,9 @@ export const gastosController = {
         // Super Admin puede actualizar cualquier gasto
       } else if (id_rol === 2) {
         // Admin debe tener acceso al restaurante del gasto
+        if (!supabaseAdmin) {
+          return res.status(500).json({ error: 'Configuración de servidor incompleta' });
+        }
         const { data: userRestaurants } = await supabaseAdmin
           .from('usuarios_restaurantes')
           .select('restaurante_id')
@@ -421,6 +427,9 @@ export const gastosController = {
         // Super Admin puede eliminar cualquier gasto
       } else if (id_rol === 2) {
         // Admin debe tener acceso al restaurante del gasto
+        if (!supabaseAdmin) {
+          return res.status(500).json({ error: 'Configuración de servidor incompleta' });
+        }
         const { data: userRestaurants } = await supabaseAdmin
           .from('usuarios_restaurantes')
           .select('restaurante_id')
