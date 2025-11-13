@@ -4,6 +4,11 @@ import { showPermissionError } from '@/utils/toast';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
+// Log para debugging (solo en desarrollo)
+if (import.meta.env.DEV) {
+  console.log('🔧 API URL configurada:', API_URL);
+}
+
 // Crear instancia personalizada de Axios
 const apiClient = axios.create({
   baseURL: API_URL,
