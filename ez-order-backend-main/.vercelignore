@@ -3,3 +3,5 @@ node_modules
 .env.local
 .env.*.local
 # No ignorar src/ ni *.ts porque son necesarios para el build de TypeScript
+# Solo ignorar dist/ después del build, pero necesitamos los archivos fuente para compilar
+
