@@ -40,25 +40,21 @@ export const requireAuth = async (
     // Añadir el usuario al objeto request para uso posterior
     req.user = data.user;
 
-    //Obtener más datos del usuario de la tabla usuarios_info usando cliente admin
-    if (!supabaseAdmin) {
+    // Obtener más datos del usuario de la tabla usuarios_info
+    // Usar siempre el cliente admin para bypassear RLS y obtener la información completa
+    const client = supabaseAdmin || supabase;
+    const { data: userInfoData, error: userInfoError } = await client
+      .from("usuarios_info")
+      .select("*")
+      .eq("id", data.user.id)
+      .single();
+
+    if (userInfoError) {
+      console.error("No se pudo obtener información del usuario:", userInfoError.message);
       req.user_info = null;
     } else {
-      const { data: userInfoData, error: userInfoError } = await supabaseAdmin
-        .from("usuarios_info")
-        .select("*")
-        .eq("id", data.user.id)
-        .limit(1);
-
-      if (userInfoError) {
-        console.error("No se pudo obtener información adicional del usuario:", userInfoError);
-        req.user_info = null;
-      } else {
-        req.user_info = userInfoData && userInfoData.length > 0 ? userInfoData[0] : null;
-      }
+      req.user_info = userInfoData;
     }
-    console.log("req.user.id", req.user?.id);
-    console.log("req.user_info", req.user_info);
 
     // Continuar con la siguiente función en la cadena de middleware
     next();

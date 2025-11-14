@@ -25,7 +25,7 @@ const port = process.env.PORT || 3000;
 
 // Configuración de CORS
 const corsOptions = {
-  origin: ["http://localhost:5173"], // Orígenes permitidos (URL del frontend de Vue)
+  origin: ["http://localhost:5173", "http://localhost:5174"], // Orígenes permitidos (URL del frontend de Vue)
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Métodos HTTP permitidos
   allowedHeaders: ["Content-Type", "Authorization"], // Headers permitidos
   credentials: true, // Permite enviar cookies entre orígenes

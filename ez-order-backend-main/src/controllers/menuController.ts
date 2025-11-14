@@ -1,18 +1,18 @@
 import { Request, Response } from "express";
-import { supabase, supabaseAdmin } from "../supabase/supabase";
+import { getClientWithRLS } from "../utils/supabaseHelpers";
+import { cleanUUID, checkRestaurantAccess } from "../utils/restaurantHelpers";
 
 // Obtener todos los menús
 export const getMenus = async (req: Request, res: Response) => {
   try {
     if (!req.user_info) {
-      res.status(403).json({
+      return res.status(403).json({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const id_rol = req.user_info?.rol_id ?? 3;
     let query = client
       .from("menu")
@@ -20,10 +20,7 @@ export const getMenus = async (req: Request, res: Response) => {
       .eq("activo", true);
 
     // Filtrar por restaurante según rol
-    if (id_rol === 1) {
-      // Super Admin ve todos los menús
-    } else if (id_rol === 2) {
-      // Admin ve menús de sus restaurantes
+    if (id_rol === 2) {
       const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
@@ -34,42 +31,29 @@ export const getMenus = async (req: Request, res: Response) => {
       if (restaurantIds.length > 0) {
         query = query.in("restaurante_id", restaurantIds);
       } else {
-        // Si no tiene restaurantes, devolver vacío
-        return res.status(200).json({
-          success: true,
-          data: [],
-        });
+        return res.status(200).json({ success: true, data: [] });
       }
-    } else {
-      // Usuarios normales solo ven menús de su restaurante
+    } else if (id_rol !== 1) {
       const restaurante_id = req.user_info?.restaurante_id;
       if (!restaurante_id) {
-        res.status(403).json({
+        return res.status(403).json({
           success: false,
           message: "El usuario no tiene un restaurante asignado",
         });
-        return;
       }
       query = query.eq("restaurante_id", restaurante_id);
     }
 
-    query = query.order("nombre", { ascending: true });
-
-    const { data, error } = await query;
+    const { data, error } = await query.order("nombre", { ascending: true });
 
     if (error) throw error;
 
-    res.status(200).json({
-      success: true,
-      data,
-    });
-    return;
+    res.status(200).json({ success: true, data });
   } catch (error: any) {
     res.status(500).json({
       success: false,
       message: error.message || "Error al obtener menús",
     });
-    return;
   }
 };
 
@@ -78,11 +62,7 @@ export const getMenusByRestauranteId = async (req: Request, res: Response) => {
   const { restaurante_id } = req.params;
 
   try {
-    console.log(
-      `Usuario ${req.user?.id} solicitó los menús del restaurante ${restaurante_id}`
-    );
-
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const { data, error } = await client
       .from("menu")
       .select("*, restaurantes(id, nombre_restaurante), menu_categorias(id, nombre)")
@@ -92,17 +72,12 @@ export const getMenusByRestauranteId = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    res.status(200).json({
-      success: true,
-      data,
-    });
-    return;
+    res.status(200).json({ success: true, data });
   } catch (error: any) {
     res.status(500).json({
       success: false,
       message: error.message || "Error al obtener menús del restaurante",
     });
-    return;
   }
 };
 
@@ -112,16 +87,13 @@ export const getMenuById = async (req: Request, res: Response) => {
 
   try {
     if (!req.user_info) {
-      res.status(403).json({
+      return res.status(403).json({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    console.log(`Usuario ${req.user_info.id} solicitó el menú ${id}`);
-
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const { data, error } = await client
       .from("menu")
       .select("*, restaurantes(id, nombre_restaurante), menu_categorias(id, nombre)")
@@ -130,57 +102,36 @@ export const getMenuById = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return res.status(404).json({
           success: false,
           message: "Menú no encontrado",
         });
-        return;
       }
       throw error;
     }
 
-    // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
-    if (id_rol === 1) {
-      // Super Admin puede ver cualquier menú
-    } else if (id_rol === 2) {
-      // Admin debe tener acceso al restaurante del menú
-      const { data: userRestaurants } = await client
-        .from("usuarios_restaurantes")
-        .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+    // Verificar permisos
+    const hasAccess = await checkRestaurantAccess(
+      client,
+      req.user_info.id,
+      data.restaurante_id,
+      req.user_info?.rol_id ?? 3,
+      req.user_info.restaurante_id
+    );
 
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (!restaurantIds.includes(data.restaurante_id)) {
-        res.status(403).json({
-          success: false,
-          message: "No tienes acceso a este menú",
-        });
-        return;
-      }
-    } else {
-      // Usuarios normales solo pueden ver menús de su restaurante
-      if (req.user_info.restaurante_id !== data.restaurante_id) {
-        res.status(403).json({
-          success: false,
-          message: "No tienes acceso a este menú",
-        });
-        return;
-      }
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: "No tienes acceso a este menú",
+      });
     }
 
-    res.status(200).json({
-      success: true,
-      data,
-    });
-    return;
+    res.status(200).json({ success: true, data });
   } catch (error: any) {
     res.status(500).json({
       success: false,
       message: error.message || "Error al obtener menú",
     });
-    return;
   }
 };
 
@@ -200,86 +151,80 @@ export const createMenu = async (req: Request, res: Response) => {
     activo,
     es_exento,
     es_exonerado,
+    requiere_inventario,
   } = req.body;
 
-  // Verificar campos obligatorios
-  if (!restaurante_id || !nombre) {
-    res.status(400).json({
+  const cleanRestauranteId = cleanUUID(restaurante_id);
+  const cleanCategoriaId = cleanUUID(categoria_id);
+  
+  // Validar campos obligatorios
+  if (!cleanRestauranteId || !nombre?.trim()) {
+    return res.status(400).json({
       success: false,
       message: "El restaurante_id y nombre son obligatorios",
     });
-    return;
   }
 
   try {
     if (!req.user_info) {
-      res.status(403).json({
+      return res.status(403).json({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    // Validar permisos según rol
+    const client = await getClientWithRLS(req);
     const id_rol = req.user_info?.rol_id ?? 3;
-    if (id_rol === 1) {
-      // Super Admin puede crear menús en cualquier restaurante
-    } else if (id_rol === 2) {
-      // Admin debe tener acceso al restaurante
-      const client = supabaseAdmin || supabase;
-      const { data: userRestaurants, error: restaurantsError } = await client
-        .from("usuarios_restaurantes")
-        .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
 
-      if (restaurantsError) {
-        res.status(500).json({
-          success: false,
-          message: "Error al verificar permisos",
-        });
-        return;
-      }
+    // Verificar permisos
+    if (id_rol !== 1) {
+      const hasAccess = await checkRestaurantAccess(
+        client,
+        req.user_info.id,
+        cleanRestauranteId,
+        id_rol,
+        req.user_info.restaurante_id
+      );
 
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (!restaurantIds.includes(restaurante_id)) {
-        res.status(403).json({
+      if (!hasAccess) {
+        return res.status(403).json({
           success: false,
-          message: "No tienes acceso a este restaurante",
+          message: id_rol === 2 
+            ? "No tienes acceso a este restaurante"
+            : "No puedes crear menús para este restaurante",
         });
-        return;
-      }
-    } else {
-      // Usuarios normales solo pueden crear menús en su restaurante
-      if (req.user_info.restaurante_id !== restaurante_id) {
-        res.status(403).json({
-          success: false,
-          message: "No puedes crear menús para este restaurante",
-        });
-        return;
       }
     }
 
-    const client = supabaseAdmin || supabase;
+    // Construir objeto de inserción
+    const insertData: any = {
+      restaurante_id: cleanRestauranteId,
+      nombre: nombre.trim(),
+      categoria_id: cleanCategoriaId,
+    };
+
+    // Agregar campos opcionales solo si tienen valor
+    if (num_menu?.trim()) insertData.num_menu = num_menu.trim();
+    if (descripcion?.trim()) insertData.descripcion = descripcion.trim();
+    if (otra_info?.trim()) insertData.otra_info = otra_info.trim();
+    if (imagen?.trim()) insertData.imagen = imagen.trim();
+    
+    if (precio !== undefined && precio !== null && precio !== '') {
+      insertData.precio = Number(precio);
+    }
+    if (porcentaje_impuesto !== undefined && porcentaje_impuesto !== null && porcentaje_impuesto !== '') {
+      insertData.porcentaje_impuesto = Number(porcentaje_impuesto);
+    }
+    
+    if (es_para_cocina !== undefined) insertData.es_para_cocina = Boolean(es_para_cocina);
+    if (activo !== undefined) insertData.activo = Boolean(activo);
+    if (es_exento !== undefined) insertData.es_exento = Boolean(es_exento);
+    if (es_exonerado !== undefined) insertData.es_exonerado = Boolean(es_exonerado);
+    if (requiere_inventario !== undefined) insertData.requiere_inventario = Boolean(requiere_inventario);
+    
     const { data, error } = await client
       .from("menu")
-      .insert([
-        {
-          restaurante_id,
-          categoria_id,
-          num_menu,
-          nombre,
-          descripcion,
-          otra_info,
-          precio,
-          imagen,
-          porcentaje_impuesto,
-          es_para_cocina,
-          activo,
-          es_exento,
-          es_exonerado,
-        },
-      ])
+      .insert([insertData])
       .select()
       .single();
 
@@ -290,14 +235,12 @@ export const createMenu = async (req: Request, res: Response) => {
       message: "Menú creado exitosamente",
       data,
     });
-    return;
   } catch (error: any) {
     console.error("Error al crear menú:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error al crear menú",
     });
-    return;
   }
 };
 
@@ -318,41 +261,34 @@ export const updateMenu = async (req: Request, res: Response) => {
     activo,
     es_exento,
     es_exonerado,
+    requiere_inventario,
   } = req.body;
 
   // Verificar que se proporcione al menos un campo para actualizar
-  if (
-    !restaurante_id &&
-    categoria_id === undefined &&
-    !num_menu &&
-    !nombre &&
-    !descripcion &&
-    otra_info === undefined &&
-    precio === undefined &&
-    !imagen &&
-    porcentaje_impuesto === undefined &&
-    es_para_cocina === undefined &&
-    activo === undefined
-  ) {
-    res.status(400).json({
+  const hasFields = [
+    restaurante_id, categoria_id, num_menu, nombre, descripcion,
+    otra_info, precio, imagen, porcentaje_impuesto, es_para_cocina,
+    activo, es_exento, es_exonerado, requiere_inventario
+  ].some(field => field !== undefined);
+
+  if (!hasFields) {
+    return res.status(400).json({
       success: false,
       message: "Se debe proporcionar al menos un campo para actualizar",
     });
-    return;
   }
 
   try {
     if (!req.user_info) {
-      res.status(403).json({
+      return res.status(403).json({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
 
-    // Primero obtener el menú para verificar permisos
+    // Obtener el menú existente para verificar permisos
     const { data: menuExistente, error: errorBuscar } = await client
       .from("menu")
       .select("id, restaurante_id")
@@ -360,69 +296,61 @@ export const updateMenu = async (req: Request, res: Response) => {
       .single();
 
     if (errorBuscar || !menuExistente) {
-      res.status(404).json({
+      return res.status(404).json({
         success: false,
         message: "Menú no encontrado",
       });
-      return;
     }
 
-    // Verificar permisos según rol
+    // Verificar permisos
     const id_rol = req.user_info?.rol_id ?? 3;
-    if (id_rol === 1) {
-      // Super Admin puede actualizar cualquier menú
-    } else if (id_rol === 2) {
-      // Admin debe tener acceso al restaurante del menú
-      const { data: userRestaurants } = await client
-        .from("usuarios_restaurantes")
-        .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+    if (id_rol !== 1) {
+      const hasAccess = await checkRestaurantAccess(
+        client,
+        req.user_info.id,
+        menuExistente.restaurante_id,
+        id_rol,
+        req.user_info.restaurante_id
+      );
 
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (!restaurantIds.includes(menuExistente.restaurante_id)) {
-        res.status(403).json({
+      if (!hasAccess) {
+        return res.status(403).json({
           success: false,
           message: "No tienes acceso a este menú",
         });
-        return;
-      }
-    } else {
-      // Usuarios normales solo pueden actualizar menús de su restaurante
-      if (req.user_info.restaurante_id !== menuExistente.restaurante_id) {
-        res.status(403).json({
-          success: false,
-          message: "No tienes acceso a este menú",
-        });
-        return;
       }
     }
 
-    // Prevenir cambio de restaurante_id si se intenta modificar
+    // Prevenir cambio de restaurante_id
     if (restaurante_id && restaurante_id !== menuExistente.restaurante_id) {
-      res.status(403).json({
+      return res.status(403).json({
         success: false,
         message: "No puedes cambiar el restaurante de un menú",
       });
-      return;
     }
 
-    // Crear objeto con solo los campos proporcionados
+    // Construir objeto de actualización
     const updateFields: any = {};
-    if (categoria_id !== undefined) updateFields.categoria_id = categoria_id;
+    
+    if (restaurante_id !== undefined) {
+      const cleanRestauranteId = cleanUUID(restaurante_id);
+      if (cleanRestauranteId) updateFields.restaurante_id = cleanRestauranteId;
+    }
+    if (categoria_id !== undefined) {
+      updateFields.categoria_id = cleanUUID(categoria_id);
+    }
     if (num_menu !== undefined) updateFields.num_menu = num_menu;
-    if (nombre) updateFields.nombre = nombre;
+    if (nombre !== undefined) updateFields.nombre = nombre;
     if (descripcion !== undefined) updateFields.descripcion = descripcion;
     if (otra_info !== undefined) updateFields.otra_info = otra_info;
     if (precio !== undefined) updateFields.precio = precio;
     if (imagen !== undefined) updateFields.imagen = imagen;
-    if (porcentaje_impuesto !== undefined)
-      updateFields.porcentaje_impuesto = porcentaje_impuesto;
-    if (es_para_cocina !== undefined)
-      updateFields.es_para_cocina = es_para_cocina;
+    if (porcentaje_impuesto !== undefined) updateFields.porcentaje_impuesto = porcentaje_impuesto;
+    if (es_para_cocina !== undefined) updateFields.es_para_cocina = es_para_cocina;
     if (activo !== undefined) updateFields.activo = activo;
     if (es_exento !== undefined) updateFields.es_exento = es_exento;
     if (es_exonerado !== undefined) updateFields.es_exonerado = es_exonerado;
+    if (requiere_inventario !== undefined) updateFields.requiere_inventario = requiere_inventario;
 
     const { data, error } = await client
       .from("menu")
@@ -433,11 +361,10 @@ export const updateMenu = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return res.status(404).json({
           success: false,
           message: "Menú no encontrado",
         });
-        return;
       }
       throw error;
     }
@@ -447,13 +374,12 @@ export const updateMenu = async (req: Request, res: Response) => {
       message: "Menú actualizado exitosamente",
       data,
     });
-    return;
   } catch (error: any) {
+    console.error("Error al actualizar menú:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error al actualizar menú",
     });
-    return;
   }
 };
 
@@ -463,16 +389,15 @@ export const deleteMenu = async (req: Request, res: Response) => {
 
   try {
     if (!req.user_info) {
-      res.status(403).json({
+      return res.status(403).json({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
 
-    // Primero obtener el menú para verificar permisos
+    // Obtener el menú existente para verificar permisos
     const { data: menuExistente, error: errorBuscar } = await client
       .from("menu")
       .select("id, restaurante_id")
@@ -480,72 +405,67 @@ export const deleteMenu = async (req: Request, res: Response) => {
       .single();
 
     if (errorBuscar || !menuExistente) {
-      res.status(404).json({
+      return res.status(404).json({
         success: false,
         message: "Menú no encontrado",
       });
-      return;
     }
 
-    // Verificar permisos según rol
+    // Verificar permisos
     const id_rol = req.user_info?.rol_id ?? 3;
-    if (id_rol === 1) {
-      // Super Admin puede eliminar cualquier menú
-    } else if (id_rol === 2) {
-      // Admin debe tener acceso al restaurante del menú
-      const { data: userRestaurants } = await client
-        .from("usuarios_restaurantes")
-        .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+    if (id_rol !== 1) {
+      const hasAccess = await checkRestaurantAccess(
+        client,
+        req.user_info.id,
+        menuExistente.restaurante_id,
+        id_rol,
+        req.user_info.restaurante_id
+      );
 
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (!restaurantIds.includes(menuExistente.restaurante_id)) {
-        res.status(403).json({
+      if (!hasAccess) {
+        return res.status(403).json({
           success: false,
           message: "No tienes acceso a este menú",
         });
-        return;
-      }
-    } else {
-      // Usuarios normales solo pueden eliminar menús de su restaurante
-      if (req.user_info.restaurante_id !== menuExistente.restaurante_id) {
-        res.status(403).json({
-          success: false,
-          message: "No tienes acceso a este menú",
-        });
-        return;
       }
     }
 
-    // Cambiar el estado activo a false
+    // Verificar pedidos asociados
+    const { data: pedidosAsociados } = await client
+      .from("pedido_items")
+      .select("id")
+      .eq("menu_id", id);
+
+    const cantidadPedidos = pedidosAsociados?.length || 0;
+
+    // Eliminar el producto
     const { error } = await client
       .from("menu")
-      .update({ activo: false })
+      .delete()
       .eq("id", id);
 
     if (error) {
       if (error.code === "23503") {
-        res.status(400).json({
+        return res.status(400).json({
           success: false,
-          message:
-            "No se puede eliminar este menú porque tiene registros relacionados",
+          message: "No se puede eliminar este producto porque tiene registros relacionados",
         });
-        return;
       }
       throw error;
     }
 
     res.status(200).json({
       success: true,
-      message: "Menú eliminado exitosamente",
+      message: cantidadPedidos > 0
+        ? `Producto eliminado completamente del sistema. El historial se mantiene en ${cantidadPedidos} pedido(s) asociado(s).`
+        : "Producto eliminado completamente del sistema",
+      pedidosAfectados: cantidadPedidos,
     });
-    return;
   } catch (error: any) {
+    console.error("Error al eliminar menú:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error al eliminar menú",
     });
-    return;
   }
 };

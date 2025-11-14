@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { supabase, supabaseAdmin } from '../supabase/supabase';
+import { getClientWithRLS, getAdminClient } from '../utils/supabaseHelpers';
 import notificacionesService from '../services/notificacionesService';
 import { getHondurasDate, getStartOfDayHonduras, getEndOfDayHonduras, toISOStringHonduras } from '../utils/dateUtils';
 
@@ -9,7 +9,8 @@ type CajaRecord = {
 };
 
 const enrichCajasWithUsuarioNombre = async <T extends CajaRecord>(
-  cajas: T[]
+  cajas: T[],
+  req?: Request
 ): Promise<(T & { usuario_nombre: string | null })[]> => {
   if (!cajas.length) {
     return cajas.map((caja) => ({ ...caja, usuario_nombre: caja.usuario_nombre ?? null }));
@@ -27,7 +28,9 @@ const enrichCajasWithUsuarioNombre = async <T extends CajaRecord>(
     return cajas.map((caja) => ({ ...caja, usuario_nombre: caja.usuario_nombre ?? null }));
   }
 
-  const client = supabaseAdmin || supabase;
+  // Usar admin client para obtener información de usuarios (bypass RLS)
+  // ya que necesitamos acceder a usuarios_info sin restricciones
+  const client = getAdminClient();
   const { data: usuarios, error } = await client
     .from('usuarios_info')
     .select('id, nombre_usuario')
@@ -55,9 +58,73 @@ export const cajaController = {
   // Obtener todas las cajas de todos los restaurantes (solo administradores)
   async getAllCajas(req: Request, res: Response) {
     try {
+      if (!req.user_info) {
+        return res.status(403).json({ 
+          error: 'No se encontró información del usuario autenticado' 
+        });
+      }
+
       const { page = 1, limit = 10, estado, restaurante_id, fecha_desde, fecha_hasta } = req.query;
 
-      const client = supabaseAdmin || supabase;
+      // Obtener el token del header para usar con supabase (respeta RLS)
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Token de autenticación requerido' });
+      }
+
+      // Obtener restaurantes permitidos según el rol
+      // Usaremos supabaseAdmin para las consultas y aplicaremos filtrado manual
+      const id_rol = req.user_info?.rol_id ?? 3;
+      let restaurantesPermitidos: string[] = [];
+
+      if (id_rol === 1) {
+        // Super Admin puede ver todas las cajas (no filtrar)
+        restaurantesPermitidos = [];
+      } else if (id_rol === 2) {
+        // Admin solo puede ver cajas de SUS restaurantes
+        const client = await getClientWithRLS(req);
+        const { data: userRestaurants, error: userRestError } = await client
+          .from('usuarios_restaurantes')
+          .select('restaurante_id')
+          .eq('usuario_id', req.user_info.id);
+
+        if (userRestError) {
+          console.error('Error al obtener restaurantes del usuario:', userRestError);
+          return res.status(500).json({ error: 'Error al obtener restaurantes del usuario' });
+        }
+
+        restaurantesPermitidos = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+        
+        if (restaurantesPermitidos.length === 0) {
+          return res.json({
+            data: [],
+            pagination: {
+              page: Number(page),
+              limit: Number(limit),
+              total: 0,
+              pages: 0
+            }
+          });
+        }
+      } else {
+        // Usuarios normales solo pueden ver cajas de su restaurante
+        if (!req.user_info.restaurante_id) {
+          return res.json({
+            data: [],
+            pagination: {
+              page: Number(page),
+              limit: Number(limit),
+              total: 0,
+              pages: 0
+            }
+          });
+        }
+        restaurantesPermitidos = [req.user_info.restaurante_id];
+      }
+
+      const client = await getClientWithRLS(req);
+
+      // Construir query con filtrado manual por restaurantes permitidos
       let query = client
         .from('caja')
         .select(`
@@ -69,13 +136,25 @@ export const cajaController = {
         `)
         .order('fecha_apertura', { ascending: false });
 
+      // Filtrar por restaurantes permitidos si no es Super Admin
+      if (id_rol !== 1 && restaurantesPermitidos.length > 0) {
+        query = query.in('restaurante_id', restaurantesPermitidos);
+      }
+
+      // Si el frontend envía un filtro de restaurante, validarlo
+      if (restaurante_id) {
+        const restauranteIdStr = restaurante_id as string;
+        if (id_rol !== 1 && !restaurantesPermitidos.includes(restauranteIdStr)) {
+          return res.status(403).json({ 
+            error: 'No tienes acceso a este restaurante' 
+          });
+        }
+        query = query.eq('restaurante_id', restauranteIdStr);
+      }
+
       // Filtros opcionales
       if (estado) {
         query = query.eq('estado', estado);
-      }
-
-      if (restaurante_id) {
-        query = query.eq('restaurante_id', restaurante_id);
       }
 
       // Filtros de fecha
@@ -93,25 +172,28 @@ export const cajaController = {
       const to = from + Number(limit) - 1;
 
       const { data, error } = await query
-        .range(from, to)
-        .select(`
-          *,
-          restaurantes:restaurante_id (
-            id,
-            nombre_restaurante
-          )
-        `);
+        .range(from, to);
 
       let countQuery = client
         .from('caja')
         .select('*', { count: 'exact', head: true });
 
-      if (estado) {
-        countQuery = countQuery.eq('estado', estado);
+      // Aplicar los mismos filtros al count
+      if (id_rol !== 1 && restaurantesPermitidos.length > 0) {
+        countQuery = countQuery.in('restaurante_id', restaurantesPermitidos);
       }
 
       if (restaurante_id) {
-        countQuery = countQuery.eq('restaurante_id', restaurante_id);
+        const restauranteIdStr = restaurante_id as string;
+        if (id_rol !== 1 && !restaurantesPermitidos.includes(restauranteIdStr)) {
+          countQuery = countQuery.eq('restaurante_id', '00000000-0000-0000-0000-000000000000'); // Query imposible
+        } else {
+          countQuery = countQuery.eq('restaurante_id', restauranteIdStr);
+        }
+      }
+
+      if (estado) {
+        countQuery = countQuery.eq('estado', estado);
       }
 
       if (fecha_desde) {
@@ -130,7 +212,7 @@ export const cajaController = {
         return res.status(400).json({ error: error.message });
       }
 
-      const dataWithUsuarios = await enrichCajasWithUsuarioNombre(data || []);
+      const dataWithUsuarios = await enrichCajasWithUsuarioNombre(data || [], req);
 
       // Agregar información del restaurante a cada caja
       const dataWithRestaurant = dataWithUsuarios.map(caja => ({
@@ -158,7 +240,7 @@ export const cajaController = {
     try {
       const { page = 1, limit = 10, restaurante_id } = req.query;
 
-      const client = supabaseAdmin || supabase;
+      const client = await getClientWithRLS(req);
       let query = client
         .from('caja')
         .select(`
@@ -203,7 +285,7 @@ export const cajaController = {
         return res.status(400).json({ error: error.message });
       }
 
-      const dataWithUsuarios = await enrichCajasWithUsuarioNombre(data || []);
+      const dataWithUsuarios = await enrichCajasWithUsuarioNombre(data || [], req);
 
       // Agregar información del restaurante a cada caja
       const dataWithRestaurant = dataWithUsuarios.map(caja => ({
@@ -232,7 +314,7 @@ export const cajaController = {
       const { restaurante_id } = req.params;
       const { page = 1, limit = 10, estado, fecha_desde, fecha_hasta } = req.query;
 
-      const client = supabaseAdmin || supabase;
+      const client = await getClientWithRLS(req);
       let query = client
         .from('caja')
         .select(`
@@ -298,7 +380,7 @@ export const cajaController = {
         return res.status(400).json({ error: error.message });
       }
 
-      const dataWithUsuarios = await enrichCajasWithUsuarioNombre(data || []);
+      const dataWithUsuarios = await enrichCajasWithUsuarioNombre(data || [], req);
 
       // Agregar información del restaurante a cada caja
       const dataWithRestaurant = dataWithUsuarios.map(caja => ({
@@ -326,7 +408,7 @@ export const cajaController = {
     try {
       const { restaurante_id } = req.params;
 
-      const client = supabaseAdmin || supabase;
+      const client = await getClientWithRLS(req);
       const { data, error } = await client
         .from('caja')
         .select(`
@@ -346,7 +428,7 @@ export const cajaController = {
       }
 
       const cajaActual = error && error.code === 'PGRST116' ? null : data;
-      const [cajaActualWithNombre] = await enrichCajasWithUsuarioNombre(cajaActual ? [cajaActual] : []);
+      const [cajaActualWithNombre] = await enrichCajasWithUsuarioNombre(cajaActual ? [cajaActual] : [], req);
 
       // Agregar información del restaurante
       const cajaWithRestaurant = cajaActualWithNombre ? {
@@ -367,7 +449,7 @@ export const cajaController = {
       const { restaurante_id } = req.params;
       const { fecha } = req.query;
 
-      const client = supabaseAdmin || supabase;
+      const client = await getClientWithRLS(req);
       // Obtener caja actual
       const { data: cajaActual, error: cajaError } = await client
         .from('caja')
@@ -387,7 +469,8 @@ export const cajaController = {
       }
 
       const [cajaActualWithNombre] = await enrichCajasWithUsuarioNombre(
-        cajaActual ? [cajaActual] : []
+        cajaActual ? [cajaActual] : [],
+        req
       );
 
       // Agregar información del restaurante a la caja actual
@@ -493,7 +576,7 @@ export const cajaController = {
         // Super Admin puede abrir caja en cualquier restaurante
       } else if (id_rol === 2) {
         // Admin debe tener acceso al restaurante
-        const client = supabaseAdmin || supabase;
+        const client = await getClientWithRLS(req);
         const { data: userRestaurants } = await client
           .from('usuarios_restaurantes')
           .select('restaurante_id')
@@ -515,7 +598,7 @@ export const cajaController = {
         }
       }
 
-      const client = supabaseAdmin || supabase;
+      const client = await getClientWithRLS(req);
       
       // VALIDACIÓN 1: Verificar si ya hay una caja abierta
       const { data: cajaExistente, error: checkError } = await client
@@ -592,7 +675,7 @@ export const cajaController = {
         });
       }
 
-      const [dataWithNombre] = await enrichCajasWithUsuarioNombre(data ? [data] : []);
+      const [dataWithNombre] = await enrichCajasWithUsuarioNombre(data ? [data] : [], req);
 
       console.log(`Caja abierta exitosamente con saldo inicial de $${Number(monto_inicial).toFixed(2)}`);
 
@@ -622,7 +705,7 @@ export const cajaController = {
         ventas_efectivo_reportadas
       } = req.body;
 
-      const client = supabaseAdmin || supabase;
+      const client = await getClientWithRLS(req);
       // Obtener caja actual
       const { data: cajaActual, error: cajaError } = await client
         .from('caja')
@@ -767,7 +850,7 @@ export const cajaController = {
         return res.status(400).json({ error: error.message });
       }
 
-      const [dataWithNombre] = await enrichCajasWithUsuarioNombre(data ? [data] : []);
+      const [dataWithNombre] = await enrichCajasWithUsuarioNombre(data ? [data] : [], req);
 
       res.json({ 
         data: dataWithNombre || null,
@@ -825,7 +908,7 @@ export const cajaController = {
       const { id } = req.params;
       const { total_ingresos, total_egresos, observaciones } = req.body;
 
-      const client = supabaseAdmin || supabase;
+      const client = await getClientWithRLS(req);
 
       // Primero obtener la caja para verificar permisos
       const { data: cajaExistente, error: errorBuscar } = await client
@@ -889,7 +972,7 @@ export const cajaController = {
         return res.status(400).json({ error: error.message });
       }
 
-      const [dataWithNombre] = await enrichCajasWithUsuarioNombre(data ? [data] : []);
+      const [dataWithNombre] = await enrichCajasWithUsuarioNombre(data ? [data] : [], req);
 
       res.json({ data: dataWithNombre || null });
     } catch (error) {
@@ -908,7 +991,7 @@ export const cajaController = {
       }
 
       const { id } = req.params;
-      const client = supabaseAdmin || supabase;
+      const client = await getClientWithRLS(req);
 
       // Obtener la caja
       const { data: caja, error } = await client
@@ -956,7 +1039,7 @@ export const cajaController = {
         }
       }
 
-      const [dataWithNombre] = await enrichCajasWithUsuarioNombre([caja]);
+      const [dataWithNombre] = await enrichCajasWithUsuarioNombre([caja], req);
 
       res.json({ data: dataWithNombre || null });
     } catch (error) {

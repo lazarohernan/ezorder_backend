@@ -1,15 +1,12 @@
 import { Request, Response } from "express";
-import { supabase, supabaseAdmin } from "../supabase/supabase";
+import { getClientWithRLS, getAdminClient } from "../utils/supabaseHelpers";
 
 // Función para generar el siguiente número de ticket consecutivo
+// Esta función necesita admin porque es una operación interna del sistema
 const generarSiguienteTicket = async (restaurante_id: string): Promise<number> => {
   try {
-    if (!supabaseAdmin) {
-      console.error("❌ supabaseAdmin no está configurado");
-      return 1;
-    }
-
-    const { data, error } = await supabaseAdmin
+    const adminClient = getAdminClient();
+    const { data, error } = await adminClient
       .from("pedidos")
       .select("numero_ticket")
       .eq("restaurante_id", restaurante_id)
@@ -41,16 +38,9 @@ export const getPedidos = async (req: Request, res: Response) => {
       return;
     }
 
-    if (!supabaseAdmin) {
-      res.status(500).json({
-        success: false,
-        message: "Error de configuración del servidor",
-      });
-      return;
-    }
-
+    const client = await getClientWithRLS(req);
     const id_rol = req.user_info?.rol_id ?? 3;
-    let query = supabaseAdmin
+    let query = client
       .from("pedidos")
       .select(
         `
@@ -65,7 +55,7 @@ export const getPedidos = async (req: Request, res: Response) => {
       // Super Admin ve todos los pedidos
     } else if (id_rol === 2) {
       // Admin ve pedidos de sus restaurantes
-      const { data: userRestaurants } = await supabaseAdmin
+      const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
         .eq("usuario_id", req.user_info.id);
@@ -125,15 +115,8 @@ export const getPedidoById = async (req: Request, res: Response) => {
       return;
     }
 
-    if (!supabaseAdmin) {
-      res.status(500).json({
-        success: false,
-        message: "Error de configuración del servidor",
-      });
-      return;
-    }
-
-    const { data, error } = await supabaseAdmin
+    const client = await getClientWithRLS(req);
+    const { data, error } = await client
       .from("pedidos")
       .select(
         `
@@ -162,7 +145,7 @@ export const getPedidoById = async (req: Request, res: Response) => {
       // Super Admin puede ver cualquier pedido
     } else if (id_rol === 2) {
       // Admin debe tener acceso al restaurante del pedido
-      const { data: userRestaurants } = await supabaseAdmin
+      const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
         .eq("usuario_id", req.user_info.id);
@@ -217,21 +200,14 @@ export const getPedidosByRestauranteId = async (
       return;
     }
 
-    if (!supabaseAdmin) {
-      res.status(500).json({
-        success: false,
-        message: "Error de configuración del servidor",
-      });
-      return;
-    }
-
+    const client = await getClientWithRLS(req);
     // Verificar permisos según rol
     const id_rol = req.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede ver pedidos de cualquier restaurante
     } else if (id_rol === 2) {
       // Admin debe tener acceso al restaurante
-      const { data: userRestaurants } = await supabaseAdmin
+      const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
         .eq("usuario_id", req.user_info.id);
@@ -256,8 +232,7 @@ export const getPedidosByRestauranteId = async (
       }
     }
 
-    // Usar supabaseAdmin para bypass de RLS en operaciones del backend
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await client
       .from("pedidos")
       .select(
         `
@@ -338,20 +313,14 @@ export const createPedido = async (req: Request, res: Response) => {
       return;
     }
 
+    const client = await getClientWithRLS(req);
     // Validar permisos según rol
     const id_rol = req.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede crear pedidos en cualquier restaurante
     } else if (id_rol === 2) {
       // Admin debe tener acceso al restaurante
-      if (!supabaseAdmin) {
-        res.status(500).json({
-          success: false,
-          message: "Error de configuración del servidor",
-        });
-        return;
-      }
-      const { data: userRestaurants } = await supabaseAdmin
+      const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
         .eq("usuario_id", req.user_info.id);
@@ -376,20 +345,10 @@ export const createPedido = async (req: Request, res: Response) => {
       }
     }
 
-    // Validar que la caja esté abierta antes de crear el pedido
-    if (!supabaseAdmin) {
-      console.error("❌ Error: supabaseAdmin no configurado");
-      res.status(500).json({
-        success: false,
-        message: "Error de configuración del servidor",
-      });
-      return;
-    }
-
     console.log("🔍 Verificando estado de caja para restaurante:", restaurante_id);
 
     // Buscar caja abierta para el restaurante
-    const { data: cajasAbiertas, error: cajaError } = await supabaseAdmin
+    const { data: cajasAbiertas, error: cajaError } = await client
       .from("caja")
       .select("id, estado, fecha_apertura")
       .eq("restaurante_id", restaurante_id)
@@ -448,7 +407,7 @@ export const createPedido = async (req: Request, res: Response) => {
 
     console.log("📝 Pedido a insertar:", JSON.stringify(pedidoParaInsertar, null, 2));
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await client
       .from("pedidos")
       .insert([pedidoParaInsertar])
       .select()
@@ -491,16 +450,9 @@ export const updatePedido = async (req: Request, res: Response) => {
       return;
     }
 
-    if (!supabaseAdmin) {
-      res.status(500).json({
-        success: false,
-        message: "Error de configuración del servidor",
-      });
-      return;
-    }
-
+    const client = await getClientWithRLS(req);
     // Primero obtener el pedido para verificar permisos
-    const { data: pedidoExistente, error: errorBuscar } = await supabaseAdmin
+    const { data: pedidoExistente, error: errorBuscar } = await client
       .from("pedidos")
       .select("id, restaurante_id")
       .eq("id", id)
@@ -520,7 +472,7 @@ export const updatePedido = async (req: Request, res: Response) => {
       // Super Admin puede actualizar cualquier pedido
     } else if (id_rol === 2) {
       // Admin debe tener acceso al restaurante del pedido
-      const { data: userRestaurants } = await supabaseAdmin
+      const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
         .eq("usuario_id", req.user_info.id);
@@ -556,7 +508,7 @@ export const updatePedido = async (req: Request, res: Response) => {
 
     console.log(`🔄 Actualizando pedido ${id} con:`, updates);
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await client
       .from("pedidos")
       .update(updates)
       .eq("id", id)
@@ -606,16 +558,9 @@ export const deletePedido = async (req: Request, res: Response) => {
       return;
     }
 
-    if (!supabaseAdmin) {
-      res.status(500).json({
-        success: false,
-        message: "Error de configuración del servidor",
-      });
-      return;
-    }
-
+    const client = await getClientWithRLS(req);
     // Primero verificar que el pedido existe y obtener su restaurante_id
-    const { data: pedidoExistente, error: errorBuscar } = await supabaseAdmin
+    const { data: pedidoExistente, error: errorBuscar } = await client
       .from("pedidos")
       .select("id, restaurante_id, estado_pedido")
       .eq("id", id)
@@ -635,7 +580,7 @@ export const deletePedido = async (req: Request, res: Response) => {
       // Super Admin puede eliminar cualquier pedido
     } else if (id_rol === 2) {
       // Admin debe tener acceso al restaurante del pedido
-      const { data: userRestaurants } = await supabaseAdmin
+      const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
         .eq("usuario_id", req.user_info.id);
@@ -671,7 +616,7 @@ export const deletePedido = async (req: Request, res: Response) => {
     // }
 
     // Eliminar el pedido (los items del pedido se eliminan en cascada por la BD)
-    const { error } = await supabaseAdmin.from("pedidos").delete().eq("id", id);
+    const { error } = await client.from("pedidos").delete().eq("id", id);
 
     if (error) {
       console.error('Error al eliminar pedido:', error);

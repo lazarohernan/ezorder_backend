@@ -1,65 +1,116 @@
 import { Request, Response } from "express";
-import { supabase, supabaseAdmin } from "../supabase/supabase";
+import { getClientWithRLS } from "../utils/supabaseHelpers";
+import { checkRestaurantAccess, getUserRestaurants } from "../utils/restaurantHelpers";
 
-export const getMenuCategories = async (_req: Request, res: Response) => {
+export const getMenuCategories = async (req: Request, res: Response) => {
   try {
-    const client = supabaseAdmin || supabase;
-    const { data, error } = await client
-      .from("menu_categorias")
-      .select("*")
-      .order("nombre", { ascending: true });
+    if (!req.user_info) {
+      return res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+    }
+
+    const client = await getClientWithRLS(req);
+    const id_rol = req.user_info?.rol_id ?? 3;
+    let query = client.from("menu_categorias").select("*");
+
+    // Filtrar por restaurante según rol
+    if (id_rol === 1) {
+      if (req.query.restaurante_id) {
+        query = query.eq("restaurante_id", req.query.restaurante_id);
+      }
+    } else if (id_rol === 2) {
+      const restaurantIds = await getUserRestaurants(client, req.user_info.id);
+      
+      if (restaurantIds.length > 0) {
+        query = query.in("restaurante_id", restaurantIds);
+      } else {
+        return res.status(200).json({ success: true, data: [] });
+      }
+    } else {
+      const restaurante_id = req.user_info?.restaurante_id;
+      if (!restaurante_id) {
+        return res.status(403).json({
+          success: false,
+          message: "El usuario no tiene un restaurante asignado",
+        });
+      }
+      query = query.eq("restaurante_id", restaurante_id);
+    }
+
+    const { data, error } = await query.order("nombre", { ascending: true });
 
     if (error) throw error;
 
-    res.status(200).json({
-      success: true,
-      data,
-    });
-    return;
+    res.status(200).json({ success: true, data });
   } catch (error: any) {
     console.error("Error al obtener categorías del menú:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error al obtener categorías del menú",
     });
-    return;
   }
 };
 
 export const createMenuCategory = async (req: Request, res: Response) => {
-  const { nombre, descripcion } = req.body;
+  const { nombre, descripcion, restaurante_id: bodyRestauranteId } = req.body;
 
-  if (!nombre) {
-    res.status(400).json({
+  if (!nombre?.trim()) {
+    return res.status(400).json({
       success: false,
       message: "El nombre de la categoría es obligatorio",
     });
-    return;
   }
 
   try {
     if (!req.user_info) {
-      res.status(403).json({
+      return res.status(403).json({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    // Solo Super Admin y Admin pueden crear categorías (son globales)
     const id_rol = req.user_info?.rol_id ?? 3;
     if (id_rol !== 1 && id_rol !== 2) {
-      res.status(403).json({
+      return res.status(403).json({
         success: false,
         message: "No tienes permisos para crear categorías",
       });
-      return;
     }
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
+    let restauranteId: string | null = null;
+
+    if (id_rol === 1) {
+      restauranteId = bodyRestauranteId || req.user_info.restaurante_id || null;
+    } else {
+      const restaurantIds = await getUserRestaurants(client, req.user_info.id);
+      
+      if (restaurantIds.length > 0) {
+        restauranteId = bodyRestauranteId || restaurantIds[0];
+        
+        if (bodyRestauranteId && !restaurantIds.includes(bodyRestauranteId)) {
+          return res.status(403).json({
+            success: false,
+            message: "No tienes permisos para crear categorías en este restaurante",
+          });
+        }
+      } else {
+        restauranteId = req.user_info.restaurante_id || null;
+      }
+    }
+
+    if (!restauranteId) {
+      return res.status(403).json({
+        success: false,
+        message: "El usuario no tiene un restaurante asignado",
+      });
+    }
+
     const { data, error } = await client
       .from("menu_categorias")
-      .insert([{ nombre, descripcion }])
+      .insert([{ nombre: nombre.trim(), descripcion, restaurante_id: restauranteId }])
       .select()
       .single();
 
@@ -70,14 +121,12 @@ export const createMenuCategory = async (req: Request, res: Response) => {
       message: "Categoría creada correctamente",
       data,
     });
-    return;
   } catch (error: any) {
     console.error("Error al crear categoría del menú:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error al crear categoría del menú",
     });
-    return;
   }
 };
 
@@ -86,37 +135,34 @@ export const updateMenuCategory = async (req: Request, res: Response) => {
   const { nombre, descripcion } = req.body;
 
   if (!nombre && descripcion === undefined) {
-    res.status(400).json({
+    return res.status(400).json({
       success: false,
       message: "Debes proporcionar al menos un campo para actualizar",
     });
-    return;
   }
 
   try {
     if (!req.user_info) {
-      res.status(403).json({
+      return res.status(403).json({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    // Solo Super Admin y Admin pueden actualizar categorías (son globales)
     const id_rol = req.user_info?.rol_id ?? 3;
     if (id_rol !== 1 && id_rol !== 2) {
-      res.status(403).json({
+      return res.status(403).json({
         success: false,
         message: "No tienes permisos para actualizar categorías",
-    });
-    return;
-  }
+      });
+    }
 
-  const updateFields: Record<string, unknown> = {};
-  if (nombre !== undefined) updateFields.nombre = nombre;
-  if (descripcion !== undefined) updateFields.descripcion = descripcion;
+    const client = await getClientWithRLS(req);
+    const updateFields: Record<string, unknown> = {};
+    
+    if (nombre !== undefined) updateFields.nombre = nombre;
+    if (descripcion !== undefined) updateFields.descripcion = descripcion;
 
-    const client = supabaseAdmin || supabase;
     const { data, error } = await client
       .from("menu_categorias")
       .update(updateFields)
@@ -126,11 +172,10 @@ export const updateMenuCategory = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return res.status(404).json({
           success: false,
           message: "Categoría no encontrada",
         });
-        return;
       }
       throw error;
     }
@@ -140,14 +185,12 @@ export const updateMenuCategory = async (req: Request, res: Response) => {
       message: "Categoría actualizada correctamente",
       data,
     });
-    return;
   } catch (error: any) {
     console.error("Error al actualizar categoría del menú:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error al actualizar categoría del menú",
     });
-    return;
   }
 };
 
@@ -156,66 +199,109 @@ export const deleteMenuCategory = async (req: Request, res: Response) => {
 
   try {
     if (!req.user_info) {
-      res.status(403).json({
+      return res.status(403).json({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    // Solo Super Admin y Admin pueden eliminar categorías (son globales)
     const id_rol = req.user_info?.rol_id ?? 3;
     if (id_rol !== 1 && id_rol !== 2) {
-      res.status(403).json({
+      return res.status(403).json({
         success: false,
         message: "No tienes permisos para eliminar categorías",
       });
-      return;
     }
 
-    // Verificar si hay productos asociados a esta categoría
-    const { data: menuItems, error: checkError } = await supabase
+    const client = await getClientWithRLS(req);
+
+    // Obtener la categoría para verificar permisos
+    const { data: categoria, error: categoriaError } = await client
+      .from("menu_categorias")
+      .select("id, restaurante_id, nombre")
+      .eq("id", id)
+      .single();
+
+    if (categoriaError || !categoria) {
+      return res.status(404).json({
+        success: false,
+        message: "Categoría no encontrada",
+      });
+    }
+
+    // Verificar permisos
+    if (id_rol !== 1) {
+      const hasAccess = await checkRestaurantAccess(
+        client,
+        req.user_info.id,
+        categoria.restaurante_id,
+        id_rol,
+        req.user_info.restaurante_id
+      );
+
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          message: "No tienes permisos para eliminar esta categoría",
+        });
+      }
+    }
+
+    // Verificar y mover productos asociados
+    const { data: menuItems } = await client
       .from("menu")
       .select("id")
       .eq("categoria_id", id)
-      .limit(1);
+      .eq("restaurante_id", categoria.restaurante_id);
 
-    if (checkError) throw checkError;
+    const productosAsociados = menuItems?.length || 0;
 
-    if (menuItems && menuItems.length > 0) {
-      res.status(400).json({
-        success: false,
-        message: "No se puede eliminar esta categoría porque tiene productos asociados. Primero reasigna los productos a otra categoría.",
-        hasAssociatedItems: true,
-      });
-      return;
+    if (productosAsociados > 0) {
+      const { error: updateError } = await client
+        .from("menu")
+        .update({ categoria_id: null })
+        .eq("categoria_id", id)
+        .eq("restaurante_id", categoria.restaurante_id);
+
+      if (updateError) {
+        return res.status(400).json({
+          success: false,
+          message: `No se puede eliminar la categoría porque tiene ${productosAsociados} producto(s) asociado(s) que no se pudieron mover automáticamente.`,
+          productosAsociados,
+        });
+      }
     }
 
-    // Si no hay productos asociados, proceder con la eliminación
-    const { error } = await supabase.from("menu_categorias").delete().eq("id", id);
+    // Eliminar la categoría
+    const { error: deleteError } = await client
+      .from("menu_categorias")
+      .delete()
+      .eq("id", id)
+      .eq("restaurante_id", categoria.restaurante_id);
 
-    if (error) {
-      if (error.code === "PGRST116") {
-        res.status(404).json({
+    if (deleteError) {
+      if (deleteError.code === "PGRST116") {
+        return res.status(404).json({
           success: false,
           message: "Categoría no encontrada",
         });
-        return;
       }
-      throw error;
+      throw deleteError;
     }
 
     res.status(200).json({
       success: true,
-      message: "Categoría eliminada correctamente",
+      message: productosAsociados > 0
+        ? `Categoría eliminada correctamente. ${productosAsociados} producto(s) fueron movidos a "Sin categoría".`
+        : "Categoría eliminada correctamente",
+      productosMovidos: productosAsociados,
     });
-    return;
   } catch (error: any) {
     console.error("Error al eliminar categoría del menú:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error al eliminar categoría del menú",
     });
-    return;
   }
 };
+

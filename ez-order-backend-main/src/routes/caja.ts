@@ -27,8 +27,10 @@ router.get('/test/:restaurante_id', (req, res) => {
 router.use(requireAuth);
 
 // Rutas para administradores (ver todas las cajas)
-router.get('/all', requirePermissions(['caja.ver']), requireSuperAdmin, cajaController.getAllCajas);
-router.get('/open', requirePermissions(['caja.ver']), requireSuperAdmin, cajaController.getAllCajasAbiertas);
+// El controlador getAllCajas ya filtra por restaurantes según el rol del usuario
+// Super Admin ve todas las cajas, Admin solo ve las de sus restaurantes
+router.get('/all', requirePermissions(['caja.ver']), cajaController.getAllCajas);
+router.get('/open', requirePermissions(['caja.ver']), cajaController.getAllCajasAbiertas);
 
 // Rutas específicas por restaurante (para usuarios normales)
 router.get('/restaurante/:restaurante_id', requirePermissions(['caja.ver']), cajaController.getCajas);

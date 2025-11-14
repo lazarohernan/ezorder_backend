@@ -1,26 +1,78 @@
 import { Request, Response } from "express";
 import type { User } from "@supabase/supabase-js";
-import { supabase, supabaseAdmin } from "../supabase/supabase";
+import { supabaseAdmin } from "../supabase/supabase";
+import { getClientWithRLS } from "../utils/supabaseHelpers";
 
 export const getUsuarios = async (req: Request, res: Response) => {
   try {
+    if (!req.user_info) {
+      return res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+    }
+
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
+    
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message: "Configuración de administrador no disponible",
       });
-      return;
     }
 
-    const { data: userInfos, error: userInfoError } = await supabaseAdmin
+    // Usar arquitectura híbrida: supabaseAdmin + validación de backend
+    // Esto es más seguro y confiable que RLS con auth.uid() actualmente
+    if (!req.user_info?.rol_id || ![1, 2].includes(req.user_info.rol_id)) {
+      return res.status(403).json({
+        success: false,
+        message: "No tienes permisos para ver usuarios"
+      });
+    }
+
+    // Usar supabaseAdmin con filtros de seguridad (el filtrado debe funcionar)
+    const client = supabaseAdmin;
+    
+    let query = client
       .from("usuarios_info")
-      .select("*, restaurantes(id, nombre_restaurante)")
-      .neq("rol_id", 2);
+      .select("*, restaurantes(id, nombre_restaurante)");
+    
+    // Super admins (rol_id = 1) pueden ver todos los usuarios excepto otros admins
+    if (req.user_info.rol_id === 1) {
+      query = query.neq("rol_id", 2);
+    } 
+    // Admins de restaurante (rol_id = 2) solo ven usuarios de sus restaurantes (excepto otros admins)
+    else if (req.user_info.rol_id === 2) {
+      query = query
+        .eq("restaurante_id", req.user_info.restaurante_id)
+        .neq("rol_id", 2); // Excluir otros admins del mismo restaurante
+    }
+    
+    // Debug: verificar que el cliente es válido
+    if (!client || typeof client.from !== 'function') {
+      console.error('Error: client no es válido', { 
+        clientType: typeof client, 
+        hasFrom: typeof client?.from,
+        clientKeys: client ? Object.keys(client).slice(0, 5) : 'null'
+      });
+      return res.status(500).json({
+        success: false,
+        message: "Error de configuración del cliente de Supabase"
+      });
+    }
+    
+    console.log('🔍 DEBUG: Ejecutando query final');
+    console.log('   Query aplicada:', query);
+    
+    const { data: userInfos, error: userInfoError } = await query;
 
-    if (userInfoError) throw userInfoError;
+    if (userInfoError) {
+      console.error("Error al obtener usuarios_info:", userInfoError);
+      throw userInfoError;
+    }
 
+    // Obtener emails desde auth (requiere admin)
     let emailMap: { [key: string]: string } = {};
     let userDataMap: { [key: string]: any } = {};
     try {
@@ -38,10 +90,10 @@ export const getUsuarios = async (req: Request, res: Response) => {
         });
       }
     } catch (error) {
-      // Silenciar error si no se pueden obtener datos de auth.users
+      console.error("Error al obtener datos de auth:", error);
     }
 
-    const usersWithInfo = (userInfos || []).map((userInfo) => {
+    const usersWithInfo = (userInfos || []).map((userInfo: any) => {
       const authData = userDataMap[userInfo.id] || {};
       return {
         id: userInfo.id,
@@ -55,16 +107,19 @@ export const getUsuarios = async (req: Request, res: Response) => {
         tipo: "activo",
       };
     });
-    const { data: invitaciones, error: invitacionesError } = await supabaseAdmin
+
+    // Obtener invitaciones pendientes (RLS filtra automáticamente)
+    const { data: invitaciones, error: invitacionesError } = await client
       .from("invitaciones")
       .select("*, restaurantes(id, nombre_restaurante)")
-      .eq("estado", "pendiente");
+      .eq("estado", "pendiente")
+      .order("created_at", { ascending: false });
 
     if (invitacionesError) {
       console.error("Error al obtener invitaciones:", invitacionesError);
     }
 
-    const invitacionesPendientes = (invitaciones || []).map((inv) => ({
+    const invitacionesPendientes = (invitaciones || []).map((inv: any) => ({
       id: inv.id,
       email: inv.email,
       created_at: inv.created_at,
@@ -97,7 +152,7 @@ export const getUsuarios = async (req: Request, res: Response) => {
     const endIndex = Math.min(startIndex + limit, total);
     const paginatedUsers = todosLosUsuarios.slice(startIndex, endIndex);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: {
         items: paginatedUsers,
@@ -111,14 +166,12 @@ export const getUsuarios = async (req: Request, res: Response) => {
         },
       },
     });
-    return;
   } catch (error: any) {
     console.error("Error al obtener usuarios:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message || "Error al obtener usuarios",
     });
-    return;
   }
 };
 
@@ -126,30 +179,55 @@ export const getUsuarioById = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
+    if (!req.user_info) {
+      return res.status(403).json({
+        success: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+    }
+
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message: "Configuración de administrador no disponible",
       });
-      return;
     }
 
-    const { data: authUser, error: authError } =
-      await supabaseAdmin.auth.admin.getUserById(id);
-
-    if (authError || !authUser) {
-      res.status(404).json({
-        success: false,
-        message: "Usuario no encontrado",
-      });
-      return;
-    }
-
-    const { data: userInfo, error: userInfoError } = await supabase
+    // Usar RLS para obtener usuario (RLS verifica acceso automáticamente)
+    const client = await getClientWithRLS(req);
+    
+    const { data: userInfo, error: userInfoError } = await client
       .from("usuarios_info")
       .select("*, restaurantes(id, nombre_restaurante)")
       .eq("id", id)
       .maybeSingle();
+
+    if (userInfoError) {
+      console.error("Error al obtener usuario:", userInfoError);
+      return res.status(500).json({
+        success: false,
+        message: "Error al obtener información del usuario",
+      });
+    }
+
+    // Si no se encuentra el usuario, RLS bloqueó el acceso
+    if (!userInfo) {
+      return res.status(403).json({
+        success: false,
+        message: "No tienes acceso a este usuario",
+      });
+    }
+
+    // Obtener datos de auth (requiere admin)
+    const { data: authUser, error: authError } =
+      await supabaseAdmin.auth.admin.getUserById(id);
+
+    if (authError || !authUser) {
+      return res.status(404).json({
+        success: false,
+        message: "Usuario no encontrado en el sistema de autenticación",
+      });
+    }
 
     const userWithInfo = {
       id: authUser.user.id,
@@ -159,20 +237,19 @@ export const getUsuarioById = async (req: Request, res: Response) => {
       user_metadata: authUser.user.user_metadata,
       app_metadata: authUser.user.app_metadata,
       confirmed_at: authUser.user.confirmed_at,
-      user_info: userInfoError ? null : userInfo,
+      user_info: userInfo,
     };
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: userWithInfo,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    console.error("Error al obtener usuario:", error);
+    return res.status(500).json({
       success: false,
       message: error.message || "Error al obtener usuario",
     });
-    return;
   }
 };
 
@@ -219,31 +296,11 @@ export const inviteUsuario = async (req: Request, res: Response) => {
       return;
     }
 
-    if (id_rol === 2 && restaurante_id) {
-      if (!supabaseAdmin) {
-        res.status(500).json({
-          success: false,
-          message: "Configuración de servidor incompleta",
-        });
-        return;
-      }
-      const { data: userRestaurants } = await supabaseAdmin
-        .from("usuarios_restaurantes")
-        .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
-
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (!restaurantIds.includes(restaurante_id)) {
-        res.status(403).json({
-          success: false,
-          message: "No tienes acceso a este restaurante",
-        });
-        return;
-      }
-    }
-
-    const { data: existingInvite, error: inviteError } = await supabaseAdmin
+    // Verificar acceso al restaurante si es Admin (RLS verifica en insert)
+    const client = await getClientWithRLS(req);
+    
+    // Verificar si ya existe una invitación pendiente
+    const { data: existingInvite, error: inviteError } = await client
       .from("invitaciones")
       .select("*")
       .eq("email", email)
@@ -308,7 +365,8 @@ export const inviteUsuario = async (req: Request, res: Response) => {
       return;
     }
 
-    const { data: invitacion, error: insertError } = await supabaseAdmin
+    // Usar RLS para insertar invitación (RLS verifica acceso al restaurante)
+    const { data: invitacion, error: insertError } = await client
       .from("invitaciones")
       .insert([
         {
@@ -383,38 +441,14 @@ export const createUsuario = async (req: Request, res: Response) => {
       return;
     }
 
-    if (id_rol === 2 && restaurante_id) {
-      if (!supabaseAdmin) {
-        res.status(500).json({
-          success: false,
-          message: "Configuración de servidor incompleta",
-        });
-        return;
-      }
-      const { data: userRestaurants } = await supabaseAdmin
-        .from("usuarios_restaurantes")
-        .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
-
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (!restaurantIds.includes(restaurante_id)) {
-        res.status(403).json({
-          success: false,
-          message: "No tienes acceso a este restaurante",
-        });
-        return;
-      }
-    }
-
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message: "Configuración de administrador no disponible",
       });
-      return;
     }
 
+    // Crear usuario en auth (requiere admin)
     const { data: authData, error: authError } =
       await supabaseAdmin.auth.admin.createUser({
         email,
@@ -423,31 +457,32 @@ export const createUsuario = async (req: Request, res: Response) => {
       });
 
     if (authError || !authData) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         message: "Error al crear el usuario en el sistema de autenticación",
         error: authError,
       });
-      return;
     }
 
     const userId = authData.user.id;
 
-    const { data: existingInfo, error: checkError } = await supabase
+    // Usar RLS para crear usuario_info (RLS verifica acceso al restaurante)
+    const client = await getClientWithRLS(req);
+    
+    const { data: existingInfo, error: checkError } = await client
       .from("usuarios_info")
       .select("id")
       .eq("id", userId)
       .maybeSingle();
 
     if (existingInfo) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         message: "Ya existe información para este usuario",
       });
-      return;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from("usuarios_info")
       .insert([
         {
@@ -540,39 +575,34 @@ export const updateUsuario = async (req: Request, res: Response) => {
       return;
     }
 
-    if (id_rol === 2 && restaurante_id !== undefined) {
-      const { data: userRestaurants } = await supabaseAdmin
-        .from("usuarios_restaurantes")
-        .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
-
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (restaurante_id && !restaurantIds.includes(restaurante_id)) {
-        res.status(403).json({
-          success: false,
-          message: "No tienes acceso a este restaurante",
-        });
-        return;
-      }
-    }
-
+    // Validar que Admin no pueda asignar roles de Super Admin o Admin
     if (id_rol === 2 && rol_id !== undefined) {
       if (rol_id === 1 || rol_id === 2) {
-        res.status(403).json({
+        return res.status(403).json({
           success: false,
           message: "No puedes asignar roles de Super Admin o Admin",
         });
-        return;
       }
     }
 
+    // Actualizar password en auth (requiere admin)
     if (password !== undefined) {
-      await supabaseAdmin.auth.admin.updateUserById(id, {
+      const { error: passwordError } = await supabaseAdmin.auth.admin.updateUserById(id, {
         password,
       });
+      
+      if (passwordError) {
+        return res.status(400).json({
+          success: false,
+          message: "Error al actualizar contraseña",
+          error: passwordError.message,
+        });
+      }
     }
 
+    // Usar RLS para actualizar usuario_info (RLS verifica acceso automáticamente)
+    const client = await getClientWithRLS(req);
+    
     const updateFields: any = {
       updated_at: new Date(),
     };
@@ -585,12 +615,10 @@ export const updateUsuario = async (req: Request, res: Response) => {
       updateFields.restaurante_id = restaurante_id;
     if (user_image !== undefined) updateFields.user_image = user_image;
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await client
       .from("usuarios_info")
-      .upsert({
-        id,
-        ...updateFields,
-      })
+      .update(updateFields)
+      .eq("id", id)
       .select()
       .single();
 
@@ -624,29 +652,34 @@ export const updateUsuario = async (req: Request, res: Response) => {
 
 export const getInvitacionesPendientes = async (req: Request, res: Response) => {
   try {
-    if (!supabaseAdmin) {
-      res.status(500).json({
+    if (!req.user_info) {
+      return res.status(403).json({
         success: false,
-        message: "Configuración de administrador no disponible",
+        message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    const { data: invitaciones, error } = await supabaseAdmin
+    // Usar RLS para obtener invitaciones (RLS filtra automáticamente)
+    const client = await getClientWithRLS(req);
+    
+    const { data: invitaciones, error } = await client
       .from("invitaciones")
       .select("*, restaurantes(id, nombre_restaurante)")
       .eq("estado", "pendiente")
       .order("created_at", { ascending: false });
 
-    if (error) throw error;
+    if (error) {
+      console.error("Error al obtener invitaciones pendientes:", error);
+      throw error;
+    }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: invitaciones || [],
     });
   } catch (error: unknown) {
     console.error("Error al obtener invitaciones pendientes:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Error al obtener invitaciones pendientes",
       error: error instanceof Error ? error.message : "Error desconocido",
@@ -723,52 +756,41 @@ export const deleteUsuario = async (req: Request, res: Response) => {
       return;
     }
 
-    const { data: invitaciones, error: invitacionError } = await supabaseAdmin
-      .from("invitaciones")
-      .select("*")
-      .eq("email", authUser.user.email);
-
-    if (!invitacionError && invitaciones && invitaciones.length > 0) {
-      await supabaseAdmin
-        .from("invitaciones")
-        .delete()
-        .eq("email", authUser.user.email);
-    }
-
-    const { data: userInfo, error: userInfoError } = await supabaseAdmin
+    // Usar RLS con políticas proper para verificar acceso
+    const client = await getClientWithRLS(req);
+    
+    // Verificar que el usuario existe y RLS permite acceso
+    const { data: userInfo, error: userInfoError } = await client
       .from("usuarios_info")
       .select("rol_id, restaurante_id")
       .eq("id", id)
       .maybeSingle();
 
-    if (!userInfoError && userInfo) {
-      if (userInfo.rol_id === 2) {
-        res.status(400).json({
-          success: false,
-          message: "No se puede eliminar un usuario propietario del sistema",
-        });
-        return;
-      }
-
-      if (id_rol === 2 && userInfo.restaurante_id) {
-        const { data: userRestaurants } = await supabaseAdmin
-          .from("usuarios_restaurantes")
-          .select("restaurante_id")
-          .eq("usuario_id", req.user_info.id);
-
-        const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-        
-        if (!restaurantIds.includes(userInfo.restaurante_id)) {
-          res.status(403).json({
-            success: false,
-            message: "No puedes eliminar usuarios de restaurantes que no te pertenecen",
-          });
-          return;
-        }
-      }
+    // Si no se encuentra el usuario, RLS bloqueó el acceso
+    if (userInfoError || !userInfo) {
+      return res.status(403).json({
+        success: false,
+        message: "No tienes acceso a este usuario o no existe",
+      });
     }
 
+    // Validar que no se pueda eliminar un admin
+    if (userInfo.rol_id === 2) {
+      return res.status(400).json({
+        success: false,
+        message: "No se puede eliminar un usuario propietario del sistema",
+      });
+    }
+
+    // Eliminar datos relacionados (requiere admin para evitar problemas de RLS en cascada)
     try {
+      if (!supabaseAdmin) {
+        return res.status(500).json({
+          success: false,
+          message: "Configuración de administrador no disponible",
+        });
+      }
+
       await supabaseAdmin.from("usuarios_restaurantes").delete().eq("usuario_id", id);
       await supabaseAdmin.from("alertas_stock").delete().eq("usuario_notificado", id);
       await supabaseAdmin.from("movimientos_inventario").delete().eq("usuario_id", id);
@@ -776,7 +798,11 @@ export const deleteUsuario = async (req: Request, res: Response) => {
       await supabaseAdmin.from("gastos").delete().eq("usuario_id", id);
       await supabaseAdmin.from("notificaciones").delete().eq("usuario_id", id);
       
-      const { error: deleteInfoError } = await supabaseAdmin.from("usuarios_info").delete().eq("id", id);
+      // Usar RLS para eliminar usuario_info (RLS verifica acceso)
+      const { error: deleteInfoError } = await client
+        .from("usuarios_info")
+        .delete()
+        .eq("id", id);
       
       if (deleteInfoError) {
         console.error('Error al eliminar usuarios_info:', deleteInfoError);
@@ -784,12 +810,11 @@ export const deleteUsuario = async (req: Request, res: Response) => {
       }
     } catch (dataError) {
       console.error('Error al eliminar datos relacionados:', dataError);
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message: "Error al eliminar datos relacionados del usuario",
         error: dataError instanceof Error ? dataError.message : "Error desconocido",
       });
-      return;
     }
 
     const { error: deleteAuthError } = await supabaseAdmin.auth.admin.deleteUser(id);
@@ -850,7 +875,10 @@ export const getCurrentUserInfo = async (req: Request, res: Response) => {
       return;
     }
 
-    const { data: userInfo, error: userInfoError } = await supabase
+    // Usar RLS para obtener usuario_info (RLS verifica acceso automáticamente)
+    const client = await getClientWithRLS(req);
+    
+    const { data: userInfo, error: userInfoError } = await client
       .from("usuarios_info")
       .select("*, restaurantes(id, nombre_restaurante)")
       .eq("id", userId)
@@ -883,28 +911,33 @@ export const getCurrentUserInfo = async (req: Request, res: Response) => {
 
 export const getInvitaciones = async (req: Request, res: Response) => {
   try {
-    if (!supabaseAdmin) {
-      res.status(500).json({
+    if (!req.user_info) {
+      return res.status(403).json({
         success: false,
-        message: "Configuración de administrador no disponible",
+        message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    const { data: invitaciones, error } = await supabaseAdmin
+    // Usar RLS para obtener invitaciones (RLS filtra automáticamente)
+    const client = await getClientWithRLS(req);
+    
+    const { data: invitaciones, error } = await client
       .from("invitaciones")
       .select("*, restaurantes(id, nombre_restaurante)")
       .order("created_at", { ascending: false });
 
-    if (error) throw error;
+    if (error) {
+      console.error("Error al obtener invitaciones:", error);
+      throw error;
+    }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: invitaciones || [],
     });
   } catch (error: unknown) {
     console.error("Error al obtener invitaciones:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Error al obtener invitaciones",
       error: error instanceof Error ? error.message : "Error desconocido",

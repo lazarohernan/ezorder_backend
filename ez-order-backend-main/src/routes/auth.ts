@@ -8,6 +8,7 @@ import {
   checkRefreshToken,
   getUserInfo,
   updatePassword,
+  getUserRestaurants,
 } from "../controllers/authController";
 import { requireAuth } from "../middlewares/auth";
 
@@ -68,5 +69,12 @@ router.get("/user-info", requireAuth, getUserInfo);
  * @access  Público (pero requiere access_token válido en header)
  */
 router.post("/update-password", updatePassword);
+
+/**
+ * @route   GET /api/auth/usuarios-restaurantes/:userId
+ * @desc    Obtener restaurantes asociados a un usuario
+ * @access  Privado (requiere autenticación)
+ */
+router.get("/usuarios-restaurantes/:userId", requireAuth, getUserRestaurants);
 
 export default router;

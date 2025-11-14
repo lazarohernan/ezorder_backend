@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import * as dotenv from "dotenv";
 
 // Load environment variables
@@ -24,6 +24,7 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 });
 
 // Create Supabase client for admin operations (with service role key)
+// SOLO usar para operaciones que realmente requieren bypass RLS (como obtener usuarios_info en middleware)
 export const supabaseAdmin = supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
       auth: {
@@ -32,5 +33,28 @@ export const supabaseAdmin = supabaseServiceRoleKey
       },
     })
   : null;
+
+/**
+ * Crea un cliente de Supabase con el token del usuario configurado
+ * Esto permite que las políticas RLS funcionen correctamente
+ * Usa la opción accessToken como recomienda la documentación de Supabase
+ * 
+ * @param accessToken - Token JWT del usuario autenticado
+ * @returns Cliente de Supabase con RLS habilitado
+ */
+export const getSupabaseClientWithAuth = (accessToken: string): SupabaseClient => {
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    accessToken: async () => accessToken,
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      storage: {
+        getItem: () => null,
+        setItem: () => {},
+        removeItem: () => {},
+      },
+    },
+  });
+};
 
 export { supabase };

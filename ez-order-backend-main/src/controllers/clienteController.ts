@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { supabase, supabaseAdmin } from "../supabase/supabase";
+import { getClientWithRLS, getAdminClient } from "../utils/supabaseHelpers";
 
 // Obtener todos los clientes
 export const getClientes = async (req: Request, res: Response) => {
@@ -18,8 +18,7 @@ export const getClientes = async (req: Request, res: Response) => {
     let data: any;
     let error: any;
 
-    // USAR supabaseAdmin para bypassear RLS - el backend controla los permisos
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
 
     // Si el usuario es Super Admin (rol_id=1), obtener todos los clientes
     if (id_rol === 1) {
@@ -121,7 +120,7 @@ export const getClientesByRestauranteId = async (
       // Super Admin puede ver todos los clientes
     } else if (id_rol === 2) {
       // Admin debe tener acceso al restaurante
-      const adminClient = supabaseAdmin || supabase;
+      const adminClient = await getClientWithRLS(req);
       const { data: userRestaurants, error: restaurantsError } = await adminClient
         .from("usuarios_restaurantes")
         .select("restaurante_id")
@@ -155,8 +154,7 @@ export const getClientesByRestauranteId = async (
       }
     }
 
-    // Usar supabaseAdmin para bypassear RLS
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const { data, error } = await client
       .from("clientes")
       .select("*, restaurantes(nombre_restaurante)")
@@ -189,8 +187,7 @@ export const getClienteById = async (req: Request, res: Response) => {
   try {
     console.log(`Usuario ${req.user?.id} solicitó el cliente ${id}`);
 
-    // Usar supabaseAdmin para bypassear RLS
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const { data, error } = await client
       .from("clientes")
       .select("*, restaurantes(nombre_restaurante)")
@@ -257,7 +254,7 @@ export const createCliente = async (req: Request, res: Response) => {
       // Super Admin puede crear clientes en cualquier restaurante
     } else if (id_rol === 2) {
       // Admin debe tener acceso al restaurante
-      const adminClient = supabaseAdmin || supabase;
+      const adminClient = await getClientWithRLS(req);
       const { data: userRestaurants, error: restaurantsError } = await adminClient
         .from("usuarios_restaurantes")
         .select("restaurante_id")
@@ -291,8 +288,7 @@ export const createCliente = async (req: Request, res: Response) => {
       }
     }
 
-    // Usar supabaseAdmin para bypassear RLS
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const { data, error } = await client
       .from("clientes")
       .insert([
@@ -362,8 +358,7 @@ export const updateCliente = async (req: Request, res: Response) => {
 
     console.log(`Usuario ${req.user_info.id} está actualizando el cliente ${id}`);
 
-    // Usar supabaseAdmin para bypassear RLS
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
 
     // Primero obtener el cliente para verificar permisos
     const { data: clienteExistente, error: errorBuscar } = await client
@@ -476,8 +471,7 @@ export const deleteCliente = async (req: Request, res: Response) => {
 
     console.log(`Usuario ${req.user_info.id} está eliminando el cliente ${id}`);
 
-    // Usar supabaseAdmin para bypassear RLS
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
 
     // Primero obtener el cliente para verificar permisos
     const { data: clienteExistente, error: errorBuscar } = await client

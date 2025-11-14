@@ -1,10 +1,10 @@
 import { Request, Response } from "express";
-import { supabase, supabaseAdmin } from "../supabase/supabase";
+import { getClientWithRLS, getAdminClient } from "../utils/supabaseHelpers";
 
 // Obtener todos los roles
 export const getRoles = async (req: Request, res: Response) => {
   try {
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const { data, error } = await client
       .from("rol")
       .select("*")
@@ -33,7 +33,7 @@ export const getRolById = async (req: Request, res: Response) => {
   try {
     console.log(`Usuario ${req.user?.id} solicitó el rol ${id}`);
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const { data, error } = await client
       .from("rol")
       .select("*")
@@ -97,7 +97,7 @@ export const createRol = async (req: Request, res: Response) => {
       return;
     }
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const { data, error } = await client
       .from("rol")
       .insert([{ rol }])
@@ -157,7 +157,7 @@ export const updateRol = async (req: Request, res: Response) => {
 
     console.log(`Usuario ${req.user_info.id} está actualizando el rol ${id}`);
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const { data, error } = await client
       .from("rol")
       .update({ rol })
@@ -216,7 +216,8 @@ export const deleteRol = async (req: Request, res: Response) => {
 
     console.log(`Usuario ${req.user_info.id} está eliminando el rol ${id}`);
 
-    const { error } = await supabase.from("rol").delete().eq("id", id);
+    const adminClient = getAdminClient();
+    const { error } = await adminClient.from("rol").delete().eq("id", id);
 
     if (error) throw error;
 

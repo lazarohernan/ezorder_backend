@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
-import { supabase } from "../supabase/supabase";
+import { supabase, supabaseAdmin } from "../supabase/supabase";
+import { getClientWithRLS } from "../utils/supabaseHelpers";
 
 // Interfaz para los datos de login
 interface LoginData {
@@ -77,11 +78,10 @@ export const login = async (req: Request, res: Response) => {
     const { email, password }: LoginData = req.body;
 
     if (!email || !password) {
-      res.status(400).json({
+      return res.status(400).json({
         ok: false,
         message: "El email y la contraseña son obligatorios",
       });
-      return;
     }
 
     // Intentar autenticar al usuario con Supabase
@@ -92,87 +92,30 @@ export const login = async (req: Request, res: Response) => {
 
     // Manejar errores de autenticación
     if (error) {
-      res.status(401).json({
+      return res.status(401).json({
         ok: false,
         message: "Credenciales inválidas",
         error: error.message,
       });
-      return;
     }
 
-    // Obtener información adicional del usuario desde usuarios_info
-    const { data: userInfo, error: userInfoError } = await supabase
-      .from("usuarios_info")
-      .select("*")
-      .eq("id", data.user.id)
-      .single();
-
-    // Si hay error al obtener la información adicional, solo loguearlo pero continuar
-    if (userInfoError) {
-      console.warn(
-        "No se pudo obtener información adicional del usuario:",
-        userInfoError.message
-      );
-    }
-
-    // Extraer permisos del JWT (inyectados por el auth hook)
-    let permisos: string[] = [];
-    let isSuperAdmin = false;
-    let rolNombre = '';
-
-    if (data.session?.access_token) {
-      try {
-        const base64Url = data.session.access_token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(
-          Buffer.from(base64, 'base64')
-            .toString('utf-8')
-            .split('')
-            .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-            .join('')
-        );
-        
-        const decoded = JSON.parse(jsonPayload);
-        permisos = decoded.user_permissions || [];
-        isSuperAdmin = decoded.is_super_admin || false;
-        rolNombre = decoded.rol_nombre || '';
-      } catch (decodeError) {
-        console.warn('Error al decodificar JWT en login:', decodeError);
-      }
-    }
-
-    // Combinar información del usuario con permisos del JWT
-    const usuariosInfoConPermisos = userInfo ? {
-      ...userInfo,
-      permisos,
-      es_super_admin: isSuperAdmin,
-      rol_nombre: rolNombre,
-    } : null;
-
-    // Construir objeto de sesión con refresh_token explícito
-    const sessionObject = {
-      access_token: data.session?.access_token,
-      refresh_token: data.session?.refresh_token,
-      expires_at: data.session?.expires_at,
-      user: data.user,
-    };
-
-    // Autenticación exitosa
-    res.status(200).json({
+    // Autenticación exitosa - simplificada
+    return res.status(200).json({
       ok: true,
       message: "Login exitoso",
       user: data.user,
-      session: sessionObject,
-      usuarios_info: usuariosInfoConPermisos,
+      session: {
+        access_token: data.session?.access_token,
+        refresh_token: data.session?.refresh_token,
+        expires_at: data.session?.expires_at,
+      },
     });
-    return;
   } catch (error) {
     console.error("Error en login:", error);
-    res.status(500).json({
+    return res.status(500).json({
       ok: false,
       message: "Error en el servidor al procesar el login",
     });
-    return;
   }
 };
 
@@ -429,14 +372,44 @@ export const getUserInfo = async (req: Request, res: Response) => {
   try {
     // El middleware de autenticación ya verificó el token y agregó el usuario
     const user = req.user;
-    const userInfo = req.user_info;
 
-    if (!user || !userInfo) {
-      res.status(404).json({
+    if (!user) {
+      return res.status(404).json({
         ok: false,
         message: "No se encontró información del usuario",
       });
-      return;
+    }
+
+    // Obtener usuarios_info desde el middleware o directamente
+    let userInfo = req.user_info;
+
+    // Si no está disponible, intentar obtenerlo directamente
+    if (!userInfo) {
+      // Usar RLS con el token del usuario
+      const client = await getClientWithRLS(req);
+      const { data: userInfoData, error: userInfoError } = await client
+        .from("usuarios_info")
+        .select("*")
+        .eq("id", user.id)
+        .single();
+
+      if (userInfoError) {
+        console.error("Error al obtener usuarios_info:", userInfoError.message);
+        return res.status(404).json({
+          ok: false,
+          message: "No se encontró información adicional del usuario",
+          error: userInfoError.message
+        });
+      }
+
+      userInfo = userInfoData;
+    }
+
+    if (!userInfo) {
+      return res.status(404).json({
+        ok: false,
+        message: "No se encontró información del usuario",
+      });
     }
 
     // Obtener el token del header para extraer los custom claims
@@ -649,5 +622,74 @@ export const updatePassword = async (req: Request, res: Response) => {
       message: "Error en el servidor al actualizar la contraseña",
     });
     return;
+  }
+};
+
+// Obtener restaurantes del usuario
+export const getUserRestaurants = async (req: Request, res: Response) => {
+  try {
+    if (!req.user_info) {
+      return res.status(403).json({
+        ok: false,
+        message: "No se encontró información del usuario autenticado",
+      });
+    }
+
+    const { userId } = req.params;
+    
+    // Verificar que el usuario solicita sus propios restaurantes o es admin
+    if (userId !== req.user_info.id && req.user_info.rol_id !== 1) {
+      return res.status(403).json({
+        ok: false,
+        message: "No tienes permisos para ver estos restaurantes",
+      });
+    }
+
+    const client = await getClientWithRLS(req);
+    
+    // Obtener restaurantes del usuario
+    const { data: restaurantes, error } = await client
+      .from('usuarios_restaurantes')
+      .select(`
+        restaurante_id,
+        restaurantes (
+          id,
+          nombre_restaurante,
+          direccion,
+          telefono,
+          activo
+        )
+      `)
+      .eq('usuario_id', userId);
+
+    if (error) {
+      console.error('Error al obtener restaurantes del usuario:', error);
+      return res.status(500).json({
+        ok: false,
+        message: 'Error al obtener restaurantes del usuario',
+        error: error.message
+      });
+    }
+
+    // Formatear respuesta
+    const restaurantesFormateados = restaurantes?.map((item: any) => ({
+      id: item.restaurantes?.id,
+      nombre_restaurante: item.restaurantes?.nombre_restaurante,
+      direccion: item.restaurantes?.direccion,
+      telefono: item.restaurantes?.telefono,
+      activo: item.restaurantes?.activo
+    })).filter((r: any) => r && r.activo) || []; // Solo restaurantes activos
+
+    res.json({
+      ok: true,
+      data: restaurantesFormateados
+    });
+
+  } catch (error) {
+    console.error('Error en getUserRestaurants:', error);
+    res.status(500).json({
+      ok: false,
+      message: 'Error interno del servidor'
+    });
   }
 };

@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { supabase, supabaseAdmin } from "../supabase/supabase";
+import { getClientWithRLS } from "../utils/supabaseHelpers";
 
 // Obtener todos los ítems de pedido
 export const getPedidoItems = async (req: Request, res: Response) => {
@@ -12,7 +12,7 @@ export const getPedidoItems = async (req: Request, res: Response) => {
       return;
     }
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const id_rol = req.user_info?.rol_id ?? 3;
 
     let query = client
@@ -125,7 +125,7 @@ export const getPedidoItemById = async (req: Request, res: Response) => {
       return;
     }
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const { data, error } = await client
       .from("pedido_items")
       .select(
@@ -216,7 +216,7 @@ export const getItemsByPedidoId = async (req: Request, res: Response) => {
       return;
     }
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
 
     // Primero verificar que el pedido existe y obtener su restaurante_id
     const { data: pedido, error: pedidoError } = await client
@@ -325,7 +325,7 @@ export const createPedidoItem = async (req: Request, res: Response) => {
       return;
     }
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
 
     // Primero verificar que el pedido existe y obtener su restaurante_id
     const { data: pedido, error: pedidoError } = await client
@@ -429,7 +429,7 @@ export const updatePedidoItem = async (req: Request, res: Response) => {
       return;
     }
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
 
     // Primero obtener el item y su pedido para verificar permisos
     const { data: itemExistente, error: itemError } = await client
@@ -532,7 +532,7 @@ export const deletePedidoItem = async (req: Request, res: Response) => {
       return;
     }
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
 
     // Primero obtener el item y su pedido para verificar permisos
     const { data: itemExistente, error: itemError } = await client
@@ -629,7 +629,7 @@ export const marcarEnviadoACocina = async (req: Request, res: Response) => {
       return;
     }
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
 
     // Primero obtener el item y su pedido para verificar permisos
     const { data: itemExistente, error: itemError } = await client
@@ -740,7 +740,7 @@ export const createPedidoItemsBatch = async (req: Request, res: Response) => {
       return;
     }
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
 
     // Obtener todos los pedido_ids únicos de los items
     const pedidoIds = [...new Set(items.map((item: any) => item.pedido_id))];

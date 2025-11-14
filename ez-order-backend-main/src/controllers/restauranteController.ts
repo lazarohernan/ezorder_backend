@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
-import { supabase, supabaseAdmin } from "../supabase/supabase";
+import { getClientWithRLS, getAdminClient } from "../utils/supabaseHelpers";
+import { supabaseAdmin } from "../supabase/supabase";
 
 // Obtener todos los restaurantes
 export const getRestaurantes = async (req: Request, res: Response) => {
@@ -12,14 +13,7 @@ export const getRestaurantes = async (req: Request, res: Response) => {
       return;
     }
 
-    if (!supabaseAdmin) {
-      res.status(500).json({
-        success: false,
-        message: "Error de configuración del servidor",
-      });
-      return;
-    }
-
+    const client = await getClientWithRLS(req);
     // Verificar si es Super Admin (rol_id=1)
     const esSuperAdmin = req.user_info?.rol_id === 1 || req.user_info?.es_super_admin;
     
@@ -31,7 +25,7 @@ export const getRestaurantes = async (req: Request, res: Response) => {
 
     // Si el usuario es Super Admin, obtener todos los restaurantes
     if (esSuperAdmin) {
-      const { data: adminData, error: adminError } = await supabaseAdmin
+      const { data: adminData, error: adminError } = await client
         .from("restaurantes")
         .select("*")
         .order("nombre_restaurante", { ascending: true });
@@ -40,7 +34,7 @@ export const getRestaurantes = async (req: Request, res: Response) => {
     } 
     // Si es Admin/Propietario, obtener TODOS sus restaurantes desde usuarios_restaurantes
     else if (esAdmin) {
-      const { data: userRestaurants, error: userError } = await supabaseAdmin
+      const { data: userRestaurants, error: userError } = await client
         .from("usuarios_restaurantes")
         .select(`
           restaurante_id,
@@ -75,7 +69,7 @@ export const getRestaurantes = async (req: Request, res: Response) => {
         return;
       }
 
-      const { data: userRestaurant, error: userError } = await supabaseAdmin
+      const { data: userRestaurant, error: userError } = await client
         .from("restaurantes")
         .select("*")
         .eq("id", restaurante_id)
@@ -108,17 +102,8 @@ export const getRestauranteById = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
-    if (!supabaseAdmin) {
-      res.status(500).json({
-        success: false,
-        message: "Error de configuración del servidor",
-      });
-      return;
-    }
-
-    console.log(`Usuario ${req.user?.id} solicitó el restaurante ${id}`);
-
-    const { data, error } = await supabaseAdmin
+    const client = await getClientWithRLS(req);
+    const { data, error } = await client
       .from("restaurantes")
       .select("*")
       .eq("id", id)
@@ -172,14 +157,7 @@ export const createRestaurante = async (req: Request, res: Response) => {
       return;
     }
 
-    if (!supabaseAdmin) {
-      res.status(500).json({
-        success: false,
-        message: "Error de configuración del servidor",
-      });
-      return;
-    }
-
+    const client = await getClientWithRLS(req);
     console.log(`Usuario ${req.user_info.id} (rol_id: ${req.user_info.rol_id}) está creando un restaurante`);
 
     // Insertar el restaurante con los datos limpios
@@ -202,7 +180,7 @@ export const createRestaurante = async (req: Request, res: Response) => {
       console.log(`Asignando propietario_id: ${req.user_info.id}`);
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await client
       .from("restaurantes")
       .insert([restauranteData])
       .select()
@@ -217,7 +195,7 @@ export const createRestaurante = async (req: Request, res: Response) => {
 
     // Si el usuario es Admin/Propietario (rol_id=2), crear relación en usuarios_restaurantes
     if (req.user_info.rol_id === 2 && data.id) {
-      const { error: relacionError } = await supabaseAdmin
+      const { error: relacionError } = await client
         .from("usuarios_restaurantes")
         .insert([
           {
@@ -297,16 +275,9 @@ export const updateRestaurante = async (req: Request, res: Response) => {
       return;
     }
 
-    if (!supabaseAdmin) {
-      res.status(500).json({
-        success: false,
-        message: "Error de configuración del servidor",
-      });
-      return;
-    }
-
+    const client = await getClientWithRLS(req);
     // Primero obtener el restaurante para verificar permisos
-    const { data: restauranteExistente, error: errorBuscar } = await supabaseAdmin
+    const { data: restauranteExistente, error: errorBuscar } = await client
       .from("restaurantes")
       .select("id, propietario_id")
       .eq("id", id)
@@ -326,7 +297,8 @@ export const updateRestaurante = async (req: Request, res: Response) => {
       // Super Admin puede actualizar cualquier restaurante
     } else if (id_rol === 2) {
       // Admin debe tener acceso al restaurante
-      const { data: userRestaurants } = await supabaseAdmin
+      const adminClient = getAdminClient();
+      const { data: userRestaurants } = await adminClient
         .from("usuarios_restaurantes")
         .select("restaurante_id")
         .eq("usuario_id", req.user_info.id);
@@ -362,7 +334,7 @@ export const updateRestaurante = async (req: Request, res: Response) => {
     if (logo_restaurante !== undefined)
       updateFields.logo_restaurante = logo_restaurante;
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await client
       .from("restaurantes")
       .update(updateFields)
       .eq("id", id)
@@ -408,21 +380,14 @@ export const deleteRestaurante = async (req: Request, res: Response) => {
       return;
     }
 
-    if (!supabaseAdmin) {
-      res.status(500).json({
-        success: false,
-        message: "Error de configuración del servidor",
-      });
-      return;
-    }
-
+    const client = await getClientWithRLS(req);
     // Verificar permisos según rol
     const id_rol = req.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede eliminar cualquier restaurante
     } else if (id_rol === 2) {
       // Admin debe tener acceso al restaurante
-      const { data: userRestaurants } = await supabaseAdmin
+      const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
         .eq("usuario_id", req.user_info.id);
@@ -447,7 +412,7 @@ export const deleteRestaurante = async (req: Request, res: Response) => {
 
     console.log(`Usuario ${req.user_info.id} está eliminando el restaurante ${id}`);
 
-    const { error } = await supabaseAdmin.from("restaurantes").delete().eq("id", id);
+    const { error } = await client.from("restaurantes").delete().eq("id", id);
 
     if (error) throw error;
 

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
-import { supabase, supabaseAdmin } from "../supabase/supabase";
+import { getClientWithRLS, getAdminClient } from "../utils/supabaseHelpers";
+import { supabaseAdmin } from "../supabase/supabase";
 
 // Interfaces
 interface Notificacion {
@@ -39,8 +40,7 @@ export const getNotificaciones = async (req: Request, res: Response) => {
       limite = 10
     } = req.query;
 
-    // Usar supabaseAdmin para bypassear RLS
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const id_rol = req.user_info?.rol_id ?? 3;
 
     let query = client
@@ -126,7 +126,7 @@ export const marcarNotificacionLeida = async (req: Request, res: Response) => {
     }
 
     const { id } = req.params;
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const id_rol = req.user_info?.rol_id ?? 3;
 
     // Primero verificar que la notificación pertenezca al usuario o a sus restaurantes
@@ -217,7 +217,7 @@ export const marcarTodasNotificacionesLeidas = async (req: Request, res: Respons
       });
     }
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const id_rol = req.user_info?.rol_id ?? 3;
 
     let query = client
@@ -288,7 +288,8 @@ export const createNotificacion = async (
   acciones?: Notificacion['acciones']
 ) => {
   try {
-    const client = supabaseAdmin || supabase;
+    // Usar cliente admin para crear notificaciones sin restricciones RLS
+    const client = getAdminClient();
     
     const { data, error } = await client
       .from('notificaciones')
@@ -327,7 +328,7 @@ export const deleteNotificacion = async (req: Request, res: Response) => {
     }
 
     const { id } = req.params;
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const id_rol = req.user_info?.rol_id ?? 3;
 
     // Primero verificar que la notificación pertenezca al usuario
@@ -396,7 +397,7 @@ export const getNotificacionesNoLeidasCount = async (req: Request, res: Response
       });
     }
 
-    const client = supabaseAdmin || supabase;
+    const client = await getClientWithRLS(req);
     const id_rol = req.user_info?.rol_id ?? 3;
 
     let query = client
