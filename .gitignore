@@ -8,6 +8,7 @@ node_modules/
 
 # Documentation
 docs/
+ez-order-frontend-main/docs/
 
 # Build outputs
 dist/
