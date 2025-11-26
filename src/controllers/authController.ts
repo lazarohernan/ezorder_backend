@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { supabase } from "../supabase/supabase";
+import { supabase, supabaseAdmin } from "../supabase/supabase";
 import "../types/express"; // Importar tipos personalizados
 
 // Interfaz para los datos de login
@@ -629,6 +629,27 @@ export const updatePassword = async (req: Request, res: Response) => {
         error: error.message,
       });
       return;
+    }
+
+    // Después de actualizar la contraseña, procesar la invitación para crear usuarios_info
+    const userEmail = data.user?.email;
+    const userId = data.user?.id;
+    
+    if (userEmail && userId && supabaseAdmin) {
+      console.log('🔄 Procesando invitación para crear usuarios_info...');
+      
+      const { data: invResult, error: invError } = await supabaseAdmin.rpc('aceptar_invitacion', {
+        p_email: userEmail,
+        p_user_id: userId
+      });
+      
+      if (invError) {
+        console.warn('⚠️ Error al procesar invitación (no crítico):', invError.message);
+      } else if (invResult?.success) {
+        console.log('✅ Invitación procesada:', invResult.message);
+      } else {
+        console.log('ℹ️ Invitación no procesada:', invResult?.message || 'Sin mensaje');
+      }
     }
 
     // Respuesta exitosa
