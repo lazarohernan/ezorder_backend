@@ -71,13 +71,24 @@ if (process.env.NODE_ENV !== "production") {
   });
 }
 
-// Routes - Root endpoint with modern API information
+// Routes - Root endpoint with modern connection success container (Updated for Vercel deployment)
 app.get("/", (req: Request, res: Response) => {
   res.json({
-    name: "EZOrder API",
-    version: "1.0.0",
-    status: "online",
-    docs: "/api/health"
+    success: true,
+    message: "Connection successful",
+    api: {
+      name: "EZOrder API",
+      version: "1.0.0",
+      status: "online",
+      environment: process.env.NODE_ENV || "production"
+    },
+    endpoints: {
+      health: "/api/health",
+      auth: "/api/auth/login",
+      docs: "/api/health"
+    },
+    timestamp: new Date().toISOString(),
+    deployment: "vercel-updated"
   });
 });
 
