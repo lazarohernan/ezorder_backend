@@ -1,32 +1,27 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
-import dotenv from "dotenv";
-
-// Cargar variables de entorno
-dotenv.config();
-
-// Import routes
-import healthRoutes from "../src/routes/health";
-import authRoutes from "../src/routes/auth";
-import restaurantesRoutes from "../src/routes/restaurantes";
-import uploadsRoutes from "../src/routes/uploads";
-import usuariosRoutes from "../src/routes/usuarios";
-import rolesRoutes from "../src/routes/roles";
-import rolesPersonalizadosRoutes from "../src/routes/roles_personalizados";
-import menuRoutes from "../src/routes/menu";
-import menuCategoriesRoutes from "../src/routes/menuCategories";
-import clientesRoutes from "../src/routes/clientes";
-import pedidosRoutes from "../src/routes/pedidos";
-import pedidoItemsRoutes from "../src/routes/pedidoItems";
-import metodoPagoRoutes from "../src/routes/metodoPagoRoutes";
-import inventarioRoutes from "../src/routes/inventario";
-import cajaRoutes from "../src/routes/caja";
-import gastosRoutes from "../src/routes/gastos";
-import notificacionesRoutes from "../src/routes/notificaciones";
-import invitacionesRoutes from "../src/routes/invitaciones";
+import healthRoutes from "./routes/health";
+import authRoutes from "./routes/auth";
+import restaurantesRoutes from "./routes/restaurantes";
+import uploadsRoutes from "./routes/uploads";
+import usuariosRoutes from "./routes/usuarios";
+import rolesRoutes from "./routes/roles";
+import rolesPersonalizadosRoutes from "./routes/roles_personalizados";
+import menuRoutes from "./routes/menu";
+import menuCategoriesRoutes from "./routes/menuCategories";
+import clientesRoutes from "./routes/clientes";
+import pedidosRoutes from "./routes/pedidos";
+import pedidoItemsRoutes from "./routes/pedidoItems";
+import metodoPagoRoutes from "./routes/metodoPagoRoutes";
+import inventarioRoutes from "./routes/inventario";
+import cajaRoutes from "./routes/caja";
+import gastosRoutes from "./routes/gastos";
+import notificacionesRoutes from "./routes/notificaciones";
+import invitacionesRoutes from "./routes/invitaciones";
 
 // Initialize express
 const app = express();
+const port = process.env.PORT || 3001;
 
 // Configuración de CORS
 const corsOptions = {
@@ -34,27 +29,67 @@ const corsOptions = {
     "http://localhost:5173",
     "http://localhost:5174",
     "http://localhost:5175",
+    "http://localhost:5176",
+    "http://localhost:5177",
+    "http://localhost:5178",
+    "http://localhost:5179",
     "https://ezorder-frontal.vercel.app",
     "https://ezorder.vercel.app",
     /\.vercel\.app$/
-  ],
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true,
-  maxAge: 86400,
+  ], // Orígenes permitidos (URL del frontend de Vue)
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"], // Métodos HTTP permitidos
+  allowedHeaders: ["Content-Type", "Authorization"], // Headers permitidos
+  credentials: true, // Permite enviar cookies entre orígenes
+  maxAge: 86400, // Tiempo en segundos que se cachean los resultados de preflight (OPTIONS)
 };
 
 // Middleware
-app.use(cors(corsOptions));
-app.use(express.json());
+app.use(cors(corsOptions)); // Aplicar CORS con las opciones definidas
+app.use(express.json({ limit: "10mb" })); // Limitar tamaño de payload
+app.use(express.urlencoded({ extended: true, limit: "10mb" })); // Soporte para URL encoded
 
-// Root route
+// Request logging middleware (solo en desarrollo)
+if (process.env.NODE_ENV !== "production") {
+  app.use((req: Request, res: Response, next) => {
+    const timestamp = new Date().toLocaleTimeString("en-US", { 
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+    const method = req.method.padEnd(6);
+    const methodEmoji = {
+      "GET": "✓",
+      "POST": "+",
+      "PUT": "↻",
+      "DELETE": "✗",
+      "PATCH": "~"
+    }[req.method] || "•";
+    
+    console.log(`  ${timestamp} ${methodEmoji} ${method} ${req.path}`);
+    next();
+  });
+}
+
+// Routes - Root endpoint with modern connection success container (Updated for Vercel deployment)
 app.get("/", (req: Request, res: Response) => {
-  res.json({ message: "¡Bienvenido a la API de EZOrder!" });
-});
-
-app.get("/api", (req: Request, res: Response) => {
-  res.json({ message: "API de EZOrder funcionando correctamente", status: "ok" });
+  res.json({
+    success: true,
+    message: "Connection successful",
+    api: {
+      name: "EZOrder API",
+      version: "1.0.0",
+      status: "online",
+      environment: process.env.NODE_ENV || "production"
+    },
+    endpoints: {
+      health: "/api/health",
+      auth: "/api/auth/login",
+      docs: "/api/health"
+    },
+    timestamp: new Date().toISOString(),
+    deployment: "vercel-updated"
+  });
 });
 
 // Use routes
@@ -77,5 +112,37 @@ app.use("/api/gastos", gastosRoutes);
 app.use("/api/notificaciones", notificacionesRoutes);
 app.use("/api/invitaciones", invitacionesRoutes);
 
-// Export the Express app for Vercel
-export default app;
+// Error handling middleware (debe ir después de todas las rutas)
+app.use((err: any, req: Request, res: Response, next: any) => {
+  const timestamp = new Date().toLocaleTimeString("en-US", { 
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+  console.error(`  ${timestamp} ✗ ${req.method} ${req.path} → ${err.message || "Error"}`);
+  res.status(err.status || 500).json({
+    error: err.message || "Internal server error",
+    status: err.status || 500
+  });
+});
+
+// 404 handler para rutas no encontradas
+app.use((req: Request, res: Response) => {
+  res.status(404).json({
+    error: "Not found",
+    path: req.path,
+    method: req.method
+  });
+});
+
+// Start the server
+app.listen(port, () => {
+  const env = process.env.NODE_ENV || "development";
+  const envEmoji = env === "production" ? "🚀" : "⚡";
+  
+  console.log(`\n  ${envEmoji} EZOrder API v1.0.0`);
+  console.log(`  ──────────────────────────────`);
+  console.log(`  → http://localhost:${port}`);
+  console.log(`  → ${env}\n`);
+});
