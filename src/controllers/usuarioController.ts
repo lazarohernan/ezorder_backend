@@ -311,8 +311,16 @@ export const updateUsuario = async (req: Request, res: Response) => {
       return;
     }
 
-    // Usar cliente regular para obtener información del usuario con RLS
-    const { data: authUser, error: authError } = await supabase
+    // Usar supabaseAdmin para evitar problemas con RLS
+    if (!supabaseAdmin) {
+      res.status(500).json({
+        success: false,
+        message: "Configuración de administrador no disponible",
+      });
+      return;
+    }
+
+    const { data: authUser, error: authError } = await supabaseAdmin
       .from("usuarios_info")
       .select("*, restaurantes(id, nombre_restaurante)")
       .eq("id", id)
@@ -399,7 +407,7 @@ export const updateUsuario = async (req: Request, res: Response) => {
     if (error) throw error;
 
     // Obtener información actualizada del usuario
-    const { data: updatedUser, error: fetchError } = await supabase
+    const { data: updatedUser, error: fetchError } = await supabaseAdmin
       .from("usuarios_info")
       .select("*, restaurantes(id, nombre_restaurante)")
       .eq("id", id)
