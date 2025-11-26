@@ -259,9 +259,10 @@ export const aceptarInvitacion = async (req: Request, res: Response) => {
 };
 
 /**
- * Cancelar/eliminar invitacion - ELIMINA TODO DE RAIZ
- * 1. RPC elimina de: invitaciones, usuarios_info
+ * Cancelar/eliminar invitacion - Elimina solo datos del usuario
+ * 1. RPC elimina de: invitaciones, usuarios_info, usuarios_restaurantes
  * 2. API Admin elimina de: auth.users
+ * NOTA: Datos transaccionales (notificaciones, gastos, caja, pedidos) se conservan
  */
 export const cancelarInvitacion = async (req: Request, res: Response) => {
   try {
@@ -292,8 +293,8 @@ export const cancelarInvitacion = async (req: Request, res: Response) => {
     const { data: usersData } = await supabaseAdmin.auth.admin.listUsers();
     const authUser = usersData?.users?.find(u => u.email === email);
 
-    // Paso 3: Usar RPC para eliminar de tablas publicas (invitaciones, usuarios_info)
-    const { data: rpcData, error: rpcError } = await supabaseAdmin.rpc('eliminar_usuario_completo', {
+    // Paso 3: Usar RPC para eliminar de tablas publicas (invitaciones, usuarios_info y relaciones)
+    const { data: rpcData, error: rpcError } = await supabaseAdmin.rpc('eliminar_invitacion_completa', {
       p_email: email
     });
 
@@ -317,15 +318,18 @@ export const cancelarInvitacion = async (req: Request, res: Response) => {
 
     return res.status(200).json({ 
       success: true, 
-      message: 'Usuario eliminado completamente',
+      message: 'Invitación eliminada correctamente',
       data: {
         email,
         user_id: authUser?.id || null,
         eliminado: {
           invitaciones: true,
           usuarios_info: true,
-          auth_users: authDeleted
-        }
+          usuarios_restaurantes: true,
+          auth_users: authDeleted,
+          nota: 'Datos transaccionales conservados (notificaciones, gastos, caja, pedidos, etc.)'
+        },
+        rpc_result: rpcData
       }
     });
 
@@ -373,3 +377,128 @@ export const verifyInvitacionToken = async (req: Request, res: Response) => {
 
 // Alias para deleteInvitacion
 export const deleteInvitacion = cancelarInvitacion;
+
+/**
+ * Reenviar invitación con control de límites
+ * - Mínimo 5 minutos entre reenvíos
+ * - Máximo 5 reenvíos por invitación
+ */
+export const resendInvitacion = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    if (!req.user_info) {
+      return res.status(403).json({ success: false, message: 'No autorizado' });
+    }
+
+    const userRole = req.user_info.rol_id;
+    if (userRole !== 1 && userRole !== 2) {
+      return res.status(403).json({ success: false, message: 'No tienes permisos para reenviar invitaciones' });
+    }
+
+    if (!supabaseAdmin) {
+      return res.status(500).json({ success: false, message: 'Configuracion de Supabase no disponible' });
+    }
+
+    // Obtener la invitación
+    const { data: invitacion, error: invError } = await supabaseAdmin
+      .from('invitaciones')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (invError || !invitacion) {
+      return res.status(404).json({ success: false, message: 'Invitación no encontrada' });
+    }
+
+    // Verificar que esté pendiente
+    if (invitacion.estado !== 'pendiente') {
+      return res.status(400).json({ 
+        success: false, 
+        message: `No se puede reenviar una invitación con estado "${invitacion.estado}"` 
+      });
+    }
+
+    // Verificar límite de reenvíos (máximo 5)
+    const maxReenvios = 5;
+    const reenviosActuales = invitacion.reenvios_count || 0;
+    if (reenviosActuales >= maxReenvios) {
+      return res.status(429).json({ 
+        success: false, 
+        message: `Se ha alcanzado el límite máximo de ${maxReenvios} reenvíos para esta invitación`,
+        data: { reenvios_count: reenviosActuales, max_reenvios: maxReenvios }
+      });
+    }
+
+    // Verificar tiempo mínimo entre reenvíos (5 minutos)
+    const minMinutosEntreReenvios = 5;
+    const fechaUltimoEnvio = new Date(invitacion.fecha_envio || invitacion.created_at);
+    const ahora = new Date();
+    const minutosPasados = (ahora.getTime() - fechaUltimoEnvio.getTime()) / (1000 * 60);
+
+    if (minutosPasados < minMinutosEntreReenvios) {
+      const minutosRestantes = Math.ceil(minMinutosEntreReenvios - minutosPasados);
+      return res.status(429).json({ 
+        success: false, 
+        message: `Debes esperar ${minutosRestantes} minuto(s) antes de reenviar`,
+        data: { 
+          minutos_restantes: minutosRestantes,
+          proximo_reenvio_disponible: new Date(fechaUltimoEnvio.getTime() + minMinutosEntreReenvios * 60 * 1000).toISOString()
+        }
+      });
+    }
+
+    // Actualizar invitación
+    const { error: updateError } = await supabaseAdmin
+      .from('invitaciones')
+      .update({
+        fecha_envio: new Date(),
+        fecha_expiracion: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 horas
+        reenvios_count: reenviosActuales + 1,
+        updated_at: new Date()
+      })
+      .eq('id', id);
+
+    if (updateError) {
+      console.error('Error al actualizar invitación:', updateError);
+      return res.status(500).json({ success: false, message: 'Error al actualizar invitación' });
+    }
+
+    // Reenviar email via Supabase
+    const { error: authError } = await supabaseAdmin.auth.admin.inviteUserByEmail(invitacion.email, {
+      data: {
+        nombre: invitacion.nombre,
+        apellido: invitacion.apellido,
+        rol_id: invitacion.rol_id,
+        restaurante_id: invitacion.restaurante_id,
+        invitado_por: invitacion.invitado_por,
+        invitacion_id: invitacion.id,
+        token_invitacion: invitacion.token_invitacion
+      }
+    });
+
+    if (authError) {
+      console.error('Error al reenviar email:', authError);
+      // No fallar completamente, la invitación ya fue actualizada
+    }
+
+    console.log('Invitación reenviada:', invitacion.email, '- Reenvío #', reenviosActuales + 1);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Invitación reenviada exitosamente',
+      data: {
+        email: invitacion.email,
+        invitacion_id: invitacion.id,
+        reenvios_count: reenviosActuales + 1,
+        max_reenvios: maxReenvios,
+        reenvios_restantes: maxReenvios - (reenviosActuales + 1),
+        proximo_reenvio_disponible: new Date(Date.now() + minMinutosEntreReenvios * 60 * 1000).toISOString()
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error en resendInvitacion:', error);
+    return res.status(500).json({ success: false, message: 'Error interno', error: error.message });
+  }
+};
