@@ -1,5 +1,4 @@
 import express, { Request, Response } from "express";
-import path from "path";
 import cors from "cors";
 import healthRoutes from "./routes/health";
 import authRoutes from "./routes/auth";
@@ -22,7 +21,7 @@ import invitacionesRoutes from "./routes/invitaciones";
 
 // Initialize express
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3001;
 
 // Configuración de CORS
 const corsOptions = {
@@ -33,9 +32,12 @@ const corsOptions = {
     "http://localhost:5176",
     "http://localhost:5177",
     "http://localhost:5178",
-    "http://localhost:5179"
+    "http://localhost:5179",
+    "https://ezorder-frontal.vercel.app",
+    "https://ezorder.vercel.app",
+    /\.vercel\.app$/
   ], // Orígenes permitidos (URL del frontend de Vue)
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Métodos HTTP permitidos
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"], // Métodos HTTP permitidos
   allowedHeaders: ["Content-Type", "Authorization"], // Headers permitidos
   credentials: true, // Permite enviar cookies entre orígenes
   maxAge: 86400, // Tiempo en segundos que se cachean los resultados de preflight (OPTIONS)
@@ -43,11 +45,40 @@ const corsOptions = {
 
 // Middleware
 app.use(cors(corsOptions)); // Aplicar CORS con las opciones definidas
-app.use(express.json());
+app.use(express.json({ limit: "10mb" })); // Limitar tamaño de payload
+app.use(express.urlencoded({ extended: true, limit: "10mb" })); // Soporte para URL encoded
 
-// Routes
+// Request logging middleware (solo en desarrollo)
+if (process.env.NODE_ENV !== "production") {
+  app.use((req: Request, res: Response, next) => {
+    const timestamp = new Date().toLocaleTimeString("en-US", { 
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+    const method = req.method.padEnd(6);
+    const methodEmoji = {
+      "GET": "✓",
+      "POST": "+",
+      "PUT": "↻",
+      "DELETE": "✗",
+      "PATCH": "~"
+    }[req.method] || "•";
+    
+    console.log(`  ${timestamp} ${methodEmoji} ${method} ${req.path}`);
+    next();
+  });
+}
+
+// Routes - Root endpoint with modern API information
 app.get("/", (req: Request, res: Response) => {
-  res.send("¡Bienvenido a la API de EZOrder!");
+  res.json({
+    name: "EZOrder API",
+    version: "1.0.0",
+    status: "online",
+    docs: "/api/health"
+  });
 });
 
 // Use routes
@@ -70,7 +101,37 @@ app.use("/api/gastos", gastosRoutes);
 app.use("/api/notificaciones", notificacionesRoutes);
 app.use("/api/invitaciones", invitacionesRoutes);
 
+// Error handling middleware (debe ir después de todas las rutas)
+app.use((err: any, req: Request, res: Response, next: any) => {
+  const timestamp = new Date().toLocaleTimeString("en-US", { 
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+  console.error(`  ${timestamp} ✗ ${req.method} ${req.path} → ${err.message || "Error"}`);
+  res.status(err.status || 500).json({
+    error: err.message || "Internal server error",
+    status: err.status || 500
+  });
+});
+
+// 404 handler para rutas no encontradas
+app.use((req: Request, res: Response) => {
+  res.status(404).json({
+    error: "Not found",
+    path: req.path,
+    method: req.method
+  });
+});
+
 // Start the server
 app.listen(port, () => {
-  console.log(`Servidor corriendo en http://localhost:${port}`);
+  const env = process.env.NODE_ENV || "development";
+  const envEmoji = env === "production" ? "🚀" : "⚡";
+  
+  console.log(`\n  ${envEmoji} EZOrder API v1.0.0`);
+  console.log(`  ──────────────────────────────`);
+  console.log(`  → http://localhost:${port}`);
+  console.log(`  → ${env}\n`);
 });
