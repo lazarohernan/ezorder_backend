@@ -1,0 +1,5 @@
+node_modules
+*.log
+.env.local
+.env.*.local
+# No ignorar src/ ni *.ts porque son necesarios para el build de TypeScript
