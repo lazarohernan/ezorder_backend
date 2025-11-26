@@ -156,9 +156,10 @@ export const getInvitaciones = async (req: Request, res: Response) => {
       .select('*')
       .order('created_at', { ascending: false });
 
-    // Filtrar por restaurante si no es admin
+    // Filtrar por restaurante si no es admin SOLO si el restaurante está asignado
+    // Las invitaciones sin restaurante asignado deben ser visibles para admins
     if (userRole !== 1 && req.user_info.restaurante_id) {
-      query = query.eq('restaurante_id', req.user_info.restaurante_id);
+      query = query.or(`restaurante_id.eq.${req.user_info.restaurante_id},restaurante_id.is.null`);
     }
 
     const { data, error } = await query;

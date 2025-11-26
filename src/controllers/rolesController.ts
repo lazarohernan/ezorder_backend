@@ -419,7 +419,7 @@ export const updateRol = async (req: Request, res: Response) => {
   }
 };
 
-// Eliminar un rol
+// Eliminar un rol completamente
 export const deleteRol = async (req: Request, res: Response) => {
   try {
     if (!req.user_info) {
@@ -465,18 +465,32 @@ export const deleteRol = async (req: Request, res: Response) => {
     if (usersWithRole && usersWithRole.length > 0) {
       return res.status(400).json({
         ok: false,
-        message: "No se puede eliminar el rol porque hay usuarios asignados a él"
+        message: "No se puede eliminar el rol porque hay usuarios asignados a él. Primero debe reasignar estos usuarios a otro rol."
       });
     }
 
-    // Desactivar el rol en lugar de eliminarlo físicamente
+    // Eliminar permisos asociados al rol primero
+    const { error: permisosError } = await supabaseAdmin!
+      .from('rol_permisos')
+      .delete()
+      .eq('rol_id', id);
+
+    if (permisosError) {
+      console.error('Error al eliminar permisos asociados:', permisosError);
+      return res.status(500).json({
+        ok: false,
+        message: "Error al eliminar permisos asociados al rol"
+      });
+    }
+
+    // Eliminar el rol completamente
     const { error: deleteError } = await supabaseAdmin!
       .from('roles_personalizados')
-      .update({ activo: false, updated_at: new Date().toISOString() })
+      .delete()
       .eq('id', id);
 
     if (deleteError) {
-      console.error('Error al desactivar rol:', deleteError);
+      console.error('Error al eliminar rol:', deleteError);
       return res.status(500).json({
         ok: false,
         message: "Error al eliminar rol"
