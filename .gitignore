@@ -26,5 +26,8 @@ Thumbs.db
 .vscode/
 .idea/
 
-ez-order-backend-main/
+# Carpetas anidadas innecesarias
 ez-order-frontend-main/
+ezorder_frontal-main1/
+ezorder_frontal-main/
+
