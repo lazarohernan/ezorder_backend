@@ -35,7 +35,8 @@ const corsOptions = {
     "http://localhost:5179",
     "https://ezorder-frontal.vercel.app",
     "https://ezorder.vercel.app",
-    /\.vercel\.app$/
+    /\.vercel\.app$/, // Permitir todos los subdominios de vercel.app
+    /^https:\/\/ezorder-frontal-.+\.vercel\.app$/, // Permitir previews específicas de ezorder-frontal
   ], // Orígenes permitidos (URL del frontend de Vue)
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"], // Métodos HTTP permitidos
   allowedHeaders: ["Content-Type", "Authorization"], // Headers permitidos
