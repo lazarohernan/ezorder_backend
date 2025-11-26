@@ -18,7 +18,7 @@ export const createInvitacion = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'Email, nombre y apellido son obligatorios' });
     }
 
-    if (!req.user_info) {
+    if (!req.user_info || !req.user) {
       return res.status(403).json({ success: false, message: 'No autorizado' });
     }
 
@@ -30,6 +30,9 @@ export const createInvitacion = async (req: Request, res: Response) => {
     if (!supabaseAdmin) {
       return res.status(500).json({ success: false, message: 'Configuracion de Supabase no disponible' });
     }
+
+    // Usar req.user.id (ID del usuario autenticado en auth.users)
+    const invitadoPorId = req.user.id;
 
     // Paso 1: Verificar si ya existe invitacion pendiente
     const { data: invExistente } = await supabaseAdmin
@@ -53,7 +56,7 @@ export const createInvitacion = async (req: Request, res: Response) => {
 
       // Reenviar email
       await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-        data: { nombre, apellido, rol_id, restaurante_id, invitado_por: req.user_info.user_id }
+        data: { nombre, apellido, rol_id, restaurante_id, invitado_por: invitadoPorId }
       });
 
       return res.status(200).json({
@@ -77,7 +80,7 @@ export const createInvitacion = async (req: Request, res: Response) => {
         telefono,
         rol_id,
         restaurante_id,
-        invitado_por: req.user_info.user_id,
+        invitado_por: invitadoPorId,
         token_invitacion: token,
         estado: 'pendiente',
         created_at: new Date(),
@@ -100,7 +103,7 @@ export const createInvitacion = async (req: Request, res: Response) => {
         apellido,
         rol_id,
         restaurante_id,
-        invitado_por: req.user_info.user_id,
+        invitado_por: invitadoPorId,
         invitacion_id: invitacion.id,
         token_invitacion: token
       }
