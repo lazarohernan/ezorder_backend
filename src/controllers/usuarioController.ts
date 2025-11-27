@@ -334,16 +334,16 @@ export const updateUsuario = async (req: Request, res: Response) => {
       return;
     }
 
-    // Validar acceso al restaurante si es rol 2
-    if (id_rol === 2 && restaurante_id !== undefined) {
-      const { data: userRestaurants } = await supabase
+    // Validar acceso al restaurante si es rol 2 y se está asignando un restaurante específico
+    if (id_rol === 2 && restaurante_id !== undefined && restaurante_id !== null) {
+      const { data: userRestaurants } = await supabaseAdmin
         .from("usuarios_restaurantes")
         .select("restaurante_id")
         .eq("usuario_id", req.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
       
-      if (restaurante_id && !restaurantIds.includes(restaurante_id)) {
+      if (!restaurantIds.includes(restaurante_id)) {
         res.status(403).json({
           success: false,
           message: "No tienes acceso a este restaurante",
