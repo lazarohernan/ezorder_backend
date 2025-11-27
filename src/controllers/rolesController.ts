@@ -295,13 +295,7 @@ export const createRol = async (req: Request, res: Response) => {
 // Actualizar un rol
 export const updateRol = async (req: Request, res: Response) => {
   try {
-    console.log('🔄 updateRol - Iniciando...');
-    console.log('🔄 req.user_info:', req.user_info);
-    console.log('🔄 req.params:', req.params);
-    console.log('🔄 req.body:', req.body);
-
     if (!req.user_info) {
-      console.log('❌ No se encontró información del usuario autenticado');
       return res.status(403).json({
         ok: false,
         message: "No se encontró información del usuario autenticado"
@@ -310,10 +304,8 @@ export const updateRol = async (req: Request, res: Response) => {
 
     // Solo Super Admin y Admin pueden actualizar roles personalizados
     const id_rol = req.user_info?.rol_id ?? 3;
-    console.log('🔄 rol_id del usuario:', id_rol);
     
     if (id_rol !== 1 && id_rol !== 2) {
-      console.log('❌ Usuario sin permisos, rol_id:', id_rol);
       return res.status(403).json({
         ok: false,
         message: "No tienes permisos para actualizar roles personalizados"

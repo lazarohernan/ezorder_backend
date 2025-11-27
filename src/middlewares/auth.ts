@@ -58,9 +58,6 @@ export const requireAuth = async (
         req.user_info = userInfoData && userInfoData.length > 0 ? userInfoData[0] : null;
       }
     }
-    console.log("req.user.id", req.user?.id);
-    console.log("req.user_info", req.user_info);
-
     // Continuar con la siguiente función en la cadena de middleware
     next();
   } catch (error) {

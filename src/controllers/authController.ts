@@ -478,18 +478,12 @@ export const getUserInfo = async (req: Request, res: Response) => {
       try {
         // Usuario con rol personalizado
         if (userInfo.rol_personalizado_id) {
-          console.log('Obteniendo permisos para rol_personalizado_id:', userInfo.rol_personalizado_id);
-          
           // Consulta simple usando SQL directo
           const { data: permisosData, error: permisosError } = await supabase
             .rpc('get_permisos_by_rol', { rol_id_param: userInfo.rol_personalizado_id });
 
-          console.log('Permisos data:', permisosData);
-          console.log('Permisos error:', permisosError);
-
           if (!permisosError && permisosData) {
             permisos = permisosData.map((item: any) => item.nombre);
-            console.log('Permisos extraídos:', permisos);
           }
 
           // Obtener información del rol personalizado
@@ -499,9 +493,6 @@ export const getUserInfo = async (req: Request, res: Response) => {
             .eq('id', userInfo.rol_personalizado_id)
             .single();
 
-          console.log('Rol data:', rolData);
-          console.log('Rol error:', rolError);
-
           if (!rolError && rolData) {
             rolNombre = rolData.nombre;
             isSuperAdmin = rolData.es_super_admin;
@@ -509,8 +500,6 @@ export const getUserInfo = async (req: Request, res: Response) => {
         }
         // Roles básicos del sistema
         else if (userInfo.rol_id) {
-          console.log('Obteniendo permisos para rol_id básico:', userInfo.rol_id);
-          
           if (userInfo.rol_id === 1) {
             // Super Admin - Acceso completo a todo
             permisos = ['*'];
@@ -541,8 +530,6 @@ export const getUserInfo = async (req: Request, res: Response) => {
             rolNombre = 'Cajero';
             isSuperAdmin = false;
           }
-          
-          console.log('Permisos asignados para rol básico:', permisos);
         }
       } catch (dbError) {
         console.warn('Error al obtener permisos de la base de datos:', dbError);
@@ -580,15 +567,10 @@ export const getUserInfo = async (req: Request, res: Response) => {
  */
 export const updatePassword = async (req: Request, res: Response) => {
   try {
-    console.log('\n\n========================================');
-    console.log('🔐 UPDATE PASSWORD REQUEST RECEIVED');
-    console.log('========================================');
-    
     // Obtener el token del header Authorization
     const authHeader = req.headers.authorization;
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.log('❌ Token no proporcionado o formato incorrecto');
       res.status(401).json({
         ok: false,
         message: "Token de autorización no proporcionado",
@@ -645,7 +627,6 @@ export const updatePassword = async (req: Request, res: Response) => {
     });
 
     if (sessionError || !sessionData.session || !sessionData.user) {
-      console.error("❌ Error al establecer sesión:", sessionError);
       res.status(401).json({
         ok: false,
         message: "Token inválido o expirado",
@@ -673,19 +654,14 @@ export const updatePassword = async (req: Request, res: Response) => {
     const userId = data.user?.id;
     
     if (userEmail && userId && supabaseAdmin) {
-      console.log('🔄 Procesando invitación para crear usuarios_info...');
-      
       const { data: invResult, error: invError } = await supabaseAdmin.rpc('aceptar_invitacion', {
         p_email: userEmail,
         p_user_id: userId
       });
       
+      // Procesar resultado de invitación silenciosamente
       if (invError) {
-        console.warn('⚠️ Error al procesar invitación (no crítico):', invError.message);
-      } else if (invResult?.success) {
-        console.log('✅ Invitación procesada:', invResult.message);
-      } else {
-        console.log('ℹ️ Invitación no procesada:', invResult?.message || 'Sin mensaje');
+        // Error no crítico, continuar
       }
     }
 

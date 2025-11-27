@@ -23,6 +23,23 @@ interface Notificacion {
   }>;
 }
 
+// Helper para obtener IDs de restaurantes del usuario (cacheado en request)
+const getUserRestaurantIds = async (client: any, userId: string, req: Request): Promise<string[]> => {
+  // Usar cache en el request si ya se obtuvo
+  if ((req as any)._restaurantIds) {
+    return (req as any)._restaurantIds;
+  }
+  
+  const { data: userRestaurants } = await client
+    .from('usuarios_restaurantes')
+    .select('restaurante_id')
+    .eq('usuario_id', userId);
+
+  const ids = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+  (req as any)._restaurantIds = ids;
+  return ids;
+};
+
 // Obtener notificaciones del usuario
 export const getNotificaciones = async (req: Request, res: Response) => {
   try {
@@ -40,7 +57,6 @@ export const getNotificaciones = async (req: Request, res: Response) => {
       limite = 10
     } = req.query;
 
-    // Usar supabaseAdmin para bypassear RLS
     const client = supabaseAdmin || supabase;
     const id_rol = req.user_info?.rol_id ?? 3;
 
@@ -51,19 +67,12 @@ export const getNotificaciones = async (req: Request, res: Response) => {
     // Filtrar por usuario y rol
     if (id_rol === 1) {
       // Super Admin ve todas las notificaciones
-      // No aplicamos filtro de usuario específico
     } else if (id_rol === 2) {
       // Admin ve sus notificaciones y las de sus restaurantes
-      const { data: userRestaurants } = await client
-        .from('usuarios_restaurantes')
-        .select('restaurante_id')
-        .eq('usuario_id', req.user_info.id);
-
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+      const restaurantIds = await getUserRestaurantIds(client, req.user_info.id, req);
       
       if (restaurantIds.length > 0) {
-        // Usar formato correcto para OR en Supabase
-        query = query.or(`usuario_id.eq.${req.user_info.id},and(restaurante_id.in.(${restaurantIds.join(',')}),usuario_id.neq.${req.user_info.id})`);
+        query = query.or(`usuario_id.eq.${req.user_info.id},restaurante_id.in.(${restaurantIds.join(',')})`);
       } else {
         query = query.eq('usuario_id', req.user_info.id);
       }
@@ -232,19 +241,12 @@ export const marcarTodasNotificacionesLeidas = async (req: Request, res: Respons
     // Filtrar según rol
     if (id_rol === 1) {
       // Super Admin marca todas las no leídas
-      // No aplicamos filtro adicional
     } else if (id_rol === 2) {
       // Admin marca sus notificaciones y las de sus restaurantes
-      const { data: userRestaurants } = await client
-        .from('usuarios_restaurantes')
-        .select('restaurante_id')
-        .eq('usuario_id', req.user_info.id);
-
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+      const restaurantIds = await getUserRestaurantIds(client, req.user_info.id, req);
       
       if (restaurantIds.length > 0) {
-        // Usar formato correcto para OR en Supabase
-        query = query.or(`usuario_id.eq.${req.user_info.id},and(restaurante_id.in.(${restaurantIds.join(',')}),usuario_id.neq.${req.user_info.id})`);
+        query = query.or(`usuario_id.eq.${req.user_info.id},restaurante_id.in.(${restaurantIds.join(',')})`);
       } else {
         query = query.eq('usuario_id', req.user_info.id);
       }
@@ -408,19 +410,12 @@ export const getNotificacionesNoLeidasCount = async (req: Request, res: Response
     // Filtrar según rol
     if (id_rol === 1) {
       // Super Admin ve todas las no leídas
-      // No aplicamos filtro adicional
     } else if (id_rol === 2) {
       // Admin ve sus notificaciones y las de sus restaurantes
-      const { data: userRestaurants } = await client
-        .from('usuarios_restaurantes')
-        .select('restaurante_id')
-        .eq('usuario_id', req.user_info.id);
-
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+      const restaurantIds = await getUserRestaurantIds(client, req.user_info.id, req);
       
       if (restaurantIds.length > 0) {
-        // Usar formato correcto para OR en Supabase
-        query = query.or(`usuario_id.eq.${req.user_info.id},and(restaurante_id.in.(${restaurantIds.join(',')}),usuario_id.neq.${req.user_info.id})`);
+        query = query.or(`usuario_id.eq.${req.user_info.id},restaurante_id.in.(${restaurantIds.join(',')})`);
       } else {
         query = query.eq('usuario_id', req.user_info.id);
       }

@@ -5,6 +5,7 @@ import {
   createRol,
   updateRol,
   deleteRol,
+  getUserPermissions,
 } from "../controllers/rolesController";
 import { requireAuth } from "../middlewares/auth";
 import { requirePermissions } from "../middlewares/permissions";
@@ -28,5 +29,8 @@ router.put("/:id", requirePermissions(['roles.editar']), updateRol);
 
 // Ruta para eliminar un rol
 router.delete("/:id", requirePermissions(['roles.eliminar']), deleteRol);
+
+// Ruta para obtener permisos del usuario actual
+router.get("/user/permissions", getUserPermissions);
 
 export default router;

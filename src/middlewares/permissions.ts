@@ -5,42 +5,30 @@ export const requirePermissions = (requiredPermissions: string[]) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (!req.user_info) {
-        console.log('🔒 requirePermissions: No hay user_info');
+        // Usuario no autenticado
         return res.status(401).json({
           ok: false,
           message: "Usuario no autenticado"
         });
       }
 
-      console.log('🔒 requirePermissions:', {
-        requiredPermissions,
-        rol_id: req.user_info.rol_id,
-        rol_personalizado_id: req.user_info.rol_personalizado_id,
-        restaurante_id: req.user_info.restaurante_id,
-        es_super_admin: req.user_info.es_super_admin
-      });
-
       // Super Admin siempre tiene acceso
       if (req.user_info.rol_id === 1 || req.user_info.es_super_admin) {
-        console.log('🔒 Acceso permitido: Super Admin');
         return next();
       }
 
       // Admin siempre tiene acceso
       if (req.user_info.rol_id === 2) {
-        console.log('🔒 Acceso permitido: Admin');
         return next();
       }
 
       // Si el usuario tiene restaurante asignado y solo quiere VER restaurantes, permitir
       if (req.user_info.restaurante_id && requiredPermissions.includes('restaurantes.ver')) {
-        console.log('🔒 Acceso permitido: Usuario con restaurante asignado puede ver su restaurante');
         return next();
       }
 
       const rolPersonalizadoId = req.user_info.rol_personalizado_id;
       if (!rolPersonalizadoId) {
-        console.log('🔒 Acceso denegado: No tiene rol_personalizado_id');
         return res.status(403).json({
           ok: false,
           message: "No tienes permisos para realizar esta acción. Contacta al administrador para que te asigne un rol."

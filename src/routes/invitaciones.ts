@@ -26,3 +26,4 @@ router.delete("/:id", requirePermissions(['usuarios.eliminar']), deleteInvitacio
 router.post("/:id/resend", requirePermissions(['usuarios.crear']), resendInvitacion);
 
 export default router;
+
