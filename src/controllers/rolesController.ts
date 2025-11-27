@@ -295,7 +295,13 @@ export const createRol = async (req: Request, res: Response) => {
 // Actualizar un rol
 export const updateRol = async (req: Request, res: Response) => {
   try {
+    console.log('🔄 updateRol - Iniciando...');
+    console.log('🔄 req.user_info:', req.user_info);
+    console.log('🔄 req.params:', req.params);
+    console.log('🔄 req.body:', req.body);
+
     if (!req.user_info) {
+      console.log('❌ No se encontró información del usuario autenticado');
       return res.status(403).json({
         ok: false,
         message: "No se encontró información del usuario autenticado"
@@ -304,7 +310,10 @@ export const updateRol = async (req: Request, res: Response) => {
 
     // Solo Super Admin y Admin pueden actualizar roles personalizados
     const id_rol = req.user_info?.rol_id ?? 3;
+    console.log('🔄 rol_id del usuario:', id_rol);
+    
     if (id_rol !== 1 && id_rol !== 2) {
+      console.log('❌ Usuario sin permisos, rol_id:', id_rol);
       return res.status(403).json({
         ok: false,
         message: "No tienes permisos para actualizar roles personalizados"
@@ -503,6 +512,69 @@ export const deleteRol = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error en deleteRol:', error);
+    res.status(500).json({
+      ok: false,
+      message: "Error interno del servidor"
+    });
+  }
+};
+
+// Obtener permisos del usuario actual
+export const getUserPermissions = async (req: Request, res: Response) => {
+  try {
+    if (!req.user_info) {
+      return res.status(401).json({
+        ok: false,
+        message: "Usuario no autenticado"
+      });
+    }
+
+    // Super Admin y Admin tienen acceso a todo, no necesitan permisos específicos
+    if (req.user_info.rol_id === 1 || req.user_info.rol_id === 2) {
+      return res.json({
+        ok: true,
+        data: []
+      });
+    }
+
+    // Si no tiene rol personalizado, no tiene permisos
+    if (!req.user_info.rol_personalizado_id) {
+      return res.json({
+        ok: true,
+        data: []
+      });
+    }
+
+    const supabase = getSupabaseAdmin(res);
+    if (!supabase) {
+      return res.status(500).json({
+        ok: false,
+        message: "Error de configuración del servidor"
+      });
+    }
+
+    // Obtener permisos del rol personalizado
+    const { data: rolPermisos, error } = await supabase
+      .from('rol_permisos')
+      .select('permisos!inner(nombre)')
+      .eq('rol_id', req.user_info.rol_personalizado_id);
+
+    if (error) {
+      console.error('Error al obtener permisos del usuario:', error);
+      return res.status(500).json({
+        ok: false,
+        message: "Error al obtener permisos"
+      });
+    }
+
+    const permissions = rolPermisos?.map((rp: any) => rp.permisos.nombre) || [];
+
+    res.json({
+      ok: true,
+      data: permissions
+    });
+  } catch (error) {
+    console.error('Error en getUserPermissions:', error);
     res.status(500).json({
       ok: false,
       message: "Error interno del servidor"

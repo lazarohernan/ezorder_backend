@@ -507,6 +507,43 @@ export const getUserInfo = async (req: Request, res: Response) => {
             isSuperAdmin = rolData.es_super_admin;
           }
         }
+        // Roles básicos del sistema
+        else if (userInfo.rol_id) {
+          console.log('Obteniendo permisos para rol_id básico:', userInfo.rol_id);
+          
+          if (userInfo.rol_id === 1) {
+            // Super Admin - Acceso completo a todo
+            permisos = ['*'];
+            rolNombre = 'Super Administrador';
+            isSuperAdmin = true;
+          } else if (userInfo.rol_id === 2) {
+            // Admin - Acceso completo a gestión de restaurantes
+            permisos = [
+              'usuarios.ver', 'usuarios.crear', 'usuarios.editar', 'usuarios.eliminar',
+              'restaurantes.ver', 'restaurantes.crear', 'restaurantes.editar', 'restaurantes.eliminar',
+              'roles.ver', 'roles.crear', 'roles.editar', 'roles.eliminar',
+              'menu.ver', 'menu.crear', 'menu.editar', 'menu.eliminar',
+              'pedidos.ver', 'pedidos.crear', 'pedidos.editar', 'pedidos.cambiar_estado', 'pedidos.eliminar',
+              'inventario.ver', 'inventario.crear', 'inventario.editar', 'inventario.eliminar',
+              'caja.ver', 'caja.abrir', 'caja.cerrar', 'caja.registrar_ingresos', 'caja.registrar_egresos',
+              'reportes.ver', 'reportes.generar',
+              'notificaciones.ver', 'notificaciones.enviar'
+            ];
+            rolNombre = 'Administrador';
+            isSuperAdmin = false;
+          } else if (userInfo.rol_id === 3) {
+            // Cajero - Permisos limitados
+            permisos = [
+              'pedidos.ver', 'pedidos.crear', 'pedidos.editar',
+              'caja.ver', 'caja.abrir', 'caja.cerrar', 'caja.registrar_ingresos',
+              'menu.ver'
+            ];
+            rolNombre = 'Cajero';
+            isSuperAdmin = false;
+          }
+          
+          console.log('Permisos asignados para rol básico:', permisos);
+        }
       } catch (dbError) {
         console.warn('Error al obtener permisos de la base de datos:', dbError);
         // Continuar sin permisos si hay error
