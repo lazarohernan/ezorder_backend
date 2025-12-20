@@ -6,10 +6,6 @@ node_modules/
 .env.local
 .env.*.local
 
-# Documentation
-docs/
-ez-order-frontend-main/docs/
-
 # Build outputs
 dist/
 build/
@@ -25,10 +21,3 @@ Thumbs.db
 # Editor files
 .vscode/
 .idea/
-
-# Carpetas anidadas innecesarias
-ez-order-frontend-main/
-ezorder_frontal-main1/
-ezorder_frontal-main/
-
-
