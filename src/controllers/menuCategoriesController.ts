@@ -99,7 +99,9 @@ export const createMenuCategory = async (req: Request, res: Response) => {
 
     // Solo Super Admin y Admin pueden crear categorías
     const id_rol = req.user_info?.rol_id ?? 3;
-    if (id_rol !== 1 && id_rol !== 2) {
+    const hasCustomRole = req.user_info?.rol_personalizado_id;
+    
+    if (id_rol !== 1 && id_rol !== 2 && !hasCustomRole) {
       res.status(403).json({
         success: false,
         message: "No tienes permisos para crear categorías",
@@ -169,7 +171,9 @@ export const updateMenuCategory = async (req: Request, res: Response) => {
 
     // Solo Super Admin y Admin pueden actualizar categorías
     const id_rol = req.user_info?.rol_id ?? 3;
-    if (id_rol !== 1 && id_rol !== 2) {
+    const hasCustomRole = req.user_info?.rol_personalizado_id;
+    
+    if (id_rol !== 1 && id_rol !== 2 && !hasCustomRole) {
       res.status(403).json({
         success: false,
         message: "No tienes permisos para actualizar categorías",

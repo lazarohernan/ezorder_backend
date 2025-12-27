@@ -266,7 +266,7 @@ export const createMenu = async (req: Request, res: Response) => {
       .insert([
         {
           restaurante_id,
-          categoria_id,
+          categoria_id: categoria_id || null, // Convertir string vacío a null
           num_menu,
           nombre,
           descripcion,

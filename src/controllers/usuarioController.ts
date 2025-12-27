@@ -169,7 +169,9 @@ export const createUsuario = async (req: Request, res: Response) => {
     }
 
     const id_rol = req.user_info?.rol_id ?? 3;
-    if (id_rol !== 1 && id_rol !== 2) {
+    const hasCustomRole = req.user_info?.rol_personalizado_id;
+    
+    if (id_rol !== 1 && id_rol !== 2 && !hasCustomRole) {
       res.status(403).json({
         success: false,
         message: "No tienes permisos para crear usuarios",
@@ -303,7 +305,9 @@ export const updateUsuario = async (req: Request, res: Response) => {
     }
 
     const id_rol = req.user_info?.rol_id ?? 3;
-    if (id_rol !== 1 && id_rol !== 2) {
+    const hasCustomRole = req.user_info?.rol_personalizado_id;
+    
+    if (id_rol !== 1 && id_rol !== 2 && !hasCustomRole) {
       res.status(403).json({
         success: false,
         message: "No tienes permisos para actualizar usuarios",
@@ -455,7 +459,9 @@ export const deleteUsuario = async (req: Request, res: Response) => {
     }
 
     const id_rol = req.user_info?.rol_id ?? 3;
-    if (id_rol !== 1 && id_rol !== 2) {
+    const hasCustomRole = req.user_info?.rol_personalizado_id;
+    
+    if (id_rol !== 1 && id_rol !== 2 && !hasCustomRole) {
       res.status(403).json({
         success: false,
         message: "Solo el Super Admin y Admin pueden eliminar usuarios",

@@ -23,7 +23,10 @@ export const createInvitacion = async (req: Request, res: Response) => {
     }
 
     const userRole = req.user_info.rol_id;
-    if (userRole !== 1 && userRole !== 2) {
+    const hasCustomRole = req.user_info.rol_personalizado_id;
+    
+    // Permitir acceso a Super Admin (1), Admin (2), o usuarios con rol personalizado
+    if (userRole !== 1 && userRole !== 2 && !hasCustomRole) {
       return res.status(403).json({ success: false, message: 'No tienes permisos para invitar usuarios' });
     }
 
@@ -146,7 +149,10 @@ export const getInvitaciones = async (req: Request, res: Response) => {
     }
 
     const userRole = req.user_info.rol_id;
-    if (userRole !== 1 && userRole !== 2) {
+    const hasCustomRole = req.user_info.rol_personalizado_id;
+    
+    // Permitir acceso a Super Admin (1), Admin (2), o usuarios con rol personalizado
+    if (userRole !== 1 && userRole !== 2 && !hasCustomRole) {
       return res.status(403).json({ success: false, message: 'Sin permisos' });
     }
 
@@ -392,7 +398,10 @@ export const resendInvitacion = async (req: Request, res: Response) => {
     }
 
     const userRole = req.user_info.rol_id;
-    if (userRole !== 1 && userRole !== 2) {
+    const hasCustomRole = req.user_info.rol_personalizado_id;
+    
+    // Permitir acceso a Super Admin (1), Admin (2), o usuarios con rol personalizado
+    if (userRole !== 1 && userRole !== 2 && !hasCustomRole) {
       return res.status(403).json({ success: false, message: 'No tienes permisos para reenviar invitaciones' });
     }
 

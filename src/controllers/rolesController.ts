@@ -193,7 +193,9 @@ export const createRol = async (req: Request, res: Response) => {
 
     // Solo Super Admin y Admin pueden crear roles personalizados
     const id_rol = req.user_info?.rol_id ?? 3;
-    if (id_rol !== 1 && id_rol !== 2) {
+    const hasCustomRole = req.user_info?.rol_personalizado_id;
+    
+    if (id_rol !== 1 && id_rol !== 2 && !hasCustomRole) {
       return res.status(403).json({
         ok: false,
         message: "No tienes permisos para crear roles personalizados"
@@ -304,8 +306,9 @@ export const updateRol = async (req: Request, res: Response) => {
 
     // Solo Super Admin y Admin pueden actualizar roles personalizados
     const id_rol = req.user_info?.rol_id ?? 3;
+    const hasCustomRole = req.user_info?.rol_personalizado_id;
     
-    if (id_rol !== 1 && id_rol !== 2) {
+    if (id_rol !== 1 && id_rol !== 2 && !hasCustomRole) {
       return res.status(403).json({
         ok: false,
         message: "No tienes permisos para actualizar roles personalizados"
@@ -432,7 +435,9 @@ export const deleteRol = async (req: Request, res: Response) => {
 
     // Solo Super Admin y Admin pueden eliminar roles personalizados
     const id_rol = req.user_info?.rol_id ?? 3;
-    if (id_rol !== 1 && id_rol !== 2) {
+    const hasCustomRole = req.user_info?.rol_personalizado_id;
+    
+    if (id_rol !== 1 && id_rol !== 2 && !hasCustomRole) {
       return res.status(403).json({
         ok: false,
         message: "No tienes permisos para eliminar roles personalizados"
