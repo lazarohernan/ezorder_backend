@@ -322,12 +322,14 @@ export const cajaController = {
     }
   },
 
-  // Obtener caja actual (abierta) de un restaurante
+  // Obtener caja actual (abierta) - GLOBAL, no por restaurante
   async getCajaActual(req: Request, res: Response) {
     try {
       const { restaurante_id } = req.params;
 
       const client = supabaseAdmin || supabase;
+      // Buscar caja abierta globalmente (sin filtrar por restaurante_id)
+      // Ordenar por fecha_apertura DESC para tomar la más reciente si hay múltiples
       const { data, error } = await client
         .from('caja')
         .select(`
@@ -337,9 +339,10 @@ export const cajaController = {
             nombre_restaurante
           )
         `)
-        .eq('restaurante_id', restaurante_id)
         .eq('estado', 'abierta')
-        .single();
+        .order('fecha_apertura', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error al obtener caja actual:', error);
@@ -362,14 +365,15 @@ export const cajaController = {
     }
   },
 
-  // Obtener resumen de caja del día
+  // Obtener resumen de caja del día - GLOBAL
   async getResumenCaja(req: Request, res: Response) {
     try {
       const { restaurante_id } = req.params;
       const { fecha } = req.query;
 
       const client = supabaseAdmin || supabase;
-      // Obtener caja actual
+      // Obtener caja actual GLOBALMENTE (no por restaurante)
+      // Ordenar por fecha_apertura DESC para tomar la más reciente si hay múltiples
       const { data: cajaActual, error: cajaError } = await client
         .from('caja')
         .select(`
@@ -379,9 +383,10 @@ export const cajaController = {
             nombre_restaurante
           )
         `)
-        .eq('restaurante_id', restaurante_id)
         .eq('estado', 'abierta')
-        .single();
+        .order('fecha_apertura', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (cajaError && cajaError.code !== 'PGRST116') {
         return res.status(400).json({ error: cajaError.message });
@@ -397,15 +402,36 @@ export const cajaController = {
         restaurante_nombre: (cajaActual as any)?.restaurantes?.nombre_restaurante || 'Restaurante desconocido'
       } : null;
 
+      // Si no hay caja abierta, devolver resumen vacío
+      if (!cajaActualWithRestaurant) {
+        return res.json({ 
+          data: {
+            caja_actual: null,
+            total_ventas_dia: 0,
+            ventas_efectivo: 0,
+            ventas_pos: 0,
+            ventas_transferencia: 0,
+            total_ingresos_dia: 0,
+            total_egresos_dia: 0,
+            total_gastos_dia: 0,
+            gastos_dia: [],
+            diferencia: 0
+          }
+        });
+      }
+
+      // Usar el restaurante_id de la caja abierta para calcular ventas y gastos
+      const restauranteIdCaja = cajaActualWithRestaurant.restaurante_id;
+
       // Calcular fecha de inicio del día
       const fechaInicio = fecha ? getStartOfDayHonduras(fecha as string) : getStartOfDayHonduras();
       const fechaFin = getEndOfDayHonduras(fechaInicio);
 
-      // Obtener todas las ventas del día con método de pago
+      // Obtener todas las ventas del día con método de pago (del restaurante de la caja abierta)
       const { data: todasVentas, error: ventasError } = await client
         .from('pedidos')
         .select('total, metodo_pago_id')
-        .eq('restaurante_id', restaurante_id)
+        .eq('restaurante_id', restauranteIdCaja)
         .eq('pagado', true)
         .gte('created_at', toISOStringHonduras(fechaInicio))
         .lte('created_at', toISOStringHonduras(fechaFin));
@@ -420,11 +446,11 @@ export const cajaController = {
       const ventasTransferencia = todasVentas?.filter(v => v.metodo_pago_id === 3).reduce((sum, v) => sum + Number(v.total), 0) || 0;
       const totalVentasDia = todasVentas?.reduce((sum, venta) => sum + Number(venta.total), 0) || 0;
 
-      // Obtener gastos del día
+      // Obtener gastos del día (del restaurante de la caja abierta)
       const { data: gastos, error: gastosError } = await client
         .from('gastos')
         .select('*')
-        .eq('restaurante_id', restaurante_id)
+        .eq('restaurante_id', restauranteIdCaja)
         .gte('fecha_gasto', toISOStringHonduras(fechaInicio))
         .lte('fecha_gasto', toISOStringHonduras(fechaFin));
 
@@ -518,11 +544,10 @@ export const cajaController = {
 
       const client = supabaseAdmin || supabase;
       
-      // VALIDACIÓN 1: Verificar si ya hay una caja abierta
+      // VALIDACIÓN 1: Verificar si ya hay una caja abierta GLOBALMENTE (no por restaurante)
       const { data: cajaExistente, error: checkError } = await client
         .from('caja')
-        .select('id, usuario_id, fecha_apertura')
-        .eq('restaurante_id', restaurante_id)
+        .select('id, usuario_id, fecha_apertura, restaurante_id')
         .eq('estado', 'abierta')
         .single();
 
@@ -532,9 +557,9 @@ export const cajaController = {
       }
 
       if (cajaExistente) {
-        // No notificar aquí para evitar problemas con usuario_id
+        // Hay una caja abierta globalmente - no permitir abrir otra
         return res.status(400).json({ 
-          error: 'Ya existe una caja abierta para este restaurante',
+          error: 'Ya existe una caja abierta en el sistema. Debe cerrarla antes de abrir una nueva.',
           caja_existente: cajaExistente
         });
       }

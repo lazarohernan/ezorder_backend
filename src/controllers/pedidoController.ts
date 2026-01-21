@@ -424,13 +424,20 @@ export const createPedido = async (req: Request, res: Response) => {
       console.log("✅ Ticket generado:", ticketFinal);
     }
 
+    // Automatización de estado: si está pagado, cambiar a "en_preparacion"
+    let estadoFinal = estado_pedido;
+    if (pagado && estado_pedido === "pendiente") {
+      estadoFinal = "en_preparacion";
+      console.log("🔄 Pedido pagado, cambiando estado automáticamente a 'en_preparacion'");
+    }
+
     const pedidoParaInsertar = {
       restaurante_id,
       cliente_id: cliente_id || null,
       usuario_id: usuario_id || null,
       mesa,
       tipo_pedido,
-      estado_pedido,
+      estado_pedido: estadoFinal,
       notas,
       total,
       subtotal,
