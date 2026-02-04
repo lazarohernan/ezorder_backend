@@ -27,10 +27,10 @@ router.use(requireAuth);
 // Rutas de estadísticas
 router.get('/estadisticas', requirePermissions(['inventario.ver']), obtenerEstadisticas);
 
-// Rutas de alertas (ANTES de /:id)
-router.get('/alertas', requirePermissions(['alertas.ver']), obtenerAlertas);
-router.put('/alertas/marcar-todas-leidas', requirePermissions(['alertas.ver']), marcarTodasAlertasLeidas);
-router.put('/alertas/:id/leer', requirePermissions(['alertas.ver']), marcarAlertaLeida);
+// Rutas de alertas (ANTES de /:id) - Usan inventario.ver porque son parte del módulo de inventario
+router.get('/alertas', requirePermissions(['inventario.ver']), obtenerAlertas);
+router.put('/alertas/marcar-todas-leidas', requirePermissions(['inventario.ver']), marcarTodasAlertasLeidas);
+router.put('/alertas/:id/leer', requirePermissions(['inventario.ver']), marcarAlertaLeida);
 
 // Rutas de movimientos (ANTES de /:id)
 router.get('/movimientos', requirePermissions(['inventario.ver_movimientos']), obtenerMovimientos);

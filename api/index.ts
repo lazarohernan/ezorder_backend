@@ -18,6 +18,7 @@ import cajaRoutes from "../src/routes/caja";
 import gastosRoutes from "../src/routes/gastos";
 import notificacionesRoutes from "../src/routes/notificaciones";
 import invitacionesRoutes from "../src/routes/invitaciones";
+import descuentoRoutes from "../src/routes/descuentoRoutes";
 
 const app = express();
 
@@ -87,6 +88,7 @@ app.use("/api/caja", cajaRoutes);
 app.use("/api/gastos", gastosRoutes);
 app.use("/api/notificaciones", notificacionesRoutes);
 app.use("/api/invitaciones", invitacionesRoutes);
+app.use("/api/descuentos", descuentoRoutes);
 
 // Error handling middleware
 app.use((err: any, req: Request, res: Response, next: any) => {

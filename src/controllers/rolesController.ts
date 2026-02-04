@@ -53,18 +53,46 @@ export const getPermisos = async (req: Request, res: Response) => {
       });
     }
 
-    // Agrupar por categoría
-    const permisosPorCategoria = permisos.reduce((acc: any, permiso: any) => {
-      if (!acc[permiso.categoria]) {
-        acc[permiso.categoria] = [];
+    // Función para ordenar permisos por tipo de acción
+    const getActionOrder = (nombre: string): number => {
+      if (nombre.endsWith('.ver')) return 1;
+      if (nombre.endsWith('.crear')) return 2;
+      if (nombre.endsWith('.editar')) return 3;
+      if (nombre.endsWith('.eliminar')) return 4;
+      return 5; // Otras acciones (abrir, cerrar, cambiar_estado, etc.)
+    };
+
+    // Agrupar por tipo (sistema/restaurante) y luego por categoría
+    const permisosPorTipo = permisos.reduce((acc: any, permiso: any) => {
+      const tipo = permiso.tipo || 'restaurante';
+      if (!acc[tipo]) {
+        acc[tipo] = {};
       }
-      acc[permiso.categoria].push(permiso);
+      if (!acc[tipo][permiso.categoria]) {
+        acc[tipo][permiso.categoria] = [];
+      }
+      acc[tipo][permiso.categoria].push(permiso);
       return acc;
     }, {});
 
+    // Ordenar cada categoría por tipo de acción
+    Object.keys(permisosPorTipo).forEach(tipo => {
+      Object.keys(permisosPorTipo[tipo]).forEach(categoria => {
+        permisosPorTipo[tipo][categoria].sort((a: any, b: any) => {
+          const orderA = getActionOrder(a.nombre);
+          const orderB = getActionOrder(b.nombre);
+          if (orderA !== orderB) {
+            return orderA - orderB;
+          }
+          // Si tienen el mismo orden, ordenar alfabéticamente
+          return a.nombre.localeCompare(b.nombre);
+        });
+      });
+    });
+
     res.json({
       ok: true,
-      data: permisosPorCategoria
+      data: permisosPorTipo
     });
   } catch (error) {
     console.error('Error en getPermisos:', error);
