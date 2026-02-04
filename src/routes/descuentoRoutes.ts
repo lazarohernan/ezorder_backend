@@ -25,12 +25,12 @@ router.get("/activos", getDescuentosActivos);
 router.get("/:id", getDescuentoById);
 
 // Crear un nuevo descuento (requiere permisos de descuentos)
-router.post("/", requirePermissions(['descuentos.ver']), createDescuento);
+router.post("/", requirePermissions(['descuentos.crear']), createDescuento);
 
 // Actualizar un descuento existente (requiere permisos de descuentos)
-router.put("/:id", requirePermissions(['descuentos.ver']), updateDescuento);
+router.put("/:id", requirePermissions(['descuentos.editar']), updateDescuento);
 
 // Eliminar un descuento (requiere permisos de descuentos)
-router.delete("/:id", requirePermissions(['descuentos.ver']), deleteDescuento);
+router.delete("/:id", requirePermissions(['descuentos.eliminar']), deleteDescuento);
 
 export default router;
