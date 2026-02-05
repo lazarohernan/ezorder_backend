@@ -145,7 +145,8 @@ export const login = async (req: Request, res: Response) => {
     // Verificar si el usuario es propietario de su restaurante asignado
     let esPropietario = false;
     if (userInfo && userInfo.restaurante_id) {
-      const { data: restauranteData } = await supabase
+      const client = supabaseAdmin || supabase;
+      const { data: restauranteData } = await client
         .from('restaurantes')
         .select('propietario_id')
         .eq('id', userInfo.restaurante_id)
@@ -159,7 +160,8 @@ export const login = async (req: Request, res: Response) => {
     // Obtener requiere_cierre_manual del rol
     let requiereCierreManual = false;
     if (userInfo && userInfo.rol_personalizado_id) {
-      const { data: rolData } = await supabase
+      const rolClient = supabaseAdmin || supabase;
+      const { data: rolData } = await rolClient
         .from('roles_personalizados')
         .select('requiere_cierre_manual')
         .eq('id', userInfo.rol_personalizado_id)
@@ -517,7 +519,8 @@ export const getUserInfo = async (req: Request, res: Response) => {
           }
 
           // Obtener información del rol personalizado
-          const { data: rolData, error: rolError } = await supabase
+          const rolClient = supabaseAdmin || supabase;
+          const { data: rolData, error: rolError } = await rolClient
             .from('roles_personalizados')
             .select('nombre, es_super_admin, requiere_cierre_manual')
             .eq('id', userInfo.rol_personalizado_id)
@@ -570,7 +573,8 @@ export const getUserInfo = async (req: Request, res: Response) => {
     // Verificar si el usuario es propietario de su restaurante asignado
     let esPropietario = false;
     if (userInfo.restaurante_id) {
-      const { data: restauranteData } = await supabase
+      const restClient = supabaseAdmin || supabase;
+      const { data: restauranteData } = await restClient
         .from('restaurantes')
         .select('propietario_id')
         .eq('id', userInfo.restaurante_id)
