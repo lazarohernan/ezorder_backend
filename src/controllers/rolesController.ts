@@ -32,6 +32,7 @@ interface CreateRoleDTO {
 
 interface UpdateRoleDTO extends Partial<CreateRoleDTO> {
   activo?: boolean;
+  requiere_cierre_manual?: boolean;
 }
 
 // Obtener todos los permisos disponibles
@@ -351,7 +352,7 @@ export const updateRol = async (req: Request, res: Response) => {
     }
 
     const { id } = req.params;
-    const { nombre, descripcion, color, icono, permisos, activo }: UpdateRoleDTO = req.body;
+    const { nombre, descripcion, color, icono, permisos, activo, requiere_cierre_manual }: UpdateRoleDTO = req.body;
 
     // Verificar que el rol existe
     const { data: existingRole, error: findError } = await supabaseAdmin!
@@ -391,6 +392,7 @@ export const updateRol = async (req: Request, res: Response) => {
     if (color !== undefined) updateData.color = color;
     if (icono !== undefined) updateData.icono = icono;
     if (activo !== undefined) updateData.activo = activo;
+    if (requiere_cierre_manual !== undefined) updateData.requiere_cierre_manual = requiere_cierre_manual;
     updateData.updated_at = new Date().toISOString();
 
     const { data: updatedRole, error: updateError } = await supabaseAdmin!
