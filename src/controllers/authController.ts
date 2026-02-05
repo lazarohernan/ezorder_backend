@@ -142,13 +142,28 @@ export const login = async (req: Request, res: Response) => {
       }
     }
 
+    // Verificar si el usuario es propietario de su restaurante asignado
+    let esPropietario = false;
+    if (userInfo && userInfo.restaurante_id) {
+      const { data: restauranteData } = await supabase
+        .from('restaurantes')
+        .select('propietario_id')
+        .eq('id', userInfo.restaurante_id)
+        .single();
+      
+      if (restauranteData && restauranteData.propietario_id === userInfo.id) {
+        esPropietario = true;
+      }
+    }
+
     // Combinar información del usuario con permisos del JWT
     const usuariosInfoConPermisos = userInfo ? {
       ...userInfo,
       permisos,
       es_super_admin: isSuperAdmin,
       rol_nombre: rolNombre,
-    } : null;
+      es_propietario: esPropietario,
+    } : undefined;
 
     // Construir objeto de sesión con refresh_token explícito
     const sessionObject = {
@@ -537,12 +552,27 @@ export const getUserInfo = async (req: Request, res: Response) => {
       }
     }
 
+    // Verificar si el usuario es propietario de su restaurante asignado
+    let esPropietario = false;
+    if (userInfo.restaurante_id) {
+      const { data: restauranteData } = await supabase
+        .from('restaurantes')
+        .select('propietario_id')
+        .eq('id', userInfo.restaurante_id)
+        .single();
+      
+      if (restauranteData && restauranteData.propietario_id === userInfo.id) {
+        esPropietario = true;
+      }
+    }
+
     // Combinar información del usuario con permisos del JWT o base de datos
     const usuariosInfoConPermisos = {
       ...userInfo,
       permisos,
       es_super_admin: isSuperAdmin,
       rol_nombre: rolNombre,
+      es_propietario: esPropietario,
     };
 
     res.status(200).json({
