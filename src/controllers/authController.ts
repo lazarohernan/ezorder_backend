@@ -156,6 +156,20 @@ export const login = async (req: Request, res: Response) => {
       }
     }
 
+    // Obtener requiere_cierre_manual del rol
+    let requiereCierreManual = false;
+    if (userInfo && userInfo.rol_personalizado_id) {
+      const { data: rolData } = await supabase
+        .from('roles_personalizados')
+        .select('requiere_cierre_manual')
+        .eq('id', userInfo.rol_personalizado_id)
+        .single();
+      
+      if (rolData) {
+        requiereCierreManual = rolData.requiere_cierre_manual || false;
+      }
+    }
+
     // Combinar información del usuario con permisos del JWT
     const usuariosInfoConPermisos = userInfo ? {
       ...userInfo,
@@ -163,6 +177,7 @@ export const login = async (req: Request, res: Response) => {
       es_super_admin: isSuperAdmin,
       rol_nombre: rolNombre,
       es_propietario: esPropietario,
+      requiere_cierre_manual: requiereCierreManual,
     } : undefined;
 
     // Construir objeto de sesión con refresh_token explícito
@@ -504,7 +519,7 @@ export const getUserInfo = async (req: Request, res: Response) => {
           // Obtener información del rol personalizado
           const { data: rolData, error: rolError } = await supabase
             .from('roles_personalizados')
-            .select('nombre, es_super_admin')
+            .select('nombre, es_super_admin, requiere_cierre_manual')
             .eq('id', userInfo.rol_personalizado_id)
             .single();
 
@@ -566,6 +581,20 @@ export const getUserInfo = async (req: Request, res: Response) => {
       }
     }
 
+    // Obtener requiere_cierre_manual del rol
+    let requiereCierreManual = false;
+    if (userInfo.rol_personalizado_id) {
+      const { data: rolData } = await supabase
+        .from('roles_personalizados')
+        .select('requiere_cierre_manual')
+        .eq('id', userInfo.rol_personalizado_id)
+        .single();
+      
+      if (rolData) {
+        requiereCierreManual = rolData.requiere_cierre_manual || false;
+      }
+    }
+
     // Combinar información del usuario con permisos del JWT o base de datos
     const usuariosInfoConPermisos = {
       ...userInfo,
@@ -573,6 +602,7 @@ export const getUserInfo = async (req: Request, res: Response) => {
       es_super_admin: isSuperAdmin,
       rol_nombre: rolNombre,
       es_propietario: esPropietario,
+      requiere_cierre_manual: requiereCierreManual,
     };
 
     res.status(200).json({
