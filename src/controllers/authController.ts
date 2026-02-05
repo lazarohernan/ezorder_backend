@@ -145,13 +145,7 @@ export const login = async (req: Request, res: Response) => {
       try {
         const base64Url = data.session.access_token.split('.')[1];
         const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(
-          Buffer.from(base64, 'base64')
-            .toString('utf-8')
-            .split('')
-            .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-            .join('')
-        );
+        const jsonPayload = Buffer.from(base64, 'base64').toString('utf-8');
         
         const decoded = JSON.parse(jsonPayload);
         permisos = decoded.user_permissions || [];
@@ -509,13 +503,7 @@ export const getUserInfo = async (req: Request, res: Response) => {
         // Decodificar el JWT para obtener los custom claims
         const base64Url = token.split('.')[1];
         const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(
-          Buffer.from(base64, 'base64')
-            .toString('utf-8')
-            .split('')
-            .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-            .join('')
-        );
+        const jsonPayload = Buffer.from(base64, 'base64').toString('utf-8');
         
         const decoded = JSON.parse(jsonPayload);
         
@@ -626,6 +614,15 @@ export const getUserInfo = async (req: Request, res: Response) => {
     }
 
     // Combinar información del usuario con permisos del JWT o base de datos
+    console.log('📋 getUserInfo - permisos para usuario:', userInfo.id, {
+      rol_id: userInfo.rol_id,
+      rol_personalizado_id: userInfo.rol_personalizado_id,
+      permisos_count: permisos.length,
+      permisos_source: permisos.length > 0 ? 'loaded' : 'empty',
+      rolNombre,
+      isSuperAdmin
+    });
+
     const usuariosInfoConPermisos = {
       ...userInfo,
       permisos,
