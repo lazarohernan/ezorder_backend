@@ -773,7 +773,16 @@ export const cajaController = {
         console.warn(`${mensajeValidacion}. Esperado: $${efectivoEsperado.toFixed(2)}, Real: $${efectivoReal.toFixed(2)}`);
       }
 
-      // Actualizar caja con toda la información
+      // Calcular diferencias totales para estado_cuadre
+      const diferenciaTotalCalculada = 
+        diferenciaEfectivo + 
+        (diferenciaPOS || 0) + 
+        (diferenciaTransferencia || 0) - 
+        (diferenciaGastos || 0);
+      
+      const estadoCuadre = Math.abs(diferenciaTotalCalculada) < tolerancia ? 'cuadrada' : 'descuadrada';
+
+      // Actualizar caja con toda la información incluyendo campos de cierre manual
       const { data, error } = await client
         .from('caja')
         .update({
@@ -783,7 +792,29 @@ export const cajaController = {
           total_ingresos: Number(cajaActual.total_ingresos || 0),
           total_egresos: totalGastos,
           estado: 'cerrada',
-          observaciones: observaciones || cajaActual.observaciones
+          observaciones: observaciones || cajaActual.observaciones,
+          
+          // Datos declarados manualmente por el usuario
+          efectivo_declarado: efectivoReal,
+          ventas_pos_declaradas: reportadoPOS,
+          ventas_transferencia_declaradas: reportadoTransferencia,
+          gastos_declarados: reportadoGastos,
+          
+          // Datos calculados por el sistema
+          efectivo_sistema: efectivoEsperado,
+          ventas_pos_sistema: ventasPOS,
+          ventas_transferencia_sistema: ventasTransferencia,
+          gastos_sistema: totalGastos,
+          
+          // Diferencias
+          diferencia_efectivo: diferenciaEfectivo,
+          diferencia_pos: diferenciaPOS,
+          diferencia_transferencia: diferenciaTransferencia,
+          diferencia_gastos: diferenciaGastos,
+          diferencia_total: diferenciaTotalCalculada,
+          
+          // Estado del cuadre
+          estado_cuadre: estadoCuadre
         })
         .eq('id', id)
         .select('*')
