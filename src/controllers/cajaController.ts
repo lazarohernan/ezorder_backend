@@ -93,15 +93,11 @@ export const cajaController = {
       const from = (Number(page) - 1) * Number(limit);
       const to = from + Number(limit) - 1;
 
-      const { data, error } = await query
-        .range(from, to)
-        .select(`
-          *,
-          restaurantes:restaurante_id (
-            id,
-            nombre_restaurante
-          )
-        `);
+      const { data, error } = await query.range(from, to);
+
+      if (error) {
+        return res.status(400).json({ error: error.message });
+      }
 
       let countQuery = client
         .from('caja')
@@ -126,10 +122,6 @@ export const cajaController = {
       }
 
       const { count } = await countQuery;
-
-      if (error) {
-        return res.status(400).json({ error: error.message });
-      }
 
       const dataWithUsuarios = await enrichCajasWithUsuarioNombre(data || []);
 
@@ -179,15 +171,11 @@ export const cajaController = {
       const from = (Number(page) - 1) * Number(limit);
       const to = from + Number(limit) - 1;
 
-      const { data, error } = await query
-        .range(from, to)
-        .select(`
-          *,
-          restaurantes:restaurante_id (
-            id,
-            nombre_restaurante
-          )
-        `);
+      const { data, error } = await query.range(from, to);
+
+      if (error) {
+        return res.status(400).json({ error: error.message });
+      }
 
       let countQuery = client
         .from('caja')
@@ -199,10 +187,6 @@ export const cajaController = {
       }
 
       const { count } = await countQuery;
-
-      if (error) {
-        return res.status(400).json({ error: error.message });
-      }
 
       const dataWithUsuarios = await enrichCajasWithUsuarioNombre(data || []);
 
@@ -264,15 +248,11 @@ export const cajaController = {
       const from = (Number(page) - 1) * Number(limit);
       const to = from + Number(limit) - 1;
 
-      const { data, error } = await query
-        .range(from, to)
-        .select(`
-          *,
-          restaurantes:restaurante_id (
-            id,
-            nombre_restaurante
-          )
-        `);
+      const { data, error } = await query.range(from, to);
+
+      if (error) {
+        return res.status(400).json({ error: error.message });
+      }
 
       let countQuery = client
         .from('caja')
@@ -294,10 +274,6 @@ export const cajaController = {
       }
 
       const { count } = await countQuery;
-
-      if (error) {
-        return res.status(400).json({ error: error.message });
-      }
 
       const dataWithUsuarios = await enrichCajasWithUsuarioNombre(data || []);
 

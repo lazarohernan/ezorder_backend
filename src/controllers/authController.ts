@@ -52,6 +52,25 @@ export const register = async (req: Request, res: Response) => {
       return;
     }
 
+    // Crear registro básico en usuarios_info para que el usuario exista en el sistema
+    if (data.user) {
+      const adminClient = supabaseAdmin || supabase;
+      const { error: infoError } = await adminClient
+        .from("usuarios_info")
+        .insert({
+          id: data.user.id,
+          nombre_usuario: name || email,
+          rol_id: 3, // Rol básico por defecto
+          updated_at: new Date(),
+        })
+        .select()
+        .single();
+
+      if (infoError) {
+        console.warn("No se pudo crear usuarios_info para el registro:", infoError.message);
+      }
+    }
+
     // Registro exitoso
     res.status(201).json({
       ok: true,
@@ -102,7 +121,8 @@ export const login = async (req: Request, res: Response) => {
     }
 
     // Obtener información adicional del usuario desde usuarios_info
-    const { data: userInfo, error: userInfoError } = await supabase
+    const infoClient = supabaseAdmin || supabase;
+    const { data: userInfo, error: userInfoError } = await infoClient
       .from("usuarios_info")
       .select("*")
       .eq("id", data.user.id)
@@ -263,15 +283,14 @@ export const checkSession = async (req: Request, res: Response) => {
  */
 export const logout = async (req: Request, res: Response) => {
   try {
-    const { error } = await supabase.auth.signOut();
-
-    if (error) {
-      res.status(500).json({
-        ok: false,
-        message: "Error al cerrar sesión",
-        error: error.message,
-      });
-      return;
+    // Usar supabaseAdmin para revocar la sesión del usuario específico
+    // supabase.auth.signOut() no tiene efecto en el backend porque el cliente no tiene sesión persistente
+    if (supabaseAdmin && req.user?.id) {
+      const { error } = await supabaseAdmin.auth.admin.signOut(req.user.id);
+      if (error) {
+        console.warn("Error al revocar sesión con admin:", error.message);
+        // No fallar el logout por esto, continuar
+      }
     }
 
     res.status(200).json({
@@ -438,10 +457,15 @@ export const checkRefreshToken = async (req: Request, res: Response) => {
       return;
     }
 
+    // Devolver los nuevos tokens ya que refreshSession() rota el refresh token
     res.status(200).json({
       ok: true,
       message: "Refresh token válido",
       validUntil: data.session.expires_at,
+      session: {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+      },
     });
     return;
   } catch (error) {

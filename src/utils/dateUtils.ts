@@ -7,13 +7,27 @@
  * @returns Date object ajustado a Honduras (America/Tegucigalpa)
  */
 export function getHondurasDate(): Date {
-  const now = new Date();
-  // Honduras está en UTC-6 (CST) o UTC-5 (CDT) durante horario de verano
-  // Usamos una aproximación simple: UTC-6
-  const hondurasOffset = -6 * 60; // -6 horas en minutos
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const hondurasTime = new Date(utc + (hondurasOffset * 60000));
-  return hondurasTime;
+  // Usar Intl para obtener la fecha/hora real en Honduras de forma consistente
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Tegucigalpa',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(new Date());
+  const get = (type: string) => parts.find(p => p.type === type)?.value || '0';
+  return new Date(
+    Number(get('year')),
+    Number(get('month')) - 1,
+    Number(get('day')),
+    Number(get('hour')),
+    Number(get('minute')),
+    Number(get('second'))
+  );
 }
 
 /**

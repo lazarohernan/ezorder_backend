@@ -61,7 +61,8 @@ const enrichGastosWithRelatedData = async <T extends GastoRecord>(
   let metodosMap = new Map<number, string | null>();
 
   if (metodoPagoIds.length) {
-    const { data: metodos, error } = await supabase
+    const metodoClient = supabaseAdmin || supabase;
+    const { data: metodos, error } = await metodoClient
       .from('metodos_de_pago')
       .select('id, metodo')
       .in('id', metodoPagoIds);
@@ -92,7 +93,8 @@ export const gastosController = {
       const { restaurante_id } = req.params;
       const { page = 1, limit = 10, categoria, fecha_inicio, fecha_fin } = req.query;
 
-      let query = supabase
+      const client = supabaseAdmin || supabase;
+      let query = client
         .from('gastos')
         .select('*')
         .eq('restaurante_id', restaurante_id)
@@ -120,7 +122,7 @@ export const gastosController = {
       }
 
       // Obtener conteo total
-      let countQuery = supabase
+      let countQuery = client
         .from('gastos')
         .select('*', { count: 'exact', head: true })
         .eq('restaurante_id', restaurante_id);
@@ -245,13 +247,15 @@ export const gastosController = {
         return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
       }
 
+      const client = supabaseAdmin || supabase;
+
       // Verificar permisos según rol
       const id_rol = req.user_info?.rol_id ?? 3;
       if (id_rol === 1) {
         // Super Admin puede crear gastos en cualquier restaurante
       } else if (id_rol === 2) {
         // Admin debe tener acceso al restaurante
-        const { data: userRestaurants } = await supabaseAdmin!
+        const { data: userRestaurants } = await client
           .from('usuarios_restaurantes')
           .select('restaurante_id')
           .eq('usuario_id', req.user_info.id);
@@ -272,7 +276,7 @@ export const gastosController = {
         }
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from('gastos')
         .insert({
           restaurante_id,
@@ -323,8 +327,10 @@ export const gastosController = {
         return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
       }
 
+      const client = supabaseAdmin || supabase;
+
       // Primero obtener el gasto para verificar permisos
-      const { data: gastoExistente, error: errorBuscar } = await supabase
+      const { data: gastoExistente, error: errorBuscar } = await client
         .from('gastos')
         .select('id, restaurante_id')
         .eq('id', id)
@@ -342,7 +348,7 @@ export const gastosController = {
         // Super Admin puede actualizar cualquier gasto
       } else if (id_rol === 2) {
         // Admin debe tener acceso al restaurante del gasto
-        const { data: userRestaurants } = await supabaseAdmin!
+        const { data: userRestaurants } = await client
           .from('usuarios_restaurantes')
           .select('restaurante_id')
           .eq('usuario_id', req.user_info.id);
@@ -371,7 +377,7 @@ export const gastosController = {
       if (metodo_pago_id !== undefined) updateData.metodo_pago_id = metodo_pago_id;
       if (proveedor !== undefined) updateData.proveedor = proveedor;
 
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from('gastos')
         .update(updateData)
         .eq('id', id)
@@ -402,8 +408,10 @@ export const gastosController = {
 
       const { id } = req.params;
 
+      const client = supabaseAdmin || supabase;
+
       // Primero obtener el gasto para verificar permisos
-      const { data: gastoExistente, error: errorBuscar } = await supabase
+      const { data: gastoExistente, error: errorBuscar } = await client
         .from('gastos')
         .select('id, restaurante_id')
         .eq('id', id)
@@ -421,7 +429,7 @@ export const gastosController = {
         // Super Admin puede eliminar cualquier gasto
       } else if (id_rol === 2) {
         // Admin debe tener acceso al restaurante del gasto
-        const { data: userRestaurants } = await supabaseAdmin!
+        const { data: userRestaurants } = await client
           .from('usuarios_restaurantes')
           .select('restaurante_id')
           .eq('usuario_id', req.user_info.id);
@@ -442,7 +450,7 @@ export const gastosController = {
         }
       }
 
-      const { error } = await supabase
+      const { error } = await client
         .from('gastos')
         .delete()
         .eq('id', id);
@@ -464,7 +472,8 @@ export const gastosController = {
       const { restaurante_id } = req.params;
       const { fecha_inicio, fecha_fin } = req.query;
 
-      let query = supabase
+      const client = supabaseAdmin || supabase;
+      let query = client
         .from('gastos')
         .select('categoria, monto')
         .eq('restaurante_id', restaurante_id);
@@ -512,7 +521,8 @@ export const gastosController = {
       const { restaurante_id } = req.params;
       const { fecha_inicio, fecha_fin } = req.query;
 
-      let query = supabase
+      const client = supabaseAdmin || supabase;
+      let query = client
         .from('gastos')
         .select('monto')
         .eq('restaurante_id', restaurante_id);

@@ -236,27 +236,26 @@ export const aceptarInvitacion = async (req: Request, res: Response) => {
       return res.status(500).json({ success: false, message: 'Configuracion no disponible' });
     }
 
-    // Actualizar estado de invitacion
-    const { data, error } = await supabaseAdmin
-      .from('invitaciones')
-      .update({
-        estado: 'aceptada',
-        fecha_aceptacion: new Date(),
-        updated_at: new Date()
-      })
-      .eq('email', email)
-      .eq('estado', 'pendiente')
-      .select()
-      .single();
+    // Usar RPC para aceptar invitación y crear usuarios_info + usuarios_restaurantes
+    const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc('aceptar_invitacion', {
+      p_email: email,
+      p_user_id: null
+    });
 
-    if (error) {
-      return res.status(404).json({ success: false, message: 'Invitacion no encontrada' });
+    if (rpcError) {
+      console.error('Error en RPC aceptar_invitacion:', rpcError);
+      return res.status(500).json({ success: false, message: 'Error al procesar invitación', error: rpcError.message });
+    }
+
+    const result = rpcResult as any;
+    if (result && result.success === false) {
+      return res.status(404).json({ success: false, message: result.message || 'Invitacion no encontrada' });
     }
 
     return res.status(200).json({
       success: true,
       message: 'Invitacion aceptada',
-      data
+      data: result
     });
 
   } catch (error: any) {

@@ -216,7 +216,8 @@ export const deleteRol = async (req: Request, res: Response) => {
 
     console.log(`Usuario ${req.user_info.id} está eliminando el rol ${id}`);
 
-    const { error } = await supabase.from("rol").delete().eq("id", id);
+    const client = supabaseAdmin || supabase;
+    const { error } = await client.from("rol").delete().eq("id", id);
 
     if (error) throw error;
 

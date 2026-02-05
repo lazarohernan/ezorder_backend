@@ -17,7 +17,8 @@ export const getUsuarios = async (req: Request, res: Response) => {
     const { data: userInfos, error: userInfoError } = await supabaseAdmin
       .from("usuarios_info")
       .select("*, restaurantes(id, nombre_restaurante)")
-      .neq("rol_id", 2);
+      .neq("rol_id", 2)
+      .neq("rol_id", 1);
 
     if (userInfoError) throw userInfoError;
 
@@ -109,7 +110,8 @@ export const getUsuarioById = async (req: Request, res: Response) => {
       return;
     }
 
-    const { data: userInfo, error: userInfoError } = await supabase
+    const infoClient = supabaseAdmin || supabase;
+    const { data: userInfo, error: userInfoError } = await infoClient
       .from("usuarios_info")
       .select("*, restaurantes(id, nombre_restaurante)")
       .eq("id", id)
@@ -179,9 +181,18 @@ export const createUsuario = async (req: Request, res: Response) => {
       return;
     }
 
+    // Verificar disponibilidad de supabaseAdmin antes de cualquier operación
+    if (!supabaseAdmin) {
+      res.status(500).json({
+        success: false,
+        message: "Configuración de administrador no disponible",
+      });
+      return;
+    }
+
     // Validar acceso al restaurante si es rol 2
     if (id_rol === 2 && restaurante_id) {
-      const { data: userRestaurants } = await supabase
+      const { data: userRestaurants } = await supabaseAdmin
         .from("usuarios_restaurantes")
         .select("restaurante_id")
         .eq("usuario_id", req.user_info.id);
@@ -195,15 +206,6 @@ export const createUsuario = async (req: Request, res: Response) => {
         });
         return;
       }
-    }
-
-    // Solo usar supabaseAdmin para crear el usuario en auth
-    if (!supabaseAdmin) {
-      res.status(500).json({
-        success: false,
-        message: "Configuración de administrador no disponible",
-      });
-      return;
     }
 
     const { data: authData, error: authError } =
@@ -224,8 +226,7 @@ export const createUsuario = async (req: Request, res: Response) => {
 
     const userId = authData.user.id;
 
-    // Usar cliente regular para operaciones de base de datos con RLS
-    const { data: existingInfo, error: checkError } = await supabase
+    const { data: existingInfo, error: checkError } = await supabaseAdmin
       .from("usuarios_info")
       .select("id")
       .eq("id", userId)
@@ -239,7 +240,7 @@ export const createUsuario = async (req: Request, res: Response) => {
       return;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("usuarios_info")
       .insert([
         {
@@ -255,6 +256,25 @@ export const createUsuario = async (req: Request, res: Response) => {
       .single();
 
     if (error) throw error;
+
+    // Crear asociación en usuarios_restaurantes si hay restaurante_id
+    if (restaurante_id) {
+      const { error: urError } = await supabaseAdmin
+        .from("usuarios_restaurantes")
+        .insert({
+          usuario_id: userId,
+          restaurante_id,
+          es_propietario: false,
+          created_at: new Date(),
+        })
+        .select()
+        .single();
+
+      if (urError) {
+        console.error("Error al crear asociación usuario-restaurante:", urError);
+        // No fallar la creación del usuario por esto, pero loguearlo
+      }
+    }
 
     const userWithInfo = {
       id: authData.user.id,
@@ -397,7 +417,7 @@ export const updateUsuario = async (req: Request, res: Response) => {
 
     console.log('📝 Actualizando usuario:', { id, updateFields });
 
-    const { data, error } = await supabaseAdmin!
+    const { data, error } = await supabaseAdmin
       .from("usuarios_info")
       .upsert({
         id,
@@ -409,6 +429,35 @@ export const updateUsuario = async (req: Request, res: Response) => {
     console.log('📝 Resultado actualización:', { data, error });
 
     if (error) throw error;
+
+    // Sincronizar usuarios_restaurantes si cambió el restaurante_id
+    if (restaurante_id !== undefined) {
+      if (restaurante_id) {
+        // Insertar o actualizar la asociación usuario-restaurante
+        const { error: urError } = await supabaseAdmin
+          .from("usuarios_restaurantes")
+          .upsert({
+            usuario_id: id,
+            restaurante_id,
+            es_propietario: false,
+            created_at: new Date(),
+          }, { onConflict: "usuario_id,restaurante_id" });
+
+        if (urError) {
+          console.error("Error al sincronizar usuario-restaurante:", urError);
+        }
+      } else {
+        // Si se quita el restaurante, eliminar la asociación
+        const { error: urDeleteError } = await supabaseAdmin
+          .from("usuarios_restaurantes")
+          .delete()
+          .eq("usuario_id", id);
+
+        if (urDeleteError) {
+          console.error("Error al eliminar asociación usuario-restaurante:", urDeleteError);
+        }
+      }
+    }
 
     // Obtener información actualizada del usuario
     const { data: updatedUser, error: fetchError } = await supabaseAdmin
@@ -623,7 +672,8 @@ export const getCurrentUserInfo = async (req: Request, res: Response) => {
       return;
     }
 
-    const { data: userInfo, error: userInfoError } = await supabase
+    const infoClient = supabaseAdmin || supabase;
+    const { data: userInfo, error: userInfoError } = await infoClient
       .from("usuarios_info")
       .select("*, restaurantes(id, nombre_restaurante)")
       .eq("id", userId)

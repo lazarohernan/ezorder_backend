@@ -82,6 +82,8 @@ export const obtenerInventario = async (req: Request, res: Response) => {
       `, { count: 'exact' });
 
     // Filtrar por restaurante según rol
+    // Nota: PostgREST no soporta filtrar filas padre por columnas de relaciones anidadas
+    // Se usa un enfoque de dos pasos: obtener menu_ids del restaurante y filtrar por ellos
     if (id_rol === 1) {
       // Super Admin ve todo el inventario
     } else if (id_rol === 2) {
@@ -94,7 +96,16 @@ export const obtenerInventario = async (req: Request, res: Response) => {
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
       
       if (restaurantIds.length > 0) {
-        query = query.in('menu.restaurante_id', restaurantIds);
+        const { data: menus } = await client
+          .from('menu')
+          .select('id')
+          .in('restaurante_id', restaurantIds);
+        const menuIds = menus?.map((m: any) => m.id) || [];
+        if (menuIds.length > 0) {
+          query = query.in('menu_id', menuIds);
+        } else {
+          return res.json({ ok: true, data: [], total: 0, pagina: Number(pagina), total_paginas: 0 });
+        }
       } else {
         // Si no tiene restaurantes, devolver vacío
         return res.json({
@@ -114,7 +125,16 @@ export const obtenerInventario = async (req: Request, res: Response) => {
           message: 'El usuario no tiene un restaurante asignado'
         });
       }
-      query = query.eq('menu.restaurante_id', restaurante_id);
+      const { data: menus } = await client
+        .from('menu')
+        .select('id')
+        .eq('restaurante_id', restaurante_id);
+      const menuIds = menus?.map((m: any) => m.id) || [];
+      if (menuIds.length > 0) {
+        query = query.in('menu_id', menuIds);
+      } else {
+        return res.json({ ok: true, data: [], total: 0, pagina: Number(pagina), total_paginas: 0 });
+      }
     }
 
     // Aplicar filtros
@@ -662,11 +682,16 @@ export const obtenerMovimientos = async (req: Request, res: Response) => {
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
       
       if (restaurantIds.length > 0) {
-        // Obtener inventarios de los restaurantes del admin
-        const { data: inventariosAdmin } = await client
-          .from('inventario')
+        // Obtener menu_ids de los restaurantes del admin, luego inventarios
+        const { data: menusAdmin } = await client
+          .from('menu')
           .select('id')
-          .in('menu.restaurante_id', restaurantIds);
+          .in('restaurante_id', restaurantIds);
+        const menuIdsAdmin = menusAdmin?.map((m: any) => m.id) || [];
+
+        const { data: inventariosAdmin } = menuIdsAdmin.length > 0
+          ? await client.from('inventario').select('id').in('menu_id', menuIdsAdmin)
+          : { data: [] };
 
         const inventarioIds = inventariosAdmin?.map((inv: any) => inv.id) || [];
         
@@ -702,11 +727,16 @@ export const obtenerMovimientos = async (req: Request, res: Response) => {
         });
       }
 
-      // Obtener inventarios del restaurante del usuario
-      const { data: inventariosUsuario } = await client
-        .from('inventario')
+      // Obtener menu_ids del restaurante, luego inventarios
+      const { data: menusUsuario } = await client
+        .from('menu')
         .select('id')
-        .eq('menu.restaurante_id', restaurante_id);
+        .eq('restaurante_id', restaurante_id);
+      const menuIdsUsuario = menusUsuario?.map((m: any) => m.id) || [];
+
+      const { data: inventariosUsuario } = menuIdsUsuario.length > 0
+        ? await client.from('inventario').select('id').in('menu_id', menuIdsUsuario)
+        : { data: [] };
 
       const inventarioIds = inventariosUsuario?.map((inv: any) => inv.id) || [];
       

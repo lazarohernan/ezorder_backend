@@ -93,7 +93,8 @@ export const createMetodoPago = async (req: Request, res: Response) => {
       return;
     }
 
-    const { data, error } = await supabase
+    const client = supabaseAdmin || supabase;
+    const { data, error } = await client
       .from("metodos_de_pago")
       .insert([
         {
@@ -149,7 +150,8 @@ export const updateMetodoPago = async (req: Request, res: Response) => {
       return;
     }
 
-    const { data, error } = await supabase
+    const client = supabaseAdmin || supabase;
+    const { data, error } = await client
       .from("metodos_de_pago")
       .update({
         metodo: metodo.trim(),
@@ -204,7 +206,8 @@ export const deleteMetodoPago = async (req: Request, res: Response) => {
       return;
     }
 
-    const { data: pedidosConMetodo, error: errorVerificacion } = await supabase
+    const client = supabaseAdmin || supabase;
+    const { data: pedidosConMetodo, error: errorVerificacion } = await client
       .from("pedidos")
       .select("id")
       .eq("metodo_pago_id", id)
@@ -221,7 +224,7 @@ export const deleteMetodoPago = async (req: Request, res: Response) => {
       return;
     }
 
-    const { error } = await supabase
+    const { error } = await client
       .from("metodos_de_pago")
       .delete()
       .eq("id", id);

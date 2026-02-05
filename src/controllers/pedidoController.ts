@@ -1,32 +1,51 @@
 import { Request, Response } from "express";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
 
+// Lock por restaurante para evitar race conditions al generar tickets
+const ticketLocks = new Map<string, Promise<number>>();
+
 // Función para generar el siguiente número de ticket consecutivo
 const generarSiguienteTicket = async (restaurante_id: string): Promise<number> => {
+  // Esperar a que termine cualquier generación en curso para este restaurante
+  const pendingLock = ticketLocks.get(restaurante_id);
+  if (pendingLock) {
+    await pendingLock.catch(() => {});
+  }
+
+  const ticketPromise = (async () => {
+    try {
+      if (!supabaseAdmin) {
+        console.error("❌ supabaseAdmin no está configurado");
+        return 1;
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from("pedidos")
+        .select("numero_ticket")
+        .eq("restaurante_id", restaurante_id)
+        .not("numero_ticket", "is", null)
+        .order("numero_ticket", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error || !data) {
+        // Si no hay pedidos con ticket o hay error, empezar desde 1
+        return 1;
+      }
+
+      return (data.numero_ticket || 0) + 1;
+    } catch (error) {
+      console.error("Error al generar siguiente ticket:", error);
+      return 1;
+    }
+  })();
+
+  ticketLocks.set(restaurante_id, ticketPromise);
+
   try {
-    if (!supabaseAdmin) {
-      console.error("❌ supabaseAdmin no está configurado");
-      return 1;
-    }
-
-    const { data, error } = await supabaseAdmin
-      .from("pedidos")
-      .select("numero_ticket")
-      .eq("restaurante_id", restaurante_id)
-      .not("numero_ticket", "is", null)
-      .order("numero_ticket", { ascending: false })
-      .limit(1)
-      .single();
-
-    if (error || !data) {
-      // Si no hay pedidos con ticket o hay error, empezar desde 1
-      return 1;
-    }
-
-    return (data.numero_ticket || 0) + 1;
-  } catch (error) {
-    console.error("Error al generar siguiente ticket:", error);
-    return 1;
+    return await ticketPromise;
+  } finally {
+    ticketLocks.delete(restaurante_id);
   }
 };
 

@@ -6,7 +6,7 @@ declare global {
     interface Request {
       user?: User;
       user_info?: any; // Información adicional del usuario de la tabla usuarios_info
-      files?: FileArray;
+      files?: FileArray | null | undefined;
       restaurante_filter?: string; // Filtro de restaurante para scope de permisos
     }
   }
