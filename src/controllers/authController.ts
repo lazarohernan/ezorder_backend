@@ -510,15 +510,16 @@ export const getUserInfo = async (req: Request, res: Response) => {
       try {
         // Usuario con rol personalizado
         if (userInfo.rol_personalizado_id) {
-          // Consulta simple usando SQL directo
-          const { data: permisosData, error: permisosError } = await supabase
+          // Consulta usando supabaseAdmin para evitar RLS
+          const permClient = supabaseAdmin || supabase;
+          const { data: permisosData, error: permisosError } = await permClient
             .rpc('get_permisos_by_rol', { rol_id_param: userInfo.rol_personalizado_id });
 
           if (!permisosError && permisosData) {
             permisos = permisosData.map((item: any) => item.nombre);
           }
 
-          // Obtener información del rol personalizado
+          // Obtener información del rol personalizado usando supabaseAdmin
           const rolClient = supabaseAdmin || supabase;
           const { data: rolData, error: rolError } = await rolClient
             .from('roles_personalizados')

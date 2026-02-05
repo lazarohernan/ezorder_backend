@@ -322,14 +322,15 @@ export const cajaController = {
     }
   },
 
-  // Obtener caja actual (abierta) - GLOBAL, no por restaurante
+  // Obtener caja actual (abierta) de un restaurante específico
   async getCajaActual(req: Request, res: Response) {
     try {
       const { restaurante_id } = req.params;
 
+      console.log('🔍 [GET CAJA ACTUAL] Restaurante ID solicitado:', restaurante_id);
+
       const client = supabaseAdmin || supabase;
-      // Buscar caja abierta globalmente (sin filtrar por restaurante_id)
-      // Ordenar por fecha_apertura DESC para tomar la más reciente si hay múltiples
+      // Buscar caja abierta del restaurante específico
       const { data, error } = await client
         .from('caja')
         .select(`
@@ -340,9 +341,12 @@ export const cajaController = {
           )
         `)
         .eq('estado', 'abierta')
+        .eq('restaurante_id', restaurante_id)
         .order('fecha_apertura', { ascending: false })
         .limit(1)
         .maybeSingle();
+
+      console.log('🔍 [GET CAJA ACTUAL] Caja encontrada:', data ? { id: data.id, restaurante_id: data.restaurante_id } : 'null');
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error al obtener caja actual:', error);
@@ -365,15 +369,14 @@ export const cajaController = {
     }
   },
 
-  // Obtener resumen de caja del día - GLOBAL
+  // Obtener resumen de caja del día de un restaurante específico
   async getResumenCaja(req: Request, res: Response) {
     try {
       const { restaurante_id } = req.params;
       const { fecha } = req.query;
 
       const client = supabaseAdmin || supabase;
-      // Obtener caja actual GLOBALMENTE (no por restaurante)
-      // Ordenar por fecha_apertura DESC para tomar la más reciente si hay múltiples
+      // Obtener caja actual del restaurante específico
       const { data: cajaActual, error: cajaError } = await client
         .from('caja')
         .select(`
@@ -384,6 +387,7 @@ export const cajaController = {
           )
         `)
         .eq('estado', 'abierta')
+        .eq('restaurante_id', restaurante_id)
         .order('fecha_apertura', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -534,8 +538,20 @@ export const cajaController = {
           });
         }
       } else {
-        // Usuarios normales solo pueden abrir caja en su restaurante
-        if (req.user_info.restaurante_id !== restaurante_id) {
+        // Usuarios con roles personalizados: verificar acceso via usuarios_restaurantes
+        const client = supabaseAdmin || supabase;
+        const { data: userRestaurants } = await client
+          .from('usuarios_restaurantes')
+          .select('restaurante_id')
+          .eq('usuario_id', req.user_info.id);
+
+        const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+        
+        // Si tiene acceso via usuarios_restaurantes O por restaurante_id directo, permitir
+        const tieneAcceso = restaurantIds.includes(restaurante_id) || 
+                           req.user_info.restaurante_id === restaurante_id;
+        
+        if (!tieneAcceso) {
           return res.status(403).json({ 
             error: 'No puedes abrir caja para este restaurante' 
           });
@@ -544,11 +560,12 @@ export const cajaController = {
 
       const client = supabaseAdmin || supabase;
       
-      // VALIDACIÓN 1: Verificar si ya hay una caja abierta GLOBALMENTE (no por restaurante)
+      // VALIDACIÓN 1: Verificar si ya hay una caja abierta en ESTE restaurante
       const { data: cajaExistente, error: checkError } = await client
         .from('caja')
         .select('id, usuario_id, fecha_apertura, restaurante_id')
         .eq('estado', 'abierta')
+        .eq('restaurante_id', restaurante_id)
         .single();
 
       if (checkError && checkError.code !== 'PGRST116') {
@@ -557,9 +574,9 @@ export const cajaController = {
       }
 
       if (cajaExistente) {
-        // Hay una caja abierta globalmente - no permitir abrir otra
+        // Hay una caja abierta en este restaurante - no permitir abrir otra
         return res.status(400).json({ 
-          error: 'Ya existe una caja abierta en el sistema. Debe cerrarla antes de abrir una nueva.',
+          error: 'Ya existe una caja abierta en este restaurante. Debe cerrarla antes de abrir una nueva.',
           caja_existente: cajaExistente
         });
       }
@@ -680,8 +697,20 @@ export const cajaController = {
           });
         }
       } else {
-        // Usuarios normales solo pueden cerrar cajas de su restaurante
-        if (req.user_info.restaurante_id !== cajaActual.restaurante_id) {
+        // Usuarios con roles personalizados: verificar acceso via usuarios_restaurantes
+        const { data: userRestaurants } = await client
+          .from('usuarios_restaurantes')
+          .select('restaurante_id')
+          .eq('usuario_id', req.user_info.id);
+
+        const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+        
+        // Si tiene acceso via usuarios_restaurantes, permitir
+        // Si no, verificar por restaurante_id directo en usuarios_info
+        const tieneAcceso = restaurantIds.includes(cajaActual.restaurante_id) || 
+                           req.user_info.restaurante_id === cajaActual.restaurante_id;
+        
+        if (!tieneAcceso) {
           return res.status(403).json({ 
             error: 'No tienes acceso a esta caja' 
           });
