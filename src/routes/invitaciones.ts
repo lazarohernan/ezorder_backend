@@ -14,16 +14,15 @@ const router = express.Router();
 router.use(requireAuth);
 
 // Ruta para crear una nueva invitación
-router.post("/", requirePermissions(['usuarios.crear']), createInvitacion);
+router.post("/", requirePermissions(['invitaciones.crear']), createInvitacion);
 
 // Ruta para obtener todas las invitaciones
-router.get("/", requirePermissions(['usuarios.ver']), getInvitaciones);
+router.get("/", requirePermissions(['invitaciones.ver']), getInvitaciones);
 
 // Ruta para eliminar una invitación
-router.delete("/:id", requirePermissions(['usuarios.eliminar']), deleteInvitacion);
+router.delete("/:id", requirePermissions(['invitaciones.eliminar']), deleteInvitacion);
 
 // Ruta para reenviar una invitación (con límites de tiempo y cantidad)
-router.post("/:id/resend", requirePermissions(['usuarios.crear']), resendInvitacion);
+router.post("/:id/resend", requirePermissions(['invitaciones.reenviar']), resendInvitacion);
 
 export default router;
-

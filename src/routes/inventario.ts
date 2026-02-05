@@ -33,8 +33,8 @@ router.put('/alertas/marcar-todas-leidas', requirePermissions(['inventario.ver']
 router.put('/alertas/:id/leer', requirePermissions(['inventario.ver']), marcarAlertaLeida);
 
 // Rutas de movimientos (ANTES de /:id)
-router.get('/movimientos', requirePermissions(['inventario.ver_movimientos']), obtenerMovimientos);
-router.post('/movimientos', requirePermissions(['inventario.registrar_movimientos']), crearMovimiento);
+router.get('/movimientos', requirePermissions(['movimientos.ver']), obtenerMovimientos);
+router.post('/movimientos', requirePermissions(['movimientos.crear']), crearMovimiento);
 
 // Rutas de stock (ANTES de /:id)
 router.get('/stock-bajo', requirePermissions(['inventario.ver']), obtenerProductosStockBajo);
