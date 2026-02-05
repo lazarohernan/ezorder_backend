@@ -584,7 +584,8 @@ export const getUserInfo = async (req: Request, res: Response) => {
     // Obtener requiere_cierre_manual del rol
     let requiereCierreManual = false;
     if (userInfo.rol_personalizado_id) {
-      const { data: rolData } = await supabase
+      const client = supabaseAdmin || supabase;
+      const { data: rolData } = await client
         .from('roles_personalizados')
         .select('requiere_cierre_manual')
         .eq('id', userInfo.rol_personalizado_id)
