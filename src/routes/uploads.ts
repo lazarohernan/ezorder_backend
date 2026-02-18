@@ -11,7 +11,7 @@ router.use(requireAuth);
 // Configuración de fileUpload
 router.use(
   fileUpload({
-    limits: { fileSize: 10 * 1024 * 1024 }, // Límite de 10MB
+    limits: { fileSize: 5 * 1024 * 1024 }, // Límite de 5MB (Lambda payload max = 6MB)
     abortOnLimit: true,
     useTempFiles: false, // No usar archivos temporales
     createParentPath: true, // Crear carpetas si no existen
