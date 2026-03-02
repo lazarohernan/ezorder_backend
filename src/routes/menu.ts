@@ -6,6 +6,8 @@ import {
   updateMenu,
   deleteMenu,
   getMenusByRestauranteId,
+  getMenuConsumos,
+  updateMenuConsumos,
 } from "../controllers/menuController";
 import { requireAuth } from "../middlewares/auth";
 import { requirePermissions } from "../middlewares/permissions";
@@ -23,6 +25,10 @@ router.get("/restaurante/:restaurante_id", requirePermissions(['menu.ver']), get
 
 // Ruta para obtener un menú por su ID
 router.get("/:id", requirePermissions(['menu.ver']), getMenuById);
+
+// Rutas de sincronización menú -> inventario
+router.get("/:id/consumos", requirePermissions(['menu.ver']), getMenuConsumos);
+router.put("/:id/consumos", requirePermissions(['menu.editar']), updateMenuConsumos);
 
 // Ruta para crear un nuevo menú
 router.post("/", requirePermissions(['menu.crear']), createMenu);

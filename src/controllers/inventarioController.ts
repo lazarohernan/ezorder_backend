@@ -5,7 +5,9 @@ import NotificacionesService from '../services/notificacionesService';
 // Interfaces
 interface InventarioItem {
   id: string;
-  menu_id: string;
+  nombre: string;
+  descripcion?: string;
+  restaurante_id: string;
   stock_actual: number;
   stock_minimo: number;
   stock_maximo?: number;
@@ -14,183 +16,96 @@ interface InventarioItem {
   activo: boolean;
   created_at: string;
   updated_at: string;
-  menu?: {
-    id: string;
-    nombre: string;
-    imagen?: string;
-    requiere_inventario: boolean;
-    ingredientes?: string;
-  };
 }
 
-interface MovimientoInventario {
-  id: string;
-  inventario_id: string;
-  tipo_movimiento: 'entrada' | 'salida' | 'ajuste';
-  cantidad: number;
-  motivo: string;
-  referencia?: string;
-  usuario_id?: string;
-  created_at: string;
+// Helper: obtener restaurante_ids según rol del usuario
+async function getRestauranteIds(client: any, user_info: any): Promise<string[] | null> {
+  const rol_id = user_info?.rol_id ?? 3;
+  if (rol_id === 1) return null; // Super Admin ve todo
+
+  if (rol_id === 2) {
+    const { data } = await client
+      .from('usuarios_restaurantes')
+      .select('restaurante_id')
+      .eq('usuario_id', user_info.id);
+    return data?.map((ur: any) => ur.restaurante_id) || [];
+  }
+
+  return user_info.restaurante_id ? [user_info.restaurante_id] : [];
 }
 
-interface AlertaStock {
-  id: string;
-  inventario_id: string;
-  tipo_alerta: 'stock_bajo' | 'stock_agotado' | 'stock_critico';
-  mensaje: string;
-  leida: boolean;
-  usuario_notificado?: string;
-  created_at: string;
-  leida_at?: string;
+// Helper: verificar si el usuario tiene acceso a un restaurante específico
+async function tieneAccesoRestaurante(client: any, user_info: any, restaurante_id: string): Promise<boolean> {
+  const rol_id = user_info?.rol_id ?? 3;
+  if (rol_id === 1) return true;
+
+  if (rol_id === 2) {
+    const { data } = await client
+      .from('usuarios_restaurantes')
+      .select('restaurante_id')
+      .eq('usuario_id', user_info.id)
+      .eq('restaurante_id', restaurante_id)
+      .single();
+    return !!data;
+  }
+
+  return user_info.restaurante_id === restaurante_id;
 }
 
 // Obtener todos los items de inventario con filtros
 export const obtenerInventario = async (req: Request, res: Response) => {
   try {
     if (!req.user_info) {
-      return res.status(403).json({
-        ok: false,
-        message: 'No se encontró información del usuario autenticado'
-      });
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
-    const {
-      busqueda,
-      estado_stock,
-      requiere_inventario,
-      activo,
-      pagina = 1,
-      limite = 10
-    } = req.query;
+    const { busqueda, estado_stock, activo, restaurante_id, pagina = 1, limite = 10 } = req.query;
 
     const client = supabaseAdmin || supabase;
-    const id_rol = req.user_info?.rol_id ?? 3;
 
     let query = client
       .from('inventario')
-      .select(`
-        *,
-        menu:menu_id (
-          id,
-          nombre,
-          imagen,
-          requiere_inventario,
-          ingredientes,
-          restaurante_id
-        )
-      `, { count: 'exact' });
+      .select('*', { count: 'exact' });
 
     // Filtrar por restaurante según rol
-    // Nota: PostgREST no soporta filtrar filas padre por columnas de relaciones anidadas
-    // Se usa un enfoque de dos pasos: obtener menu_ids del restaurante y filtrar por ellos
-    if (id_rol === 1) {
-      // Super Admin ve todo el inventario
-    } else if (id_rol === 2) {
-      // Admin ve inventario de sus restaurantes
-      const { data: userRestaurants } = await client
-        .from('usuarios_restaurantes')
-        .select('restaurante_id')
-        .eq('usuario_id', req.user_info.id);
-
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (restaurantIds.length > 0) {
-        const { data: menus } = await client
-          .from('menu')
-          .select('id')
-          .in('restaurante_id', restaurantIds);
-        const menuIds = menus?.map((m: any) => m.id) || [];
-        if (menuIds.length > 0) {
-          query = query.in('menu_id', menuIds);
-        } else {
-          return res.json({ ok: true, data: [], total: 0, pagina: Number(pagina), total_paginas: 0 });
-        }
-      } else {
-        // Si no tiene restaurantes, devolver vacío
-        return res.json({
-          ok: true,
-          data: [],
-          total: 0,
-          pagina: Number(pagina),
-          total_paginas: 0
-        });
-      }
-    } else {
-      // Usuarios normales solo ven inventario de su restaurante
-      const restaurante_id = req.user_info?.restaurante_id;
-      if (!restaurante_id) {
-        return res.status(403).json({
-          ok: false,
-          message: 'El usuario no tiene un restaurante asignado'
-        });
-      }
-      const { data: menus } = await client
-        .from('menu')
-        .select('id')
-        .eq('restaurante_id', restaurante_id);
-      const menuIds = menus?.map((m: any) => m.id) || [];
-      if (menuIds.length > 0) {
-        query = query.in('menu_id', menuIds);
-      } else {
+    const restauranteIds = await getRestauranteIds(client, req.user_info);
+    if (restauranteIds !== null) {
+      if (restauranteIds.length === 0) {
         return res.json({ ok: true, data: [], total: 0, pagina: Number(pagina), total_paginas: 0 });
       }
+      query = query.in('restaurante_id', restauranteIds);
     }
 
-    // Aplicar filtros
-    if (busqueda) {
-      query = query.ilike('menu.nombre', `%${busqueda}%`);
+    // Filtro opcional por restaurante (para admins/super admins en UI)
+    if (typeof restaurante_id === 'string' && restaurante_id.trim()) {
+      query = query.eq('restaurante_id', restaurante_id.trim());
     }
 
-    if (activo !== undefined) {
-      query = query.eq('activo', activo === 'true');
-    }
+    if (busqueda) query = query.ilike('nombre', `%${busqueda}%`);
+    if (activo !== undefined) query = query.eq('activo', activo === 'true');
+    if (estado_stock === 'agotado') query = query.eq('stock_actual', 0);
 
-    if (requiere_inventario !== undefined) {
-      query = query.eq('menu.requiere_inventario', requiere_inventario === 'true');
-    }
-
-    // Filtro por estado de stock
-    // Nota: Los filtros de "bajo" y "normal" requieren comparar dos columnas (stock_actual vs stock_minimo)
-    // que no es posible en PostgREST. Se manejan en el frontend.
-    if (estado_stock === 'agotado') {
-      query = query.eq('stock_actual', 0);
-    }
-
-    // Paginación
     const offset = (Number(pagina) - 1) * Number(limite);
     query = query.range(offset, offset + Number(limite) - 1);
-
-    // Ordenar por fecha de actualización
     query = query.order('updated_at', { ascending: false });
 
     const { data, error, count } = await query;
 
     if (error) {
       console.error('Error al obtener inventario:', error);
-      return res.status(500).json({
-        ok: false,
-        message: 'Error al obtener inventario',
-        error: error.message
-      });
+      return res.status(500).json({ ok: false, message: 'Error al obtener inventario', error: error.message });
     }
-
-    const totalPaginas = Math.ceil((count || 0) / Number(limite));
 
     res.json({
       ok: true,
       data: data || [],
       total: count || 0,
       pagina: Number(pagina),
-      total_paginas: totalPaginas
+      total_paginas: Math.ceil((count || 0) / Number(limite))
     });
-
   } catch (error) {
     console.error('Error en obtenerInventario:', error);
-    res.status(500).json({
-      ok: false,
-      message: 'Error interno del servidor'
-    });
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
   }
 };
 
@@ -198,82 +113,29 @@ export const obtenerInventario = async (req: Request, res: Response) => {
 export const obtenerInventarioPorId = async (req: Request, res: Response) => {
   try {
     if (!req.user_info) {
-      return res.status(403).json({
-        ok: false,
-        message: 'No se encontró información del usuario autenticado'
-      });
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
-
-    const { id } = req.params;
 
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
-      .from("inventario")
-      .select(`
-        *,
-        menu:menu_id (
-          id,
-          nombre,
-          imagen,
-          requiere_inventario,
-          ingredientes,
-          restaurante_id
-        )
-      `)
-      .eq('id', id)
+      .from('inventario')
+      .select('*')
+      .eq('id', req.params.id)
       .single();
 
-    if (error) {
-      console.error('Error al obtener inventario por ID:', error);
-      return res.status(404).json({
-        ok: false,
-        message: 'Item de inventario no encontrado',
-        error: error.message
-      });
+    if (error || !data) {
+      return res.status(404).json({ ok: false, message: 'Item de inventario no encontrado' });
     }
 
-    // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
-    const restauranteIdInventario = (data.menu as any)?.restaurante_id;
-
-    if (id_rol === 1) {
-      // Super Admin puede ver cualquier inventario
-    } else if (id_rol === 2) {
-      // Admin debe tener acceso al restaurante del inventario
-      const { data: userRestaurants } = await client
-        .from('usuarios_restaurantes')
-        .select('restaurante_id')
-        .eq('usuario_id', req.user_info.id);
-
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (!restaurantIds.includes(restauranteIdInventario)) {
-        return res.status(403).json({
-          ok: false,
-          message: 'No tienes acceso a este inventario'
-        });
-      }
-    } else {
-      // Usuarios normales solo pueden ver inventario de su restaurante
-      if (req.user_info.restaurante_id !== restauranteIdInventario) {
-        return res.status(403).json({
-          ok: false,
-          message: 'No tienes acceso a este inventario'
-        });
-      }
+    const acceso = await tieneAccesoRestaurante(client, req.user_info, data.restaurante_id);
+    if (!acceso) {
+      return res.status(403).json({ ok: false, message: 'No tienes acceso a este inventario' });
     }
 
-    res.json({
-      ok: true,
-      data
-    });
-
+    res.json({ ok: true, data });
   } catch (error) {
     console.error('Error en obtenerInventarioPorId:', error);
-    res.status(500).json({
-      ok: false,
-      message: 'Error interno del servidor'
-    });
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
   }
 };
 
@@ -281,132 +143,37 @@ export const obtenerInventarioPorId = async (req: Request, res: Response) => {
 export const crearInventario = async (req: Request, res: Response) => {
   try {
     if (!req.user_info) {
-      return res.status(403).json({
-        ok: false,
-        message: 'No se encontró información del usuario autenticado'
-      });
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
-    const {
-      menu_id,
-      stock_actual,
-      stock_minimo,
-      stock_maximo,
-      unidad_medida,
-      costo_unitario
-    } = req.body;
+    const { nombre, descripcion, restaurante_id, stock_actual, stock_minimo, stock_maximo, unidad_medida, costo_unitario, codigo_sku, tiene_desglose } = req.body;
 
-    // Validar datos requeridos
-    if (!menu_id || stock_actual === undefined || !stock_minimo || !unidad_medida || costo_unitario === undefined) {
-      return res.status(400).json({
-        ok: false,
-        message: 'Faltan datos requeridos'
-      });
+    if (!nombre || stock_actual === undefined || stock_minimo === undefined || !restaurante_id) {
+      return res.status(400).json({ ok: false, message: 'Faltan datos requeridos: nombre, restaurante_id, stock_actual, stock_minimo' });
     }
 
     const client = supabaseAdmin || supabase;
 
-    // Verificar que el menú existe y obtener su restaurante_id
-    const { data: menu, error: menuError } = await client
-      .from('menu')
-      .select('id, nombre, restaurante_id')
-      .eq('id', menu_id)
-      .single();
-
-    if (menuError || !menu) {
-      return res.status(404).json({
-        ok: false,
-        message: 'Producto del menú no encontrado'
-      });
+    const acceso = await tieneAccesoRestaurante(client, req.user_info, restaurante_id);
+    if (!acceso) {
+      return res.status(403).json({ ok: false, message: 'No tienes acceso a este restaurante' });
     }
 
-    // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
-    if (id_rol === 1) {
-      // Super Admin puede crear inventario para cualquier menú
-    } else if (id_rol === 2) {
-      // Admin debe tener acceso al restaurante del menú
-      const { data: userRestaurants } = await client
-        .from('usuarios_restaurantes')
-        .select('restaurante_id')
-        .eq('usuario_id', req.user_info.id);
-
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (!restaurantIds.includes((menu as any).restaurante_id)) {
-        return res.status(403).json({
-          ok: false,
-          message: 'No tienes acceso a este restaurante'
-        });
-      }
-    } else {
-      // Usuarios normales solo pueden crear inventario para menús de su restaurante
-      if (req.user_info.restaurante_id !== (menu as any).restaurante_id) {
-        return res.status(403).json({
-          ok: false,
-          message: 'No puedes crear inventario para este producto'
-        });
-      }
-    }
-
-    // Verificar que no existe inventario para este menú
-    const { data: existingInventory } = await client
-      .from('inventario')
-      .select('id')
-      .eq('menu_id', menu_id)
-      .single();
-
-    if (existingInventory) {
-      return res.status(409).json({
-        ok: false,
-        message: 'Ya existe inventario para este producto'
-      });
-    }
-
-    // Crear inventario
     const { data, error } = await client
-      .from("inventario")
-      .insert({
-        menu_id,
-        stock_actual,
-        stock_minimo,
-        stock_maximo,
-        unidad_medida,
-        costo_unitario
-      })
-      .select(`
-        *,
-        menu:menu_id (
-          id,
-          nombre,
-          imagen,
-          requiere_inventario,
-          ingredientes
-        )
-      `)
+      .from('inventario')
+      .insert({ nombre, descripcion, restaurante_id, stock_actual, stock_minimo, stock_maximo, unidad_medida: unidad_medida || null, costo_unitario: costo_unitario ?? 0, codigo_sku: codigo_sku || null, tiene_desglose: tiene_desglose ?? false })
+      .select('*')
       .single();
 
     if (error) {
       console.error('Error al crear inventario:', error);
-      return res.status(500).json({
-        ok: false,
-        message: 'Error al crear inventario',
-        error: error.message
-      });
+      return res.status(500).json({ ok: false, message: 'Error al crear inventario', error: error.message });
     }
 
-    res.status(201).json({
-      ok: true,
-      data,
-      message: 'Inventario creado exitosamente'
-    });
-
+    res.status(201).json({ ok: true, data, message: 'Producto de inventario creado exitosamente' });
   } catch (error) {
     console.error('Error en crearInventario:', error);
-    res.status(500).json({
-      ok: false,
-      message: 'Error interno del servidor'
-    });
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
   }
 };
 
@@ -414,123 +181,55 @@ export const crearInventario = async (req: Request, res: Response) => {
 export const actualizarInventario = async (req: Request, res: Response) => {
   try {
     if (!req.user_info) {
-      return res.status(403).json({
-        ok: false,
-        message: 'No se encontró información del usuario autenticado'
-      });
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
-
-    const { id } = req.params;
-    const {
-      stock_minimo,
-      stock_maximo,
-      unidad_medida,
-      costo_unitario,
-      activo
-    } = req.body;
 
     const client = supabaseAdmin || supabase;
 
-    // Verificar que el inventario existe y obtener información del menú
-    const { data: existingInventory, error: checkError } = await client
+    const { data: existing, error: checkError } = await client
       .from('inventario')
-      .select(`
-        id,
-        menu:menu_id (
-          id,
-          restaurante_id
-        )
-      `)
-      .eq('id', id)
+      .select('id, restaurante_id')
+      .eq('id', req.params.id)
       .single();
 
-    if (checkError || !existingInventory) {
-      return res.status(404).json({
-        ok: false,
-        message: 'Item de inventario no encontrado'
-      });
+    if (checkError || !existing) {
+      return res.status(404).json({ ok: false, message: 'Item de inventario no encontrado' });
     }
 
-    const restauranteIdInventario = (existingInventory.menu as any)?.restaurante_id;
-
-    // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
-    if (id_rol === 1) {
-      // Super Admin puede actualizar cualquier inventario
-    } else if (id_rol === 2) {
-      // Admin debe tener acceso al restaurante del inventario
-      const { data: userRestaurants } = await client
-        .from('usuarios_restaurantes')
-        .select('restaurante_id')
-        .eq('usuario_id', req.user_info.id);
-
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (!restaurantIds.includes(restauranteIdInventario)) {
-        return res.status(403).json({
-          ok: false,
-          message: 'No tienes acceso a este inventario'
-        });
-      }
-    } else {
-      // Usuarios normales solo pueden actualizar inventario de su restaurante
-      if (req.user_info.restaurante_id !== restauranteIdInventario) {
-        return res.status(403).json({
-          ok: false,
-          message: 'No tienes acceso a este inventario'
-        });
-      }
+    const acceso = await tieneAccesoRestaurante(client, req.user_info, existing.restaurante_id);
+    if (!acceso) {
+      return res.status(403).json({ ok: false, message: 'No tienes acceso a este inventario' });
     }
 
-    // Preparar datos para actualizar
-    const updateData: any = {
-      updated_at: new Date().toISOString()
-    };
+    const { nombre, descripcion, stock_minimo, stock_maximo, unidad_medida, costo_unitario, activo, codigo_sku, tiene_desglose } = req.body;
+    const updateData: any = { updated_at: new Date().toISOString() };
 
+    if (nombre !== undefined) updateData.nombre = nombre;
+    if (descripcion !== undefined) updateData.descripcion = descripcion;
     if (stock_minimo !== undefined) updateData.stock_minimo = stock_minimo;
     if (stock_maximo !== undefined) updateData.stock_maximo = stock_maximo;
     if (unidad_medida !== undefined) updateData.unidad_medida = unidad_medida;
     if (costo_unitario !== undefined) updateData.costo_unitario = costo_unitario;
     if (activo !== undefined) updateData.activo = activo;
+    if (codigo_sku !== undefined) updateData.codigo_sku = codigo_sku;
+    if (tiene_desglose !== undefined) updateData.tiene_desglose = tiene_desglose;
 
-    // Actualizar inventario
     const { data, error } = await client
-      .from("inventario")
+      .from('inventario')
       .update(updateData)
-      .eq('id', id)
-      .select(`
-        *,
-        menu:menu_id (
-          id,
-          nombre,
-          imagen,
-          requiere_inventario,
-          ingredientes
-        )
-      `)
+      .eq('id', req.params.id)
+      .select('*')
       .single();
 
     if (error) {
       console.error('Error al actualizar inventario:', error);
-      return res.status(500).json({
-        ok: false,
-        message: 'Error al actualizar inventario',
-        error: error.message
-      });
+      return res.status(500).json({ ok: false, message: 'Error al actualizar inventario', error: error.message });
     }
 
-    res.json({
-      ok: true,
-      data,
-      message: 'Inventario actualizado exitosamente'
-    });
-
+    res.json({ ok: true, data, message: 'Inventario actualizado exitosamente' });
   } catch (error) {
     console.error('Error en actualizarInventario:', error);
-    res.status(500).json({
-      ok: false,
-      message: 'Error interno del servidor'
-    });
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
   }
 };
 
@@ -538,93 +237,37 @@ export const actualizarInventario = async (req: Request, res: Response) => {
 export const eliminarInventario = async (req: Request, res: Response) => {
   try {
     if (!req.user_info) {
-      return res.status(403).json({
-        ok: false,
-        message: 'No se encontró información del usuario autenticado'
-      });
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
-
-    const { id } = req.params;
 
     const client = supabaseAdmin || supabase;
 
-    // Verificar que el inventario existe y obtener información del menú
-    const { data: existingInventory, error: checkError } = await client
+    const { data: existing, error: checkError } = await client
       .from('inventario')
-      .select(`
-        id,
-        menu:menu_id (
-          id,
-          restaurante_id
-        )
-      `)
-      .eq('id', id)
+      .select('id, restaurante_id')
+      .eq('id', req.params.id)
       .single();
 
-    if (checkError || !existingInventory) {
-      return res.status(404).json({
-        ok: false,
-        message: 'Item de inventario no encontrado'
-      });
+    if (checkError || !existing) {
+      return res.status(404).json({ ok: false, message: 'Item de inventario no encontrado' });
     }
 
-    const restauranteIdInventario = (existingInventory.menu as any)?.restaurante_id;
-
-    // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
-    if (id_rol === 1) {
-      // Super Admin puede eliminar cualquier inventario
-    } else if (id_rol === 2) {
-      // Admin debe tener acceso al restaurante del inventario
-      const { data: userRestaurants } = await client
-        .from('usuarios_restaurantes')
-        .select('restaurante_id')
-        .eq('usuario_id', req.user_info.id);
-
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (!restaurantIds.includes(restauranteIdInventario)) {
-        return res.status(403).json({
-          ok: false,
-          message: 'No tienes acceso a este inventario'
-        });
-      }
-    } else {
-      // Usuarios normales solo pueden eliminar inventario de su restaurante
-      if (req.user_info.restaurante_id !== restauranteIdInventario) {
-        return res.status(403).json({
-          ok: false,
-          message: 'No tienes acceso a este inventario'
-        });
-      }
+    const acceso = await tieneAccesoRestaurante(client, req.user_info, existing.restaurante_id);
+    if (!acceso) {
+      return res.status(403).json({ ok: false, message: 'No tienes acceso a este inventario' });
     }
 
-    // Eliminar inventario (esto también eliminará los movimientos por CASCADE)
-    const { error } = await client
-      .from('inventario')
-      .delete()
-      .eq('id', id);
+    const { error } = await client.from('inventario').delete().eq('id', req.params.id);
 
     if (error) {
       console.error('Error al eliminar inventario:', error);
-      return res.status(500).json({
-        ok: false,
-        message: 'Error al eliminar inventario',
-        error: error.message
-      });
+      return res.status(500).json({ ok: false, message: 'Error al eliminar inventario', error: error.message });
     }
 
-    res.json({
-      ok: true,
-      message: 'Inventario eliminado exitosamente'
-    });
-
+    res.json({ ok: true, message: 'Inventario eliminado exitosamente' });
   } catch (error) {
     console.error('Error en eliminarInventario:', error);
-    res.status(500).json({
-      ok: false,
-      message: 'Error interno del servidor'
-    });
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
   }
 };
 
@@ -632,178 +275,65 @@ export const eliminarInventario = async (req: Request, res: Response) => {
 export const obtenerMovimientos = async (req: Request, res: Response) => {
   try {
     if (!req.user_info) {
-      return res.status(403).json({
-        ok: false,
-        message: 'No se encontró información del usuario autenticado'
-      });
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
-    const {
-      inventario_id,
-      tipo_movimiento,
-      fecha_desde,
-      fecha_hasta,
-      pagina = 1,
-      limite = 10
-    } = req.query;
+    const { inventario_id, tipo_movimiento, fecha_desde, fecha_hasta, pagina = 1, limite = 10 } = req.query;
 
-    // Usar supabaseAdmin para bypassear RLS y poder acceder a usuarios_info
     const client = supabaseAdmin || supabase;
-    const id_rol = req.user_info?.rol_id ?? 3;
 
     let query = client
       .from('movimientos_inventario')
       .select(`
         *,
-        inventario:inventario_id (
-          id,
-          menu:menu_id (
-            id,
-            nombre,
-            restaurante_id
-          )
-        ),
-        usuario:usuario_id (
-          id,
-          nombre_usuario
-        )
+        inventario:inventario_id (id, nombre, restaurante_id),
+        usuario:usuario_id (id, nombre_usuario)
       `, { count: 'exact' });
 
     // Filtrar por restaurante según rol
-    if (id_rol === 1) {
-      // Super Admin ve todos los movimientos
-    } else if (id_rol === 2) {
-      // Admin ve movimientos de inventarios de sus restaurantes
-      const { data: userRestaurants } = await client
-        .from('usuarios_restaurantes')
-        .select('restaurante_id')
-        .eq('usuario_id', req.user_info.id);
-
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (restaurantIds.length > 0) {
-        // Obtener menu_ids de los restaurantes del admin, luego inventarios
-        const { data: menusAdmin } = await client
-          .from('menu')
-          .select('id')
-          .in('restaurante_id', restaurantIds);
-        const menuIdsAdmin = menusAdmin?.map((m: any) => m.id) || [];
-
-        const { data: inventariosAdmin } = menuIdsAdmin.length > 0
-          ? await client.from('inventario').select('id').in('menu_id', menuIdsAdmin)
-          : { data: [] };
-
-        const inventarioIds = inventariosAdmin?.map((inv: any) => inv.id) || [];
-        
-        if (inventarioIds.length > 0) {
-          query = query.in('inventario_id', inventarioIds);
-        } else {
-          // Si no tiene inventarios, devolver vacío
-          return res.json({
-            ok: true,
-            data: [],
-            total: 0,
-            pagina: Number(pagina),
-            total_paginas: 0
-          });
-        }
-      } else {
-        // Si no tiene restaurantes, devolver vacío
-        return res.json({
-          ok: true,
-          data: [],
-          total: 0,
-          pagina: Number(pagina),
-          total_paginas: 0
-        });
+    const restauranteIds = await getRestauranteIds(client, req.user_info);
+    if (restauranteIds !== null) {
+      if (restauranteIds.length === 0) {
+        return res.json({ ok: true, data: [], total: 0, pagina: Number(pagina), total_paginas: 0 });
       }
-    } else {
-      // Usuarios normales solo ven movimientos de inventarios de su restaurante
-      const restaurante_id = req.user_info?.restaurante_id;
-      if (!restaurante_id) {
-        return res.status(403).json({
-          ok: false,
-          message: 'El usuario no tiene un restaurante asignado'
-        });
-      }
-
-      // Obtener menu_ids del restaurante, luego inventarios
-      const { data: menusUsuario } = await client
-        .from('menu')
+      // Obtener inventario_ids de los restaurantes del usuario
+      const { data: invIds } = await client
+        .from('inventario')
         .select('id')
-        .eq('restaurante_id', restaurante_id);
-      const menuIdsUsuario = menusUsuario?.map((m: any) => m.id) || [];
-
-      const { data: inventariosUsuario } = menuIdsUsuario.length > 0
-        ? await client.from('inventario').select('id').in('menu_id', menuIdsUsuario)
-        : { data: [] };
-
-      const inventarioIds = inventariosUsuario?.map((inv: any) => inv.id) || [];
-      
-      if (inventarioIds.length > 0) {
-        query = query.in('inventario_id', inventarioIds);
-      } else {
-        return res.json({
-          ok: true,
-          data: [],
-          total: 0,
-          pagina: Number(pagina),
-          total_paginas: 0
-        });
+        .in('restaurante_id', restauranteIds);
+      const inventarioIds = invIds?.map((i: any) => i.id) || [];
+      if (inventarioIds.length === 0) {
+        return res.json({ ok: true, data: [], total: 0, pagina: Number(pagina), total_paginas: 0 });
       }
+      query = query.in('inventario_id', inventarioIds);
     }
 
-    // Aplicar filtros adicionales
-    if (inventario_id) {
-      query = query.eq('inventario_id', inventario_id);
-    }
+    if (inventario_id) query = query.eq('inventario_id', inventario_id);
+    if (tipo_movimiento) query = query.eq('tipo_movimiento', tipo_movimiento);
+    if (fecha_desde) query = query.gte('created_at', fecha_desde);
+    if (fecha_hasta) query = query.lte('created_at', fecha_hasta);
 
-    if (tipo_movimiento) {
-      query = query.eq('tipo_movimiento', tipo_movimiento);
-    }
-
-    if (fecha_desde) {
-      query = query.gte('created_at', fecha_desde);
-    }
-
-    if (fecha_hasta) {
-      query = query.lte('created_at', fecha_hasta);
-    }
-
-    // Paginación
     const offset = (Number(pagina) - 1) * Number(limite);
     query = query.range(offset, offset + Number(limite) - 1);
-
-    // Ordenar por fecha de creación
     query = query.order('created_at', { ascending: false });
 
     const { data, error, count } = await query;
 
     if (error) {
       console.error('Error al obtener movimientos:', error);
-      return res.status(500).json({
-        ok: false,
-        message: 'Error al obtener movimientos',
-        error: error.message
-      });
+      return res.status(500).json({ ok: false, message: 'Error al obtener movimientos', error: error.message });
     }
-
-    const totalPaginas = Math.ceil((count || 0) / Number(limite));
 
     res.json({
       ok: true,
       data: data || [],
       total: count || 0,
       pagina: Number(pagina),
-      total_paginas: totalPaginas
+      total_paginas: Math.ceil((count || 0) / Number(limite))
     });
-
   } catch (error) {
     console.error('Error en obtenerMovimientos:', error);
-    res.status(500).json({
-      ok: false,
-      message: 'Error interno del servidor'
-    });
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
   }
 };
 
@@ -811,174 +341,85 @@ export const obtenerMovimientos = async (req: Request, res: Response) => {
 export const crearMovimiento = async (req: Request, res: Response) => {
   try {
     if (!req.user_info) {
-      return res.status(403).json({
-        ok: false,
-        message: 'No se encontró información del usuario autenticado'
-      });
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
-    const {
-      inventario_id,
-      tipo_movimiento,
-      cantidad,
-      motivo,
-      referencia
-    } = req.body;
+    const { inventario_id, tipo_movimiento, cantidad, motivo, referencia } = req.body;
 
-    console.log('📥 Datos recibidos para crear movimiento:', {
-      inventario_id,
-      tipo_movimiento,
-      cantidad,
-      motivo,
-      referencia
-    });
-
-    // Validar datos requeridos
     if (!inventario_id || !tipo_movimiento || !cantidad || !motivo) {
-      console.log('❌ Faltan datos requeridos:', {
-        tiene_inventario_id: !!inventario_id,
-        tiene_tipo_movimiento: !!tipo_movimiento,
-        tiene_cantidad: !!cantidad,
-        tiene_motivo: !!motivo
-      });
-      return res.status(400).json({
-        ok: false,
-        message: 'Faltan datos requeridos'
-      });
+      return res.status(400).json({ ok: false, message: 'Faltan datos requeridos' });
     }
 
-    // Validar tipo de movimiento
     if (!['entrada', 'salida', 'ajuste'].includes(tipo_movimiento)) {
-      return res.status(400).json({
-        ok: false,
-        message: 'Tipo de movimiento inválido'
-      });
+      return res.status(400).json({ ok: false, message: 'Tipo de movimiento inválido' });
     }
 
     const client = supabaseAdmin || supabase;
 
-    // Verificar que el inventario existe y obtener información del menú
-    const { data: inventario, error: inventarioError } = await client
+    const { data: inventario, error: invError } = await client
       .from('inventario')
-      .select(`
-        id,
-        stock_actual,
-        menu:menu_id (
-          id,
-          nombre,
-          restaurante_id
-        )
-      `)
+      .select('id, stock_actual, stock_minimo, nombre, restaurante_id')
       .eq('id', inventario_id)
       .single();
 
-    if (inventarioError || !inventario) {
-      return res.status(404).json({
-        ok: false,
-        message: 'Item de inventario no encontrado'
-      });
+    if (invError || !inventario) {
+      return res.status(404).json({ ok: false, message: 'Item de inventario no encontrado' });
     }
 
-    const restauranteIdInventario = (inventario.menu as any)?.restaurante_id;
-
-    // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
-    if (id_rol === 1) {
-      // Super Admin puede crear movimientos en cualquier inventario
-    } else if (id_rol === 2) {
-      // Admin debe tener acceso al restaurante del inventario
-      const { data: userRestaurants } = await client
-        .from('usuarios_restaurantes')
-        .select('restaurante_id')
-        .eq('usuario_id', req.user_info.id);
-
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (!restaurantIds.includes(restauranteIdInventario)) {
-        return res.status(403).json({
-          ok: false,
-          message: 'No tienes acceso a este inventario'
-        });
-      }
-    } else {
-      // Usuarios normales solo pueden crear movimientos en inventarios de su restaurante
-      if (req.user_info.restaurante_id !== restauranteIdInventario) {
-        return res.status(403).json({
-          ok: false,
-          message: 'No tienes acceso a este inventario'
-        });
-      }
+    const acceso = await tieneAccesoRestaurante(client, req.user_info, inventario.restaurante_id);
+    if (!acceso) {
+      return res.status(403).json({ ok: false, message: 'No tienes acceso a este inventario' });
     }
 
-    // Para salidas, verificar que hay stock suficiente
     if (tipo_movimiento === 'salida' && inventario.stock_actual < cantidad) {
-      return res.status(400).json({
-        ok: false,
-        message: 'Stock insuficiente para esta operación'
-      });
+      return res.status(400).json({ ok: false, message: 'Stock insuficiente para esta operación' });
     }
 
-    // Crear movimiento
     const { data, error } = await client
       .from('movimientos_inventario')
-      .insert({
-        inventario_id,
-        tipo_movimiento,
-        cantidad,
-        motivo,
-        referencia,
-        usuario_id: req.user_info.id
-      })
-      .select(`
-        *,
-        inventario:inventario_id (
-          id,
-          stock_actual,
-          stock_minimo,
-          menu:menu_id (
-            id,
-            nombre,
-            restaurante_id
-          )
-        )
-      `)
+      .insert({ inventario_id, tipo_movimiento, cantidad, motivo, referencia, usuario_id: req.user_info.id })
+      .select(`*, inventario:inventario_id (id, nombre, stock_actual, stock_minimo, restaurante_id)`)
       .single();
 
     if (error) {
-      console.error('Error al crear movimiento:', error);
-      return res.status(500).json({
-        ok: false,
-        message: 'Error al crear movimiento',
-        error: error.message
-      });
+      console.error('Error al crear movimiento — detalle:', JSON.stringify(error));
+      console.error('Datos enviados:', { inventario_id, tipo_movimiento, cantidad, motivo, usuario_id: req.user_info.id });
+      return res.status(500).json({ ok: false, message: 'Error al crear movimiento', error: error.message });
     }
 
-    // Después de crear el movimiento, el trigger actualizará el stock
-    // Esperar un momento y verificar si se creó una alerta
-    // Obtener el inventario actualizado para verificar alertas
-    const { data: inventarioActualizado, error: inventarioActualizadoError } = await client
+    // Desglose automático: si es entrada y el producto tiene desglose, crear entradas para cada pieza
+    if (tipo_movimiento === 'entrada') {
+      const { data: reglas } = await client
+        .from('inventario_desglose')
+        .select('componente_id, cantidad')
+        .eq('producto_id', inventario_id);
+
+      if (reglas && reglas.length > 0) {
+        for (const regla of reglas) {
+          await client
+            .from('movimientos_inventario')
+            .insert({
+              inventario_id: regla.componente_id,
+              tipo_movimiento: 'entrada',
+              cantidad: cantidad * regla.cantidad,
+              motivo: `Desglose automático de ${inventario.nombre} (×${cantidad})`,
+              referencia: data.id,
+              usuario_id: req.user_info.id,
+            });
+        }
+      }
+    }
+
+    // Verificar alertas de stock tras el movimiento
+    const { data: invActualizado } = await client
       .from('inventario')
-      .select(`
-        id,
-        stock_actual,
-        stock_minimo,
-        menu:menu_id (
-          id,
-          nombre,
-          restaurante_id
-        )
-      `)
+      .select('id, stock_actual, stock_minimo, nombre, restaurante_id')
       .eq('id', inventario_id)
       .single();
 
-    if (!inventarioActualizadoError && inventarioActualizado) {
-      const stockActual = inventarioActualizado.stock_actual;
-      const stockMinimo = inventarioActualizado.stock_minimo;
-      const menuNombre = (inventarioActualizado.menu as any)?.nombre;
-      const menuId = (inventarioActualizado.menu as any)?.id;
-      const restauranteId = (inventarioActualizado.menu as any)?.restaurante_id;
+    if (invActualizado) {
+      const { stock_actual, stock_minimo, nombre, restaurante_id } = invActualizado;
 
-      // Verificar si hay alertas recientes creadas para este inventario
       const { data: alertasRecientes } = await client
         .from('alertas_stock')
         .select('id, tipo_alerta, created_at')
@@ -987,64 +428,36 @@ export const crearMovimiento = async (req: Request, res: Response) => {
         .order('created_at', { ascending: false })
         .limit(1);
 
-      // Si hay una alerta reciente (creada en los últimos 2 segundos), enviar notificación
       if (alertasRecientes && alertasRecientes.length > 0) {
         const alerta = alertasRecientes[0];
-        const fechaCreacion = new Date(alerta.created_at);
-        const ahora = new Date();
-        const diferenciaSegundos = (ahora.getTime() - fechaCreacion.getTime()) / 1000;
+        const segundosDesdeCreacion = (Date.now() - new Date(alerta.created_at).getTime()) / 1000;
 
-        if (diferenciaSegundos <= 2 && restauranteId && menuNombre) {
+        if (segundosDesdeCreacion <= 2 && restaurante_id && nombre) {
           try {
             if (alerta.tipo_alerta === 'stock_agotado') {
-              await NotificacionesService.notificarProductoAgotado(
-                menuId,
-                menuNombre,
-                restauranteId
-              );
-            } else if (alerta.tipo_alerta === 'stock_critico' || alerta.tipo_alerta === 'stock_bajo') {
-              await NotificacionesService.notificarStockBajo(
-                menuId,
-                menuNombre,
-                restauranteId,
-                stockActual,
-                stockMinimo
-              );
+              await NotificacionesService.notificarProductoAgotado(inventario_id, nombre, restaurante_id);
+            } else {
+              await NotificacionesService.notificarStockBajo(inventario_id, nombre, restaurante_id, stock_actual, stock_minimo);
             }
-          } catch (notifError) {
-            console.error('Error al enviar notificación de stock:', notifError);
-            // No fallar la operación si falla la notificación
+          } catch (e) {
+            console.error('Error al enviar notificación de stock:', e);
           }
         }
       }
 
-      // Si el stock mejoró (entrada que repone stock), enviar notificación positiva
-      if (tipo_movimiento === 'entrada' && stockActual > stockMinimo && inventario.stock_actual <= stockMinimo) {
+      if (tipo_movimiento === 'entrada' && stock_actual > stock_minimo && inventario.stock_actual <= stock_minimo) {
         try {
-          await NotificacionesService.notificarStockRecargado(
-            menuId,
-            menuNombre,
-            restauranteId,
-            stockActual
-          );
-        } catch (notifError) {
-          console.error('Error al enviar notificación de stock recargado:', notifError);
+          await NotificacionesService.notificarStockRecargado(inventario_id, nombre, restaurante_id, stock_actual);
+        } catch (e) {
+          console.error('Error al enviar notificación de stock recargado:', e);
         }
       }
     }
 
-    res.status(201).json({
-      ok: true,
-      data,
-      message: 'Movimiento creado exitosamente'
-    });
-
+    res.status(201).json({ ok: true, data, message: 'Movimiento creado exitosamente' });
   } catch (error) {
     console.error('Error en crearMovimiento:', error);
-    res.status(500).json({
-      ok: false,
-      message: 'Error interno del servidor'
-    });
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
   }
 };
 
@@ -1052,110 +465,60 @@ export const crearMovimiento = async (req: Request, res: Response) => {
 export const obtenerAlertas = async (req: Request, res: Response) => {
   try {
     if (!req.user_info) {
-      return res.status(403).json({
-        ok: false,
-        message: 'No se encontró información del usuario autenticado'
-      });
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
-    const {
-      leida,
-      tipo_alerta,
-      pagina = 1,
-      limite = 10
-    } = req.query;
+    const { leida, tipo_alerta, pagina = 1, limite = 10, restaurante_id: restauranteIdParam } = req.query;
 
-    // Usar supabaseAdmin para bypassear RLS
     const client = supabaseAdmin || supabase;
-    const id_rol = req.user_info?.rol_id ?? 3;
 
     let query = client
       .from('alertas_stock')
-      .select(`
-        *,
-        inventario:inventario_id (
-          id,
-          menu:menu_id (
-            id,
-            nombre,
-            restaurante_id
-          )
-        )
-      `, { count: 'exact' });
+      .select(`*, inventario:inventario_id (id, nombre, restaurante_id)`, { count: 'exact' });
 
-    // Filtrar por restaurante según rol
-    if (id_rol === 1) {
-      // Super Admin ve todas las alertas
-    } else if (id_rol === 2) {
-      // Admin ve alertas de sus restaurantes
-      const { data: userRestaurants } = await client
-        .from('usuarios_restaurantes')
-        .select('restaurante_id')
-        .eq('usuario_id', req.user_info.id);
-
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (restaurantIds.length > 0) {
-        query = query.in('inventario.menu.restaurante_id', restaurantIds);
-      } else {
-        // Si no tiene restaurantes, devolver vacío
-        return res.json({
-          ok: true,
-          data: [],
-          total: 0
-        });
+    let restauranteIds = await getRestauranteIds(client, req.user_info);
+    // Si se pasa restaurante_id, filtrar solo por ese restaurante (evita confusión al mezclar varios)
+    if (typeof restauranteIdParam === 'string' && restauranteIdParam.trim()) {
+      const idFiltro = restauranteIdParam.trim();
+      if (restauranteIds === null) {
+        restauranteIds = [idFiltro]; // Super Admin puede filtrar por cualquier restaurante
+      } else if (restauranteIds.includes(idFiltro)) {
+        restauranteIds = [idFiltro]; // Admin/usuario: solo si tiene acceso
       }
-    } else {
-      // Usuarios normales ven alertas de su restaurante
-      const restaurante_id = req.user_info?.restaurante_id;
-      if (!restaurante_id) {
-        return res.status(403).json({
-          ok: false,
-          message: 'El usuario no tiene un restaurante asignado'
-        });
+    }
+    if (restauranteIds !== null) {
+      if (restauranteIds.length === 0) {
+        return res.json({ ok: true, data: [], total: 0 });
       }
-      query = query.eq('inventario.menu.restaurante_id', restaurante_id);
+      const { data: invIds } = await client
+        .from('inventario')
+        .select('id')
+        .in('restaurante_id', restauranteIds);
+      const inventarioIds = invIds?.map((i: any) => i.id) || [];
+      if (inventarioIds.length === 0) {
+        return res.json({ ok: true, data: [], total: 0 });
+      }
+      query = query.in('inventario_id', inventarioIds);
     }
 
-    // Aplicar filtros adicionales
-    if (leida !== undefined) {
-      query = query.eq('leida', leida === 'true');
-    }
+    if (leida !== undefined) query = query.eq('leida', leida === 'true');
+    if (tipo_alerta) query = query.eq('tipo_alerta', tipo_alerta);
 
-    if (tipo_alerta) {
-      query = query.eq('tipo_alerta', tipo_alerta);
-    }
-
-    // Paginación
     const offset = (Number(pagina) - 1) * Number(limite);
     query = query.range(offset, offset + Number(limite) - 1);
-
-    // Ordenar por fecha de creación
     query = query.order('created_at', { ascending: false });
 
     const { data, error, count } = await query;
 
     if (error) {
       console.error('Error al obtener alertas:', error);
-      return res.status(500).json({
-        ok: false,
-        message: 'Error al obtener alertas',
-        error: error.message
-      });
+      return res.status(500).json({ ok: false, message: 'Error al obtener alertas', error: error.message });
     }
 
-    res.json({
-      ok: true,
-      data: data || [],
-      total: count || 0
-    });
-
+    res.json({ ok: true, data: data || [], total: count || 0 });
   } catch (error) {
     console.error('Error en obtenerAlertas:', error);
-    res.status(500).json({
-      ok: false,
-      message: 'Error interno del servidor'
-    });
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
   }
 };
 
@@ -1163,99 +526,41 @@ export const obtenerAlertas = async (req: Request, res: Response) => {
 export const marcarAlertaLeida = async (req: Request, res: Response) => {
   try {
     if (!req.user_info) {
-      return res.status(403).json({
-        ok: false,
-        message: 'No se encontró información del usuario autenticado'
-      });
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
-    const { id } = req.params;
     const client = supabaseAdmin || supabase;
-    const id_rol = req.user_info?.rol_id ?? 3;
 
-    // Primero verificar que la alerta pertenezca a un restaurante del usuario
     const { data: alerta, error: alertaError } = await client
       .from('alertas_stock')
-      .select(`
-        *,
-        inventario:inventario_id (
-          menu:menu_id (
-            restaurante_id
-          )
-        )
-      `)
-      .eq('id', id)
+      .select(`*, inventario:inventario_id (restaurante_id)`)
+      .eq('id', req.params.id)
       .single();
 
     if (alertaError || !alerta) {
-      return res.status(404).json({
-        ok: false,
-        message: 'Alerta no encontrada'
-      });
+      return res.status(404).json({ ok: false, message: 'Alerta no encontrada' });
     }
 
-    const restauranteAlerta = alerta.inventario?.menu?.restaurante_id;
-    
-    // Verificar permisos
-    if (id_rol === 1) {
-      // Super Admin puede marcar cualquier alerta
-    } else if (id_rol === 2) {
-      // Admin solo puede marcar alertas de sus restaurantes
-      const { data: userRestaurants } = await client
-        .from('usuarios_restaurantes')
-        .select('restaurante_id')
-        .eq('usuario_id', req.user_info.id);
-      
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (!restaurantIds.includes(restauranteAlerta)) {
-        return res.status(403).json({
-          ok: false,
-          message: 'No tienes acceso a esta alerta'
-        });
-      }
-    } else {
-      // Usuarios normales solo pueden marcar alertas de su restaurante
-      if (req.user_info.restaurante_id !== restauranteAlerta) {
-        return res.status(403).json({
-          ok: false,
-          message: 'No tienes acceso a esta alerta'
-        });
-      }
+    const acceso = await tieneAccesoRestaurante(client, req.user_info, alerta.inventario?.restaurante_id);
+    if (!acceso) {
+      return res.status(403).json({ ok: false, message: 'No tienes acceso a esta alerta' });
     }
 
-    // Marcar como leída
     const { data, error } = await client
       .from('alertas_stock')
-      .update({
-        leida: true,
-        leida_at: new Date().toISOString()
-      })
-      .eq('id', id)
+      .update({ leida: true, leida_at: new Date().toISOString() })
+      .eq('id', req.params.id)
       .select()
       .single();
 
     if (error) {
-      console.error('Error al marcar alerta como leída:', error);
-      return res.status(500).json({
-        ok: false,
-        message: 'Error al marcar alerta como leída',
-        error: error.message
-      });
+      return res.status(500).json({ ok: false, message: 'Error al marcar alerta como leída', error: error.message });
     }
 
-    res.json({
-      ok: true,
-      data,
-      message: 'Alerta marcada como leída'
-    });
-
+    res.json({ ok: true, data, message: 'Alerta marcada como leída' });
   } catch (error) {
     console.error('Error en marcarAlertaLeida:', error);
-    res.status(500).json({
-      ok: false,
-      message: 'Error interno del servidor'
-    });
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
   }
 };
 
@@ -1263,223 +568,162 @@ export const marcarAlertaLeida = async (req: Request, res: Response) => {
 export const marcarTodasAlertasLeidas = async (req: Request, res: Response) => {
   try {
     if (!req.user_info) {
-      return res.status(403).json({
-        ok: false,
-        message: 'No se encontró información del usuario autenticado'
-      });
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
     const client = supabaseAdmin || supabase;
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const restauranteIds = await getRestauranteIds(client, req.user_info);
 
-    let query = client
-      .from('alertas_stock')
-      .update({
-        leida: true,
-        leida_at: new Date().toISOString()
-      })
-      .eq('leida', false);
+    let alertaIds: string[] = [];
 
-    // Filtrar por restaurante según rol
-    if (id_rol === 1) {
-      // Super Admin marca todas las alertas
-    } else if (id_rol === 2) {
-      // Admin marca alertas de sus restaurantes
-      const { data: userRestaurants } = await client
-        .from('usuarios_restaurantes')
-        .select('restaurante_id')
-        .eq('usuario_id', req.user_info.id);
-
-      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (restaurantIds.length > 0) {
-        // Obtener IDs de alertas de sus restaurantes
-        const { data: alertasIds } = await client
-          .from('alertas_stock')
-          .select(`
-            id,
-            inventario:inventario_id (
-              menu:menu_id (
-                restaurante_id
-              )
-            )
-          `)
-          .eq('leida', false);
-
-        const alertasIdsFiltrados = alertasIds
-          ?.filter((alerta: any) => 
-            restaurantIds.includes(alerta.inventario?.menu?.restaurante_id)
-          )
-          ?.map((alerta: any) => alerta.id) || [];
-
-        if (alertasIdsFiltrados.length === 0) {
-          return res.json({
-            ok: true,
-            message: 'No hay alertas pendientes por marcar como leídas'
-          });
-        }
-
-        query = client
-          .from('alertas_stock')
-          .update({
-            leida: true,
-            leida_at: new Date().toISOString()
-          })
-          .in('id', alertasIdsFiltrados);
-      } else {
-        return res.json({
-          ok: true,
-          message: 'No hay alertas pendientes por marcar como leídas'
-        });
-      }
+    if (restauranteIds === null) {
+      // Super Admin: marcar todas
+      const { data } = await client.from('alertas_stock').select('id').eq('leida', false);
+      alertaIds = data?.map((a: any) => a.id) || [];
     } else {
-      // Usuarios normales marcan alertas de su restaurante
-      const restaurante_id = req.user_info?.restaurante_id;
-      if (!restaurante_id) {
-        return res.status(403).json({
-          ok: false,
-          message: 'El usuario no tiene un restaurante asignado'
-        });
+      if (restauranteIds.length === 0) {
+        return res.json({ ok: true, message: 'No hay alertas pendientes' });
       }
-
-      // Obtener IDs de alertas de su restaurante
-      const { data: alertasIds } = await client
-        .from('alertas_stock')
-        .select(`
-          id,
-          inventario:inventario_id (
-            menu:menu_id (
-              restaurante_id
-            )
-          )
-        `)
-        .eq('leida', false);
-
-      const alertasIdsFiltrados = alertasIds
-        ?.filter((alerta: any) => 
-          alerta.inventario?.menu?.restaurante_id === restaurante_id
-        )
-        ?.map((alerta: any) => alerta.id) || [];
-
-      if (alertasIdsFiltrados.length === 0) {
-        return res.json({
-          ok: true,
-          message: 'No hay alertas pendientes por marcar como leídas'
-        });
+      const { data: invIds } = await client
+        .from('inventario')
+        .select('id')
+        .in('restaurante_id', restauranteIds);
+      const inventarioIds = invIds?.map((i: any) => i.id) || [];
+      if (inventarioIds.length === 0) {
+        return res.json({ ok: true, message: 'No hay alertas pendientes' });
       }
-
-      query = client
+      const { data } = await client
         .from('alertas_stock')
-        .update({
-          leida: true,
-          leida_at: new Date().toISOString()
-        })
-        .in('id', alertasIdsFiltrados);
+        .select('id')
+        .eq('leida', false)
+        .in('inventario_id', inventarioIds);
+      alertaIds = data?.map((a: any) => a.id) || [];
     }
 
-    const { error } = await query;
+    if (alertaIds.length === 0) {
+      return res.json({ ok: true, message: 'No hay alertas pendientes por marcar como leídas' });
+    }
+
+    const { error } = await client
+      .from('alertas_stock')
+      .update({ leida: true, leida_at: new Date().toISOString() })
+      .in('id', alertaIds);
 
     if (error) {
-      console.error('Error al marcar todas las alertas como leídas:', error);
-      return res.status(500).json({
-        ok: false,
-        message: 'Error al marcar todas las alertas como leídas',
-        error: error.message
-      });
+      return res.status(500).json({ ok: false, message: 'Error al marcar alertas', error: error.message });
     }
 
-    res.json({
-      ok: true,
-      message: 'Todas las alertas han sido marcadas como leídas'
-    });
-
+    res.json({ ok: true, message: 'Todas las alertas han sido marcadas como leídas' });
   } catch (error) {
     console.error('Error en marcarTodasAlertasLeidas:', error);
-    res.status(500).json({
-      ok: false,
-      message: 'Error interno del servidor'
-    });
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+  }
+};
+
+// Eliminar alerta de stock
+export const eliminarAlerta = async (req: Request, res: Response) => {
+  try {
+    if (!req.user_info) {
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    }
+
+    const client = supabaseAdmin || supabase;
+
+    const { data: alerta, error: alertaError } = await client
+      .from('alertas_stock')
+      .select(`*, inventario:inventario_id (restaurante_id)`)
+      .eq('id', req.params.id)
+      .single();
+
+    if (alertaError || !alerta) {
+      return res.status(404).json({ ok: false, message: 'Alerta no encontrada' });
+    }
+
+    const acceso = await tieneAccesoRestaurante(client, req.user_info, alerta.inventario?.restaurante_id);
+    if (!acceso) {
+      return res.status(403).json({ ok: false, message: 'No tienes acceso a esta alerta' });
+    }
+
+    const { error } = await client.from('alertas_stock').delete().eq('id', req.params.id);
+
+    if (error) {
+      return res.status(500).json({ ok: false, message: 'Error al eliminar alerta', error: error.message });
+    }
+
+    res.json({ ok: true, message: 'Alerta eliminada' });
+  } catch (error) {
+    console.error('Error en eliminarAlerta:', error);
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
   }
 };
 
 // Obtener productos con stock bajo
 export const obtenerProductosStockBajo = async (req: Request, res: Response) => {
   try {
-    const client = supabaseAdmin || supabase;
-    
-    // Usar la función RPC que ya creamos
-    const { data, error } = await client
-      .rpc('stock_productos_bajo', {
-        p_restaurante_id: null, // null para obtener todos los restaurantes
-        p_limite_stock: 10      // default
-      });
-
-    if (error) {
-      console.error('Error al obtener productos con stock bajo:', error);
-      return res.status(500).json({
-        ok: false,
-        message: 'Error al obtener productos con stock bajo',
-        error: error.message
-      });
+    if (!req.user_info) {
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
-    res.json({
-      ok: true,
-      data: data || []
-    });
+    const client = supabaseAdmin || supabase;
 
+    let query = client
+      .from('inventario')
+      .select('*')
+      .eq('activo', true)
+      .gt('stock_actual', 0);
+
+    const restauranteIds = await getRestauranteIds(client, req.user_info);
+    if (restauranteIds !== null) {
+      if (restauranteIds.length === 0) return res.json({ ok: true, data: [] });
+      query = query.in('restaurante_id', restauranteIds);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      return res.status(500).json({ ok: false, message: 'Error al obtener productos con stock bajo', error: error.message });
+    }
+
+    // Filtrar productos donde stock_actual <= stock_minimo
+    const stockBajo = (data || []).filter((item: any) => item.stock_actual <= item.stock_minimo);
+
+    res.json({ ok: true, data: stockBajo });
   } catch (error) {
     console.error('Error en obtenerProductosStockBajo:', error);
-    res.status(500).json({
-      ok: false,
-      message: 'Error interno del servidor'
-    });
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
   }
 };
 
-// Verificar stock disponible
+// Verificar stock disponible por inventario_id (inventario ya no tiene menu_id)
 export const verificarStockDisponible = async (req: Request, res: Response) => {
   try {
-    const { menuId } = req.params;
+    const { inventarioId } = req.params;
     const { cantidad } = req.query;
 
     if (!cantidad) {
-      return res.status(400).json({
-        ok: false,
-        message: 'Cantidad requerida'
-      });
+      return res.status(400).json({ ok: false, message: 'Cantidad requerida' });
     }
 
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
-      .from("inventario")
+      .from('inventario')
       .select('stock_actual')
-      .eq('menu_id', menuId)
+      .eq('id', inventarioId)
       .eq('activo', true)
       .single();
 
     if (error || !data) {
-      return res.json({
-        ok: true,
-        disponible: true, // Si no hay inventario, asumir disponible
-        stock_actual: 0
-      });
+      return res.json({ ok: true, disponible: true, stock_actual: 0 });
     }
-
-    const disponible = data.stock_actual >= Number(cantidad);
 
     res.json({
       ok: true,
-      disponible,
+      disponible: data.stock_actual >= Number(cantidad),
       stock_actual: data.stock_actual
     });
-
   } catch (error) {
     console.error('Error en verificarStockDisponible:', error);
-    res.status(500).json({
-      ok: false,
-      message: 'Error interno del servidor'
-    });
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
   }
 };
 
@@ -1487,126 +731,164 @@ export const verificarStockDisponible = async (req: Request, res: Response) => {
 export const obtenerEstadisticas = async (req: Request, res: Response) => {
   try {
     if (!req.user_info) {
-      return res.status(403).json({
-        ok: false,
-        message: 'No se encontró información del usuario autenticado'
-      });
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
     const client = supabaseAdmin || supabase;
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const restauranteIds = await getRestauranteIds(client, req.user_info);
 
-    // Obtener IDs de restaurantes según rol
-    let restaurantIds: string[] = [];
-    
-    if (id_rol === 1) {
-      // Super Admin ve todos los restaurantes (no filtramos)
-      restaurantIds = [];
-    } else if (id_rol === 2) {
-      // Admin ve sus restaurantes
-      const { data: userRestaurants } = await client
-        .from('usuarios_restaurantes')
-        .select('restaurante_id')
-        .eq('usuario_id', req.user_info.id);
-      
-      restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-    } else {
-      // Usuarios normales ven su restaurante
-      const restaurante_id = req.user_info?.restaurante_id;
-      if (!restaurante_id) {
-        return res.status(403).json({
-          ok: false,
-          message: 'El usuario no tiene un restaurante asignado'
-        });
-      }
-      restaurantIds = [restaurante_id];
-    }
+    // Base queries
+    let invQuery = client.from('inventario').select('stock_actual, stock_minimo, costo_unitario').eq('activo', true);
+    let alertasQuery = client.from('alertas_stock').select('id', { count: 'exact', head: true }).eq('leida', false);
+    let movimientosQuery = client.from('movimientos_inventario').select('id', { count: 'exact', head: true })
+      .gte('created_at', new Date().toISOString().split('T')[0]);
 
-    // Construir queries según si filtramos por restaurante
-    let inventarioQuery = client.from('inventario').select('*', { count: 'exact', head: true }).eq('activo', true);
-    let alertasQuery = client.from('alertas_stock').select('*', { count: 'exact', head: true }).eq('leida', false);
-    let inventarioDataQuery = client.from('inventario').select('stock_actual, stock_minimo, costo_unitario, menu:menu_id(restaurante_id)').eq('activo', true);
-
-    if (restaurantIds.length > 0) {
-      // Obtener IDs de menús de los restaurantes del usuario
-      const { data: menuIds } = await client
-        .from('menu')
-        .select('id')
-        .in('restaurante_id', restaurantIds);
-      
-      const menuIdList = menuIds?.map((m: any) => m.id) || [];
-      
-      if (menuIdList.length > 0) {
-        // Obtener IDs de inventario de los menús
-        const { data: inventarioIds } = await client
-          .from('inventario')
-          .select('id')
-          .in('menu_id', menuIdList);
-        
-        const inventarioIdList = inventarioIds?.map((inv: any) => inv.id) || [];
-        
-        // Filtrar por menús de los restaurantes del usuario
-        inventarioQuery = inventarioQuery.in('menu_id', menuIdList);
-        alertasQuery = alertasQuery.in('inventario_id', inventarioIdList);
-        inventarioDataQuery = inventarioDataQuery.in('menu.restaurante_id', restaurantIds);
-      } else {
-        // Si no hay menús, devolver ceros
+    if (restauranteIds !== null) {
+      if (restauranteIds.length === 0) {
         return res.json({
           ok: true,
-          data: {
-            total_productos: 0,
-            productos_stock_bajo: 0,
-            productos_agotados: 0,
-            valor_total_inventario: 0,
-            movimientos_hoy: 0,
-            alertas_pendientes: 0
-          }
+          data: { total_productos: 0, productos_stock_bajo: 0, productos_agotados: 0, valor_total_inventario: 0, movimientos_hoy: 0, alertas_pendientes: 0 }
         });
+      }
+
+      const { data: invIds } = await client.from('inventario').select('id').in('restaurante_id', restauranteIds);
+      const inventarioIds = invIds?.map((i: any) => i.id) || [];
+
+      invQuery = invQuery.in('restaurante_id', restauranteIds);
+      if (inventarioIds.length > 0) {
+        alertasQuery = alertasQuery.in('inventario_id', inventarioIds);
+        movimientosQuery = movimientosQuery.in('inventario_id', inventarioIds);
       }
     }
 
-    // Obtener estadísticas básicas
-    const [
-      { count: totalProductos },
-      { count: productosAgotados },
-      { count: movimientosHoy },
-      { count: alertasPendientes }
-    ] = await Promise.all([
-      inventarioQuery,
-      inventarioQuery.eq('stock_actual', 0),
-      client.from('movimientos_inventario').select('*', { count: 'exact', head: true }).gte('created_at', new Date().toISOString().split('T')[0]),
-      alertasQuery
+    const [{ data: invData }, { count: alertasPendientes }, { count: movimientosHoy }] = await Promise.all([
+      invQuery,
+      alertasQuery,
+      movimientosQuery
     ]);
 
-    // Calcular valor total del inventario
-    const { data: inventarioData } = await inventarioDataQuery;
-
-    const valorTotalInventario = inventarioData?.reduce((total, item) => {
-      return total + (item.stock_actual * item.costo_unitario);
-    }, 0) || 0;
-
-    // Calcular productos con stock bajo manualmente
-    const productosStockBajo = inventarioData?.filter((item: any) => 
-      item.stock_actual > 0 && item.stock_actual <= item.stock_minimo
-    ).length || 0;
+    const items = invData || [];
+    const totalProductos = items.length;
+    const productosAgotados = items.filter((i: any) => i.stock_actual === 0).length;
+    const productosStockBajo = items.filter((i: any) => i.stock_actual > 0 && i.stock_actual <= i.stock_minimo).length;
+    const valorTotalInventario = items.reduce((sum: number, i: any) => sum + (i.stock_actual * (i.costo_unitario || 0)), 0);
 
     res.json({
       ok: true,
       data: {
-        total_productos: totalProductos || 0,
-        productos_stock_bajo: productosStockBajo || 0,
-        productos_agotados: productosAgotados || 0,
+        total_productos: totalProductos,
+        productos_stock_bajo: productosStockBajo,
+        productos_agotados: productosAgotados,
         valor_total_inventario: valorTotalInventario,
         movimientos_hoy: movimientosHoy || 0,
         alertas_pendientes: alertasPendientes || 0
       }
     });
-
   } catch (error) {
     console.error('Error en obtenerEstadisticas:', error);
-    res.status(500).json({
-      ok: false,
-      message: 'Error interno del servidor'
-    });
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+  }
+};
+
+// ---- Endpoints de Desglose ----
+
+// Obtener reglas de desglose de un producto
+export const obtenerDesglose = async (req: Request, res: Response) => {
+  try {
+    if (!req.user_info) {
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    }
+
+    const client = supabaseAdmin || supabase;
+    const { data, error } = await client
+      .from('inventario_desglose')
+      .select('id, producto_id, componente_id, cantidad, componente:componente_id (id, nombre, unidad_medida)')
+      .eq('producto_id', req.params.id);
+
+    if (error) {
+      console.error('Error al obtener desglose:', error);
+      return res.status(500).json({ ok: false, message: 'Error al obtener desglose', error: error.message });
+    }
+
+    res.json({ ok: true, data: data || [] });
+  } catch (error) {
+    console.error('Error en obtenerDesglose:', error);
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+  }
+};
+
+// Crear o actualizar una regla de desglose
+export const crearReglaDesglose = async (req: Request, res: Response) => {
+  try {
+    if (!req.user_info) {
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    }
+
+    const { componente_id, cantidad } = req.body;
+    if (!componente_id || !cantidad || cantidad <= 0) {
+      return res.status(400).json({ ok: false, message: 'Faltan datos: componente_id y cantidad > 0' });
+    }
+
+    const client = supabaseAdmin || supabase;
+
+    // Upsert: si ya existe la regla para ese componente, actualizar cantidad
+    const { data: existing } = await client
+      .from('inventario_desglose')
+      .select('id')
+      .eq('producto_id', req.params.id)
+      .eq('componente_id', componente_id)
+      .single();
+
+    let data, error;
+    if (existing) {
+      ({ data, error } = await client
+        .from('inventario_desglose')
+        .update({ cantidad })
+        .eq('id', existing.id)
+        .select('id, producto_id, componente_id, cantidad, componente:componente_id (id, nombre, unidad_medida)')
+        .single());
+    } else {
+      ({ data, error } = await client
+        .from('inventario_desglose')
+        .insert({ producto_id: req.params.id, componente_id, cantidad })
+        .select('id, producto_id, componente_id, cantidad, componente:componente_id (id, nombre, unidad_medida)')
+        .single());
+    }
+
+    if (error) {
+      console.error('Error al crear regla de desglose:', error);
+      return res.status(500).json({ ok: false, message: 'Error al crear regla de desglose', error: error.message });
+    }
+
+    res.status(201).json({ ok: true, data, message: 'Regla de desglose guardada' });
+  } catch (error) {
+    console.error('Error en crearReglaDesglose:', error);
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+  }
+};
+
+// Eliminar una regla de desglose
+export const eliminarReglaDesglose = async (req: Request, res: Response) => {
+  try {
+    if (!req.user_info) {
+      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    }
+
+    const client = supabaseAdmin || supabase;
+    const { error } = await client
+      .from('inventario_desglose')
+      .delete()
+      .eq('id', req.params.reglaId)
+      .eq('producto_id', req.params.id);
+
+    if (error) {
+      console.error('Error al eliminar regla de desglose:', error);
+      return res.status(500).json({ ok: false, message: 'Error al eliminar regla', error: error.message });
+    }
+
+    res.json({ ok: true, message: 'Regla eliminada' });
+  } catch (error) {
+    console.error('Error en eliminarReglaDesglose:', error);
+    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
   }
 };

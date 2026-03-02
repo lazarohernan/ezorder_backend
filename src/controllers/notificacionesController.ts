@@ -54,7 +54,8 @@ export const getNotificaciones = async (req: Request, res: Response) => {
       leida,
       tipo,
       pagina = 1,
-      limite = 10
+      limite = 10,
+      restaurante_id: restauranteIdParam
     } = req.query;
 
     const client = supabaseAdmin || supabase;
@@ -64,21 +65,30 @@ export const getNotificaciones = async (req: Request, res: Response) => {
       .from('notificaciones')
       .select('*', { count: 'exact' });
 
+    // Filtrar por restaurante cuando se indica (evita confusión al mezclar varios)
+    const idFiltroRestaurante = typeof restauranteIdParam === 'string' ? restauranteIdParam.trim() : null;
+    let usarFiltroRestaurante = false;
+    if (idFiltroRestaurante) {
+      const restaurantIds = id_rol === 1 ? null : await getUserRestaurantIds(client, req.user_info.id, req);
+      usarFiltroRestaurante = restaurantIds === null || restaurantIds.includes(idFiltroRestaurante);
+    }
+
     // Filtrar por usuario y rol
-    if (id_rol === 1) {
-      // Super Admin ve todas las notificaciones
-    } else if (id_rol === 2) {
-      // Admin ve sus notificaciones y las de sus restaurantes
-      const restaurantIds = await getUserRestaurantIds(client, req.user_info.id, req);
-      
-      if (restaurantIds.length > 0) {
-        query = query.or(`usuario_id.eq.${req.user_info.id},restaurante_id.in.(${restaurantIds.join(',')})`);
+    if (usarFiltroRestaurante && idFiltroRestaurante) {
+      query = query.or(`usuario_id.eq.${req.user_info.id},restaurante_id.eq.${idFiltroRestaurante}`);
+    } else {
+      if (id_rol === 1) {
+        // Super Admin ve todas las notificaciones
+      } else if (id_rol === 2) {
+        const restaurantIds = await getUserRestaurantIds(client, req.user_info.id, req);
+        if (restaurantIds.length > 0) {
+          query = query.or(`usuario_id.eq.${req.user_info.id},restaurante_id.in.(${restaurantIds.join(',')})`);
+        } else {
+          query = query.eq('usuario_id', req.user_info.id);
+        }
       } else {
         query = query.eq('usuario_id', req.user_info.id);
       }
-    } else {
-      // Usuarios normales solo ven sus notificaciones
-      query = query.eq('usuario_id', req.user_info.id);
     }
 
     // Aplicar filtros adicionales

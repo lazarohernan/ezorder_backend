@@ -4,12 +4,29 @@ CREATE TABLE IF NOT EXISTS descuentos (
   nombre VARCHAR(255) NOT NULL,
   porcentaje DECIMAL(5,2) NOT NULL CHECK (porcentaje > 0 AND porcentaje <= 100),
   activo BOOLEAN DEFAULT true,
+  programado BOOLEAN DEFAULT false,
+  fecha_inicio DATE,
+  fecha_fin DATE,
+  hora_inicio TIME,
+  hora_fin TIME,
+  dias_semana SMALLINT[],
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  CONSTRAINT check_descuentos_rango_fechas
+    CHECK (fecha_inicio IS NULL OR fecha_fin IS NULL OR fecha_inicio <= fecha_fin),
+  CONSTRAINT check_descuentos_dias_semana
+    CHECK (
+      dias_semana IS NULL
+      OR (
+        array_length(dias_semana, 1) > 0
+        AND dias_semana <@ ARRAY[0, 1, 2, 3, 4, 5, 6]::smallint[]
+      )
+    )
 );
 
 -- Crear índice para búsquedas por estado activo
 CREATE INDEX IF NOT EXISTS idx_descuentos_activo ON descuentos(activo);
+CREATE INDEX IF NOT EXISTS idx_descuentos_programado ON descuentos(programado);
 
 -- Crear índice para ordenar por fecha de creación
 CREATE INDEX IF NOT EXISTS idx_descuentos_created_at ON descuentos(created_at DESC);

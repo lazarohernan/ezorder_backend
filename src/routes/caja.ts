@@ -48,6 +48,11 @@ router.post('/abrir', requirePermissions(['caja.abrir']), cajaController.abrirCa
 // Cerrar caja
 router.put('/:id/cerrar', requirePermissions(['caja.cerrar']), cajaController.cerrarCaja);
 
+// Retiros de caja
+router.post('/:id/retiro', requirePermissions(['caja.cerrar']), cajaController.registrarRetiro);
+router.get('/:id/retiros', requirePermissions(['caja.ver']), cajaController.getRetirosCaja);
+router.delete('/retiro/:retiro_id', requirePermissions(['caja.cerrar']), cajaController.eliminarRetiro);
+
 // Actualizar caja (ingresos/egresos adicionales)
 router.put('/:id', requirePermissions(['caja.registrar_ingresos']), cajaController.actualizarCaja);
 

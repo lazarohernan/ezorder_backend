@@ -1,6 +1,59 @@
 import { Request, Response } from "express";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
 
+const aplicarConsumosInventarioPorItems = async (
+  client: any,
+  userId: string,
+  items: Array<{
+    pedido_id: string;
+    menu_id?: string | null;
+    nombre_menu?: string | null;
+    cantidad: number;
+  }>
+) => {
+  const menuIds = [...new Set(items.map((i) => i.menu_id).filter(Boolean))] as string[];
+  if (!menuIds.length) return;
+
+  const { data: consumosRows, error: consumosError } = await client
+    .from("menu_inventario_consumos")
+    .select("menu_id, inventario_id, cantidad")
+    .in("menu_id", menuIds);
+  if (consumosError) throw consumosError;
+
+  const consumosByMenu = new Map<string, Array<{ inventario_id: string; cantidad: number }>>();
+  for (const row of consumosRows || []) {
+    if (!consumosByMenu.has(row.menu_id)) consumosByMenu.set(row.menu_id, []);
+    consumosByMenu.get(row.menu_id)!.push({
+      inventario_id: row.inventario_id,
+      cantidad: Number(row.cantidad),
+    });
+  }
+
+  for (const item of items) {
+    if (!item.menu_id) continue;
+    const relaciones = consumosByMenu.get(item.menu_id) || [];
+    if (!relaciones.length) continue;
+
+    for (const relacion of relaciones) {
+      const cantidadDescontar = Number(item.cantidad || 0) * Number(relacion.cantidad || 0);
+      if (cantidadDescontar <= 0) continue;
+
+      const { error: movError } = await client.from("movimientos_inventario").insert({
+        inventario_id: relacion.inventario_id,
+        tipo_movimiento: "salida",
+        cantidad: cantidadDescontar,
+        motivo: `Venta - ${item.nombre_menu || "Menú"} - Pedido ${item.pedido_id}`,
+        referencia: item.pedido_id,
+        usuario_id: userId,
+      });
+
+      if (movError) {
+        console.error("Error al registrar salida de inventario:", movError);
+      }
+    }
+  }
+};
+
 // Obtener todos los ítems de pedido
 export const getPedidoItems = async (req: Request, res: Response) => {
   try {
@@ -392,6 +445,15 @@ export const createPedidoItem = async (req: Request, res: Response) => {
       .single();
 
     if (error) throw error;
+
+    await aplicarConsumosInventarioPorItems(client, req.user_info.id, [
+      {
+        pedido_id,
+        menu_id: menu_id || null,
+        nombre_menu: nombre_menu || null,
+        cantidad: Number(cantidad || 0),
+      },
+    ]);
 
     res.status(201).json({
       success: true,
@@ -842,56 +904,7 @@ export const createPedidoItemsBatch = async (req: Request, res: Response) => {
       .select();
 
     if (error) throw error;
-
-    // Descontar stock para productos que requieren inventario
-    for (const item of itemsToInsert) {
-      // Verificar si el producto requiere inventario
-      const { data: menu, error: menuError } = await client
-        .from("menu")
-        .select("requiere_inventario")
-        .eq("id", item.menu_id)
-        .single();
-
-      if (!menuError && menu?.requiere_inventario) {
-        // Obtener el inventario
-        const { data: inventario, error: inventarioError } = await client
-          .from("inventario")
-          .select("id, stock_actual")
-          .eq("menu_id", item.menu_id)
-          .eq("activo", true)
-          .single();
-
-        if (!inventarioError && inventario) {
-          // Verificar stock suficiente
-          if (inventario.stock_actual < item.cantidad) {
-            console.warn(
-              `Stock insuficiente para ${item.nombre_menu}. Stock: ${inventario.stock_actual}, Solicitado: ${item.cantidad}`
-            );
-            // Continuar pero registrar el problema
-          }
-
-          // Crear movimiento de salida
-          const { error: movimientoError } = await client
-            .from("movimientos_inventario")
-            .insert({
-              inventario_id: inventario.id,
-              tipo_movimiento: "salida",
-              cantidad: item.cantidad,
-              motivo: `Venta - Pedido ${item.pedido_id}`,
-              referencia: item.pedido_id,
-              usuario_id: req.user_info.id,
-            });
-
-          if (movimientoError) {
-            console.error(
-              `Error al crear movimiento de inventario para ${item.nombre_menu}:`,
-              movimientoError
-            );
-            // No fallar el pedido por esto, solo registrar
-          }
-        }
-      }
-    }
+    await aplicarConsumosInventarioPorItems(client, req.user_info.id, itemsToInsert);
 
     res.status(201).json({
       success: true,

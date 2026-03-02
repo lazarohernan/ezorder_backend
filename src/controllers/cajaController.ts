@@ -440,6 +440,23 @@ export const cajaController = {
 
       const totalGastosDia = gastos?.reduce((sum, gasto) => sum + Number(gasto.monto), 0) || 0;
 
+      // Obtener retiros del día (de la caja abierta)
+      let retirosDia: Array<{ id: string; nombre_responsable: string; hora_retiro: string; monto: number; observaciones?: string | null }> = [];
+      let totalRetirosDia = 0;
+
+      if (cajaActualWithRestaurant) {
+        const { data: retiros, error: retirosError } = await client
+          .from('retiros_caja')
+          .select('id, nombre_responsable, hora_retiro, monto, observaciones')
+          .eq('caja_id', cajaActualWithRestaurant.id)
+          .order('hora_retiro', { ascending: true });
+
+        if (!retirosError && retiros) {
+          retirosDia = retiros;
+          totalRetirosDia = retiros.reduce((sum, r) => sum + Number(r.monto), 0);
+        }
+      }
+
       const resumen = {
         caja_actual: cajaActualWithRestaurant || null,
         total_ventas_dia: totalVentasDia,
@@ -450,6 +467,8 @@ export const cajaController = {
         total_egresos_dia: cajaActualWithRestaurant?.total_egresos || 0,
         total_gastos_dia: totalGastosDia,
         gastos_dia: gastos || [],
+        total_retiros_dia: totalRetirosDia,
+        retiros_dia: retirosDia,
         diferencia: cajaActualWithRestaurant
           ? Number(cajaActualWithRestaurant.monto_final || 0) -
             Number(cajaActualWithRestaurant.monto_inicial) -
@@ -638,7 +657,8 @@ export const cajaController = {
         ventas_pos_reportadas,
         ventas_transferencia_reportadas,
         gastos_reportados,
-        ventas_efectivo_reportadas
+        ventas_efectivo_reportadas,
+        denominacion_conteo
       } = req.body;
 
       const client = supabaseAdmin || supabase;
@@ -716,10 +736,10 @@ export const cajaController = {
       const ventasTransferencia = todasVentas?.filter(v => v.metodo_pago_id === 3).reduce((sum, v) => sum + Number(v.total), 0) || 0;
       const totalVentasDia = todasVentas?.reduce((sum, venta) => sum + Number(venta.total), 0) || 0;
 
-      // Obtener gastos del día
+      // Obtener gastos del día (con método de pago para filtrar)
       const { data: gastos, error: gastosError } = await client
         .from('gastos')
-        .select('monto')
+        .select('monto, metodo_pago_id')
         .eq('restaurante_id', cajaActual.restaurante_id)
         .gte('fecha_gasto', toISOStringHonduras(fechaInicio))
         .lte('fecha_gasto', toISOStringHonduras(fechaFin));
@@ -729,11 +749,17 @@ export const cajaController = {
       }
 
       const totalGastos = gastos?.reduce((sum, gasto) => sum + Number(gasto.monto), 0) || 0;
+      // Solo gastos pagados en efectivo afectan el balance de caja física
+      const gastosEfectivo = gastos?.filter(g => g.metodo_pago_id === 1).reduce((sum, g) => sum + Number(g.monto), 0) || 0;
+
+      // Obtener total de retiros de esta caja
+      const totalRetiros = Number(cajaActual.total_retiros || 0);
 
       // VALIDACIÓN: Calcular el efectivo que debe haber en caja
+      // Solo se restan gastos en efectivo (no los pagados por POS/transferencia)
       const montoInicial = Number(cajaActual.monto_inicial);
       const ingresosAdicionales = Number(cajaActual.total_ingresos || 0);
-      const efectivoEsperado = montoInicial + ventasEfectivo + ingresosAdicionales - totalGastos;
+      const efectivoEsperado = montoInicial + ventasEfectivo + ingresosAdicionales - gastosEfectivo - totalRetiros;
       const efectivoReal = Number(monto_final);
 
       const parseReportado = (valor: unknown): number | null => {
@@ -771,9 +797,18 @@ export const cajaController = {
         mensajeValidacion = '✅ CAJA CUADRA EN 0 - Los montos coinciden correctamente';
         console.log(`Caja cerrada correctamente. Total ventas efectivo: $${ventasEfectivo.toFixed(2)}, POS: $${ventasPOS.toFixed(2)}, Transferencia: $${ventasTransferencia.toFixed(2)}, Gastos: $${totalGastos.toFixed(2)}`);
       } else {
-        const detalle = diferenciaEfectivo > tolerancia
-          ? `efectivo ${diferenciaEfectivo > 0 ? 'sobrante' : 'faltante'} $${Math.abs(diferenciaEfectivo).toFixed(2)}`
-          : 'existen diferencias en los montos reportados';
+        let detalle = '';
+        if (Math.abs(diferenciaEfectivo) > tolerancia) {
+          detalle = `efectivo ${diferenciaEfectivo > 0 ? 'sobrante' : 'faltante'} L.${Math.abs(diferenciaEfectivo).toFixed(2)}`;
+        } else {
+          // Buscar cuál diferencia específica causó el descuadre
+          const detalles: string[] = [];
+          if (diferenciaPOS !== null && Math.abs(diferenciaPOS) > tolerancia) detalles.push(`POS (dif: L.${Math.abs(diferenciaPOS).toFixed(2)})`);
+          if (diferenciaTransferencia !== null && Math.abs(diferenciaTransferencia) > tolerancia) detalles.push(`Transferencia (dif: L.${Math.abs(diferenciaTransferencia).toFixed(2)})`);
+          if (diferenciaGastos !== null && Math.abs(diferenciaGastos) > tolerancia) detalles.push(`Gastos (dif: L.${Math.abs(diferenciaGastos).toFixed(2)})`);
+          if (diferenciaVentasEfectivo !== null && Math.abs(diferenciaVentasEfectivo) > tolerancia) detalles.push(`Ventas efectivo (dif: L.${Math.abs(diferenciaVentasEfectivo).toFixed(2)})`);
+          detalle = detalles.length > 0 ? `diferencias en: ${detalles.join(', ')}` : 'diferencias en los montos reportados';
+        }
         mensajeValidacion = `⚠️ CAJA NO CUADRA - Se detectó ${detalle}`;
         console.warn(`${mensajeValidacion}. Esperado: $${efectivoEsperado.toFixed(2)}, Real: $${efectivoReal.toFixed(2)}`);
       }
@@ -819,7 +854,11 @@ export const cajaController = {
           diferencia_total: diferenciaTotalCalculada,
           
           // Estado del cuadre
-          estado_cuadre: estadoCuadre
+          estado_cuadre: estadoCuadre,
+
+          // Retiros y denominaciones
+          total_retiros: totalRetiros,
+          denominacion_conteo: denominacion_conteo || null
         })
         .eq('id', id)
         .select('*')
@@ -865,7 +904,8 @@ export const cajaController = {
             ventas_pos: ventasPOS,
             ventas_transferencia: ventasTransferencia,
             total_ventas: totalVentasDia,
-            total_gastos: totalGastos
+            total_gastos: totalGastos,
+            total_retiros: totalRetiros
           }
         }
       });
@@ -956,6 +996,151 @@ export const cajaController = {
       res.json({ data: dataWithNombre || null });
     } catch (error) {
       console.error('Error updating caja:', error);
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  },
+
+  // Registrar un retiro de caja
+  async registrarRetiro(req: Request, res: Response) {
+    try {
+      if (!req.user_info) {
+        return res.status(403).json({ error: 'No se encontró información del usuario autenticado' });
+      }
+
+      const { id } = req.params;
+      const { nombre_responsable, monto, observaciones } = req.body;
+
+      if (!nombre_responsable || !monto) {
+        return res.status(400).json({ error: 'nombre_responsable y monto son requeridos' });
+      }
+
+      if (Number(monto) <= 0) {
+        return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+      }
+
+      const client = supabaseAdmin || supabase;
+
+      // Verificar que la caja exista y esté abierta
+      const { data: caja, error: cajaError } = await client
+        .from('caja')
+        .select('id, restaurante_id, estado, total_retiros')
+        .eq('id', id)
+        .single();
+
+      if (cajaError || !caja) {
+        return res.status(404).json({ error: 'Caja no encontrada' });
+      }
+
+      if (caja.estado !== 'abierta') {
+        return res.status(400).json({ error: 'Solo se pueden registrar retiros en cajas abiertas' });
+      }
+
+      // Insertar el retiro
+      const { data: retiro, error: retiroError } = await client
+        .from('retiros_caja')
+        .insert({
+          caja_id: id,
+          restaurante_id: caja.restaurante_id,
+          nombre_responsable,
+          monto: Number(monto),
+          observaciones: observaciones || null
+        })
+        .select('*')
+        .single();
+
+      if (retiroError) {
+        return res.status(400).json({ error: retiroError.message });
+      }
+
+      // Actualizar total_retiros en la caja
+      const nuevoTotal = Number(caja.total_retiros || 0) + Number(monto);
+      await client
+        .from('caja')
+        .update({ total_retiros: nuevoTotal })
+        .eq('id', id);
+
+      res.status(201).json({ data: retiro });
+    } catch (error) {
+      console.error('Error registering retiro:', error);
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  },
+
+  // Listar retiros de una caja
+  async getRetirosCaja(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const client = supabaseAdmin || supabase;
+
+      const { data, error } = await client
+        .from('retiros_caja')
+        .select('*')
+        .eq('caja_id', id)
+        .order('hora_retiro', { ascending: true });
+
+      if (error) {
+        return res.status(400).json({ error: error.message });
+      }
+
+      res.json({ data: data || [] });
+    } catch (error) {
+      console.error('Error getting retiros:', error);
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  },
+
+  // Eliminar un retiro
+  async eliminarRetiro(req: Request, res: Response) {
+    try {
+      if (!req.user_info) {
+        return res.status(403).json({ error: 'No se encontró información del usuario autenticado' });
+      }
+
+      const { retiro_id } = req.params;
+      const client = supabaseAdmin || supabase;
+
+      // Obtener el retiro para saber el monto y la caja
+      const { data: retiro, error: fetchError } = await client
+        .from('retiros_caja')
+        .select('id, caja_id, monto')
+        .eq('id', retiro_id)
+        .single();
+
+      if (fetchError || !retiro) {
+        return res.status(404).json({ error: 'Retiro no encontrado' });
+      }
+
+      // Verificar que la caja esté abierta
+      const { data: caja } = await client
+        .from('caja')
+        .select('id, estado, total_retiros')
+        .eq('id', retiro.caja_id)
+        .single();
+
+      if (!caja || caja.estado !== 'abierta') {
+        return res.status(400).json({ error: 'No se pueden eliminar retiros de cajas cerradas' });
+      }
+
+      // Eliminar el retiro
+      const { error: deleteError } = await client
+        .from('retiros_caja')
+        .delete()
+        .eq('id', retiro_id);
+
+      if (deleteError) {
+        return res.status(400).json({ error: deleteError.message });
+      }
+
+      // Actualizar total_retiros en la caja
+      const nuevoTotal = Math.max(0, Number(caja.total_retiros || 0) - Number(retiro.monto));
+      await client
+        .from('caja')
+        .update({ total_retiros: nuevoTotal })
+        .eq('id', retiro.caja_id);
+
+      res.json({ message: 'Retiro eliminado correctamente' });
+    } catch (error) {
+      console.error('Error deleting retiro:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
     }
   },

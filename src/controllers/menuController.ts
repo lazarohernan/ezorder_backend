@@ -1,6 +1,56 @@
 import { Request, Response } from "express";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
 
+type MenuConsumoInput = {
+  inventario_id: string;
+  cantidad: number;
+};
+
+const getMenuWithAccess = async (req: Request, menuId: string) => {
+  if (!req.user_info) {
+    return {
+      ok: false,
+      status: 403,
+      message: "No se encontró información del usuario autenticado",
+    } as const;
+  }
+
+  const client = supabaseAdmin || supabase;
+  const { data: menuData, error } = await client
+    .from("menu")
+    .select("id, restaurante_id")
+    .eq("id", menuId)
+    .single();
+
+  if (error || !menuData) {
+    return { ok: false, status: 404, message: "Menú no encontrado" } as const;
+  }
+
+  const id_rol = req.user_info?.rol_id ?? 3;
+  if (id_rol === 1) {
+    return { ok: true, menu: menuData, client } as const;
+  }
+
+  if (id_rol === 2) {
+    const { data: userRestaurants } = await client
+      .from("usuarios_restaurantes")
+      .select("restaurante_id")
+      .eq("usuario_id", req.user_info.id);
+
+    const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+    if (!restaurantIds.includes(menuData.restaurante_id)) {
+      return { ok: false, status: 403, message: "No tienes acceso a este menú" } as const;
+    }
+    return { ok: true, menu: menuData, client } as const;
+  }
+
+  if (req.user_info.restaurante_id !== menuData.restaurante_id) {
+    return { ok: false, status: 403, message: "No tienes acceso a este menú" } as const;
+  }
+
+  return { ok: true, menu: menuData, client } as const;
+};
+
 // Obtener todos los menús
 export const getMenus = async (req: Request, res: Response) => {
   try {
@@ -547,5 +597,129 @@ export const deleteMenu = async (req: Request, res: Response) => {
       message: error.message || "Error al eliminar menú",
     });
     return;
+  }
+};
+
+export const getMenuConsumos = async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  try {
+    const menuAccess = await getMenuWithAccess(req, id);
+    if (!menuAccess.ok) {
+      return res.status(menuAccess.status).json({
+        success: false,
+        message: menuAccess.message,
+      });
+    }
+
+    const { data, error } = await menuAccess.client
+      .from("menu_inventario_consumos")
+      .select(
+        "id, inventario_id, cantidad, inventario:inventario_id(id, nombre, unidad_medida, restaurante_id, activo)"
+      )
+      .eq("menu_id", id)
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+
+    return res.status(200).json({
+      success: true,
+      data: data || [],
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Error al obtener consumos del menú",
+    });
+  }
+};
+
+export const updateMenuConsumos = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { consumos } = req.body as { consumos?: MenuConsumoInput[] };
+
+  try {
+    const menuAccess = await getMenuWithAccess(req, id);
+    if (!menuAccess.ok) {
+      return res.status(menuAccess.status).json({
+        success: false,
+        message: menuAccess.message,
+      });
+    }
+
+    if (!Array.isArray(consumos)) {
+      return res.status(400).json({
+        success: false,
+        message: "Debes enviar consumos como un array",
+      });
+    }
+
+    const invalid = consumos.find(
+      (c) =>
+        !c?.inventario_id ||
+        Number.isNaN(Number(c.cantidad)) ||
+        Number(c.cantidad) <= 0
+    );
+    if (invalid) {
+      return res.status(400).json({
+        success: false,
+        message: "Cada consumo requiere inventario_id y cantidad > 0",
+      });
+    }
+
+    const inventarioIds = [...new Set(consumos.map((c) => c.inventario_id))];
+    if (inventarioIds.length > 0) {
+      const { data: inventarioRows, error: inventarioError } = await menuAccess.client
+        .from("inventario")
+        .select("id, restaurante_id, activo")
+        .in("id", inventarioIds);
+
+      if (inventarioError) throw inventarioError;
+      if ((inventarioRows || []).length !== inventarioIds.length) {
+        return res.status(400).json({
+          success: false,
+          message: "Uno o más productos de inventario no existen",
+        });
+      }
+
+      const fueraDeRestaurante = (inventarioRows || []).find(
+        (row: any) => row.restaurante_id !== menuAccess.menu.restaurante_id
+      );
+      if (fueraDeRestaurante) {
+        return res.status(400).json({
+          success: false,
+          message: "Todos los productos deben pertenecer al mismo restaurante del menú",
+        });
+      }
+    }
+
+    const { error: deleteError } = await menuAccess.client
+      .from("menu_inventario_consumos")
+      .delete()
+      .eq("menu_id", id);
+    if (deleteError) throw deleteError;
+
+    if (consumos.length > 0) {
+      const rows = consumos.map((c) => ({
+        menu_id: id,
+        inventario_id: c.inventario_id,
+        cantidad: Number(c.cantidad),
+      }));
+
+      const { error: insertError } = await menuAccess.client
+        .from("menu_inventario_consumos")
+        .insert(rows);
+      if (insertError) throw insertError;
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Consumos de inventario actualizados",
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Error al actualizar consumos del menú",
+    });
   }
 };
