@@ -20,6 +20,7 @@ import notificacionesRoutes from "./routes/notificaciones";
 import invitacionesRoutes from "./routes/invitaciones";
 import descuentoRoutes from "./routes/descuentoRoutes";
 import reportesRoutes from "./routes/reportes";
+import cocinaRoutes from "./routes/cocina";
 
 // Initialize express
 const app = express();
@@ -116,6 +117,7 @@ app.use("/api/notificaciones", notificacionesRoutes);
 app.use("/api/invitaciones", invitacionesRoutes);
 app.use("/api/descuentos", descuentoRoutes);
 app.use("/api/reportes", reportesRoutes);
+app.use("/api/cocina", cocinaRoutes);
 
 // Error handling middleware (debe ir después de todas las rutas)
 app.use((err: any, req: Request, res: Response, next: any) => {

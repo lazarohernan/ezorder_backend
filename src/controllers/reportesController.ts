@@ -3,6 +3,7 @@ import { supabase, supabaseAdmin } from "../supabase/supabase";
 
 type TipoReporte =
   | "contable_mensual"
+  | "ventas_reporte"
   | "ventas_periodo"
   | "gastos_categoria"
   | "inventario_movimientos"
@@ -92,6 +93,25 @@ const buildVentasPorMetodo = (
     },
     { efectivo: 0, pos: 0, transferencia: 0, otros: 0 }
   );
+
+const buildVentasPorMetodoDetallado = (
+  pedidos: Array<{ metodo_pago_id?: number | null; total: number | null }>
+) => {
+  const map: Record<string, { metodo: string; pedidos: number; total: number }> = {
+    efectivo: { metodo: "Efectivo", pedidos: 0, total: 0 },
+    pos: { metodo: "Tarjeta", pedidos: 0, total: 0 },
+    transferencia: { metodo: "Transferencia", pedidos: 0, total: 0 },
+    otros: { metodo: "Otros", pedidos: 0, total: 0 },
+  };
+  for (const p of pedidos) {
+    const total = Number(p.total || 0);
+    if (p.metodo_pago_id === 1) { map.efectivo.pedidos++; map.efectivo.total += total; }
+    else if (p.metodo_pago_id === 2) { map.pos.pedidos++; map.pos.total += total; }
+    else if (p.metodo_pago_id === 3) { map.transferencia.pedidos++; map.transferencia.total += total; }
+    else { map.otros.pedidos++; map.otros.total += total; }
+  }
+  return Object.values(map).filter((m) => m.pedidos > 0);
+};
 
 const buildGastosPorCategoria = (
   gastos: Array<{ categoria?: string | null; monto: number | null }>
@@ -186,6 +206,7 @@ export const previewReporte = async (req: Request, res: Response) => {
     if (
       ![
         "contable_mensual",
+        "ventas_reporte",
         "ventas_periodo",
         "gastos_categoria",
         "inventario_movimientos",
@@ -236,7 +257,7 @@ export const previewReporte = async (req: Request, res: Response) => {
 
     const { data: pedidosData, error: pedidosError } = await client
       .from("pedidos")
-      .select("id, restaurante_id, total, metodo_pago_id, created_at, estado_pedido, pagado")
+      .select("id, restaurante_id, total, subtotal, impuesto, descuento, metodo_pago_id, created_at, estado_pedido, pagado")
       .in("restaurante_id", restaurantesScope)
       .gte("created_at", from)
       .lte("created_at", to);
@@ -244,7 +265,7 @@ export const previewReporte = async (req: Request, res: Response) => {
 
     const { data: gastosData, error: gastosError } = await client
       .from("gastos")
-      .select("id, restaurante_id, categoria, descripcion, monto, fecha_gasto")
+      .select("id, restaurante_id, categoria, descripcion, monto, fecha_gasto, tipo_gasto")
       .in("restaurante_id", restaurantesScope)
       .gte("fecha_gasto", fechaInicioOk)
       .lte("fecha_gasto", fechaFinOk);
@@ -364,6 +385,7 @@ export const previewReporte = async (req: Request, res: Response) => {
         descripcion: (g.descripcion || "Sin descripción").trim(),
         categoria: (g.categoria || "Sin categoría").trim(),
         monto: Number(g.monto || 0),
+        tipo_gasto: (g.tipo_gasto || "variable") as "variable" | "fijo",
       }));
 
       return res.status(200).json({
@@ -423,6 +445,84 @@ export const previewReporte = async (req: Request, res: Response) => {
             diario,
             ventasPorMetodo,
             topProductos,
+          },
+        },
+      });
+    }
+
+    if (tipo === "ventas_reporte") {
+      const restaurantesDetalle = restaurantesScope.map((id) => {
+        const pedidosRest = pedidosValidos.filter(
+          (p: { restaurante_id: string }) => p.restaurante_id === id
+        );
+
+        const totalVentasRest = pedidosRest.reduce(
+          (sum: number, p: { total: number | null }) => sum + Number(p.total || 0), 0
+        );
+        const subtotalRest = pedidosRest.reduce(
+          (sum: number, p: { subtotal?: number | null }) => sum + Number(p.subtotal || 0), 0
+        );
+        const impuestoRest = pedidosRest.reduce(
+          (sum: number, p: { impuesto?: number | null }) => sum + Number(p.impuesto || 0), 0
+        );
+        const descuentoRest = pedidosRest.reduce(
+          (sum: number, p: { descuento?: number | null }) => sum + Number(p.descuento || 0), 0
+        );
+        const ticketPromedioRest = pedidosRest.length
+          ? totalVentasRest / pedidosRest.length
+          : 0;
+
+        const ventasPorMetodoRest = buildVentasPorMetodoDetallado(
+          pedidosRest as Array<{ metodo_pago_id?: number | null; total: number | null }>
+        );
+
+        const productosRest = Object.values(
+          pedidoItemsData.reduce(
+            (
+              acc: Record<string, { nombre_menu: string; cantidad: number; total_vendido: number }>,
+              item
+            ) => {
+              const restId = pedidoRestaurantMap.get(item.pedido_id);
+              if (restId !== id) return acc;
+              const key = item.nombre_menu || "Sin nombre";
+              if (!acc[key]) acc[key] = { nombre_menu: key, cantidad: 0, total_vendido: 0 };
+              acc[key].cantidad += Number(item.cantidad || 0);
+              acc[key].total_vendido += Number(item.total_item || 0);
+              return acc;
+            },
+            {}
+          )
+        ).sort((a, b) => b.total_vendido - a.total_vendido);
+
+        return {
+          restaurante_id: id,
+          restaurante_nombre: restaurantesMap.get(id) || "Restaurante",
+          pedidos: pedidosRest.length,
+          totalVentas: totalVentasRest,
+          subtotal: subtotalRest,
+          impuesto: impuestoRest,
+          descuento: descuentoRest,
+          ticketPromedio: ticketPromedioRest,
+          ventasPorMetodo: ventasPorMetodoRest,
+          productos: productosRest,
+        };
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          tipo,
+          rango: { fechaInicio: fechaInicioOk, fechaFin: fechaFinOk },
+          restaurantes: restaurantesScope.map((id) => ({
+            id,
+            nombre: restaurantesMap.get(id) || "Restaurante",
+          })),
+          resumen: {
+            totalVentas: ventasTotal,
+            totalPedidos: pedidosValidos.length,
+          },
+          detalle: {
+            restaurantes: restaurantesDetalle,
           },
         },
       });
