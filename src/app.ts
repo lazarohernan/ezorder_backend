@@ -38,6 +38,8 @@ const corsOptions = {
     "https://ezorder-frontal.vercel.app",
     "https://ezorder.vercel.app",
     "https://d3239g075g7j2i.cloudfront.net",
+    "https://chickfryend.com",
+    "https://www.chickfryend.com",
     /\.vercel\.app$/, // Permitir todos los subdominios de vercel.app
     /^https:\/\/ezorder-frontal-.+\.vercel\.app$/, // Permitir previews específicas de ezorder-frontal
   ], // Orígenes permitidos (URL del frontend de Vue)
