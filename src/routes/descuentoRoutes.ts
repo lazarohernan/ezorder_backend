@@ -15,14 +15,14 @@ const router = express.Router();
 // Todas las rutas de descuentos requieren autenticación
 router.use(requireAuth);
 
-// Obtener todos los descuentos (cualquier usuario autenticado puede ver)
-router.get("/", getDescuentos);
+// Obtener todos los descuentos
+router.get("/", requirePermissions(['descuentos.ver']), getDescuentos);
 
-// Obtener solo descuentos activos (cualquier usuario autenticado puede ver)
-router.get("/activos", getDescuentosActivos);
+// Obtener solo descuentos activos (pedidos.crear necesita ver descuentos disponibles)
+router.get("/activos", requirePermissions(['descuentos.ver', 'pedidos.crear']), getDescuentosActivos);
 
-// Obtener un descuento por ID (cualquier usuario autenticado puede ver)
-router.get("/:id", getDescuentoById);
+// Obtener un descuento por ID
+router.get("/:id", requirePermissions(['descuentos.ver']), getDescuentoById);
 
 // Crear un nuevo descuento (requiere permisos de descuentos)
 router.post("/", requirePermissions(['descuentos.crear']), createDescuento);

@@ -8,6 +8,7 @@ import {
   checkRefreshToken,
   getUserInfo,
   updatePassword,
+  sendPasswordReset,
 } from "../controllers/authController";
 import { requireAuth } from "../middlewares/auth";
 
@@ -61,6 +62,13 @@ router.post("/check-refresh", checkRefreshToken);
  * @access  Privado (requiere autenticación)
  */
 router.get("/user-info", requireAuth, getUserInfo);
+
+/**
+ * @route   POST /api/auth/recover
+ * @desc    Enviar email de recuperación de contraseña
+ * @access  Público
+ */
+router.post("/recover", sendPasswordReset);
 
 /**
  * @route   POST /api/auth/update-password

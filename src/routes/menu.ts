@@ -17,14 +17,14 @@ const router = express.Router();
 // Todas las rutas de menú requieren autenticación
 router.use(requireAuth);
 
-// Ruta para obtener todos los menús
-router.get("/", requirePermissions(['menu.ver']), getMenus);
+// Ruta para obtener todos los menús (pedidos.crear necesita leer el menú)
+router.get("/", requirePermissions(['menu.ver', 'pedidos.crear']), getMenus);
 
 // Ruta para obtener menús por restaurante
-router.get("/restaurante/:restaurante_id", requirePermissions(['menu.ver']), getMenusByRestauranteId);
+router.get("/restaurante/:restaurante_id", requirePermissions(['menu.ver', 'pedidos.crear']), getMenusByRestauranteId);
 
 // Ruta para obtener un menú por su ID
-router.get("/:id", requirePermissions(['menu.ver']), getMenuById);
+router.get("/:id", requirePermissions(['menu.ver', 'pedidos.crear']), getMenuById);
 
 // Rutas de sincronización menú -> inventario
 router.get("/:id/consumos", requirePermissions(['menu.ver']), getMenuConsumos);

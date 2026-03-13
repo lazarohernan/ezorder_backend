@@ -12,7 +12,7 @@ const router = Router();
 
 router.use(requireAuth);
 
-router.get("/", requirePermissions(['categorias.ver']), getMenuCategories);
+router.get("/", requirePermissions(['categorias.ver', 'pedidos.crear']), getMenuCategories);
 router.post("/", requirePermissions(['categorias.crear']), createMenuCategory);
 router.put("/:id", requirePermissions(['categorias.editar']), updateMenuCategory);
 router.delete("/:id", requirePermissions(['categorias.eliminar']), deleteMenuCategory);

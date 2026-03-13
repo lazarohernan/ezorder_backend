@@ -17,8 +17,8 @@ router.use(requireAuth);
 // Ruta para obtener todos los restaurantes
 router.get("/", requirePermissions(['restaurantes.ver']), getRestaurantes);
 
-// Ruta para obtener un restaurante por su ID
-router.get("/:id", requirePermissions(['restaurantes.ver']), getRestauranteById);
+// Ruta para obtener un restaurante por su ID (permite acceso al propio restaurante)
+router.get("/:id", getRestauranteById);
 
 // Ruta para crear un nuevo restaurante
 router.post("/", requirePermissions(['restaurantes.crear']), createRestaurante);

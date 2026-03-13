@@ -49,35 +49,15 @@ const enrichGastosWithRelatedData = async <T extends GastoRecord>(
     }
   }
 
-  // Obtener métodos de pago
-  const metodoPagoIds = Array.from(
-    new Set(
-      gastos
-        .map((gasto) => gasto.metodo_pago_id)
-        .filter((id): id is number => Boolean(id))
-    )
+  // Métodos de pago como constantes (no requiere consulta a BD)
+  const METODOS_PAGO: Record<number, string> = {
+    1: 'Efectivo',
+    2: 'Tarjeta/POS',
+    3: 'Transferencia',
+  };
+  const metodosMap = new Map<number, string | null>(
+    Object.entries(METODOS_PAGO).map(([id, metodo]) => [Number(id), metodo])
   );
-
-  let metodosMap = new Map<number, string | null>();
-
-  if (metodoPagoIds.length) {
-    const metodoClient = supabaseAdmin || supabase;
-    const { data: metodos, error } = await metodoClient
-      .from('metodos_de_pago')
-      .select('id, metodo')
-      .in('id', metodoPagoIds);
-
-    if (error) {
-      console.error('Error fetching metodo pago info for gastos:', error);
-    } else {
-      metodosMap = new Map<number, string | null>(
-        (metodos || []).map((metodo: { id: number; metodo: string | null }) => [
-          metodo.id,
-          metodo.metodo ?? null
-        ])
-      );
-    }
-  }
 
   return gastos.map((gasto) => ({
     ...gasto,

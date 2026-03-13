@@ -33,8 +33,8 @@ router.get('/open', requirePermissions(['caja.ver']), requireSuperAdmin, cajaCon
 // Rutas específicas por restaurante (para usuarios normales)
 router.get('/restaurante/:restaurante_id', requirePermissions(['caja.ver']), cajaController.getCajas);
 
-// Obtener caja actual (abierta) de un restaurante
-router.get('/restaurante/:restaurante_id/actual', requirePermissions(['caja.ver']), cajaController.getCajaActual);
+// Obtener caja actual (abierta) de un restaurante (pedidos.crear/ver necesita verificar caja)
+router.get('/restaurante/:restaurante_id/actual', requirePermissions(['caja.ver', 'pedidos.crear', 'pedidos.ver']), cajaController.getCajaActual);
 
 // Obtener resumen de caja del día
 router.get('/restaurante/:restaurante_id/resumen', requirePermissions(['caja.ver']), cajaController.getResumenCaja);

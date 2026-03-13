@@ -8,21 +8,21 @@ import {
   deleteRol,
 } from "../controllers/rolesController";
 import { requireAuth } from "../middlewares/auth";
-import { requireSuperAdmin } from "../middlewares/permissions";
+import { requirePermissions } from "../middlewares/permissions";
 
 const router = express.Router();
 
 // Todas las rutas requieren autenticación
 router.use(requireAuth);
 
-// Obtener permisos disponibles (Admin Tradicional y Super Admin)
-router.get("/permisos", getPermisos);
+// Obtener permisos disponibles
+router.get("/permisos", requirePermissions(["roles.ver"]), getPermisos);
 
-// Rutas de roles personalizados (Admin Tradicional y Super Admin)
-router.get("/", getRoles);
-router.get("/:id", getRolById);
-router.post("/", requireSuperAdmin, createRol);
-router.put("/:id", requireSuperAdmin, updateRol);
-router.delete("/:id", requireSuperAdmin, deleteRol);
+// Rutas de roles personalizados
+router.get("/", requirePermissions(["roles.ver"]), getRoles);
+router.get("/:id", requirePermissions(["roles.ver"]), getRolById);
+router.post("/", requirePermissions(["roles.crear"]), createRol);
+router.put("/:id", requirePermissions(["roles.editar"]), updateRol);
+router.delete("/:id", requirePermissions(["roles.eliminar"]), deleteRol);
 
 export default router;

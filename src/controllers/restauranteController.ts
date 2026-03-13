@@ -117,6 +117,19 @@ export const getRestauranteById = async (req: Request, res: Response) => {
       return;
     }
 
+    // Permitir acceso a su propio restaurante sin permiso especial
+    const esSuperAdmin = req.user_info?.rol_id === 1 || req.user_info?.es_super_admin;
+    const esAdmin = req.user_info?.rol_id === 2;
+    const esPropio = req.user_info?.restaurante_id === id;
+
+    if (!esPropio && !esSuperAdmin && !esAdmin) {
+      res.status(403).json({
+        success: false,
+        message: "No tienes permiso para ver este restaurante",
+      });
+      return;
+    }
+
     console.log(`Usuario ${req.user?.id} solicitó el restaurante ${id}`);
 
     const { data, error } = await supabaseAdmin

@@ -146,13 +146,68 @@ export const login = async (req: Request, res: Response) => {
         const base64Url = data.session.access_token.split('.')[1];
         const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
         const jsonPayload = Buffer.from(base64, 'base64').toString('utf-8');
-        
+
         const decoded = JSON.parse(jsonPayload);
         permisos = decoded.user_permissions || [];
         isSuperAdmin = decoded.is_super_admin || false;
         rolNombre = decoded.rol_nombre || '';
       } catch (decodeError) {
         console.warn('Error al decodificar JWT en login:', decodeError);
+      }
+    }
+
+    // Fallback: si el JWT no tiene permisos, obtenerlos de la base de datos
+    if (permisos.length === 0 && userInfo) {
+      try {
+        if (userInfo.rol_personalizado_id) {
+          const permClient = supabaseAdmin || supabase;
+          const { data: permisosData, error: permisosError } = await permClient
+            .rpc('get_permisos_by_rol', { rol_id_param: userInfo.rol_personalizado_id });
+
+          if (!permisosError && permisosData) {
+            permisos = permisosData.map((item: any) => item.nombre);
+          }
+
+          const rolClient = supabaseAdmin || supabase;
+          const { data: rolData, error: rolError } = await rolClient
+            .from('roles_personalizados')
+            .select('nombre, es_super_admin')
+            .eq('id', userInfo.rol_personalizado_id)
+            .single();
+
+          if (!rolError && rolData) {
+            rolNombre = rolData.nombre;
+            isSuperAdmin = rolData.es_super_admin;
+          }
+        } else if (userInfo.rol_id) {
+          if (userInfo.rol_id === 1) {
+            permisos = ['*'];
+            rolNombre = 'Super Administrador';
+            isSuperAdmin = true;
+          } else if (userInfo.rol_id === 2) {
+            permisos = [
+              'usuarios.ver', 'usuarios.crear', 'usuarios.editar', 'usuarios.eliminar',
+              'restaurantes.ver', 'restaurantes.crear', 'restaurantes.editar', 'restaurantes.eliminar',
+              'roles.ver', 'roles.crear', 'roles.editar', 'roles.eliminar',
+              'menu.ver', 'menu.crear', 'menu.editar', 'menu.eliminar',
+              'pedidos.ver', 'pedidos.crear', 'pedidos.editar', 'pedidos.cambiar_estado', 'pedidos.eliminar',
+              'inventario.ver', 'inventario.crear', 'inventario.editar', 'inventario.eliminar',
+              'caja.ver', 'caja.abrir', 'caja.cerrar', 'caja.registrar_ingresos', 'caja.registrar_egresos',
+              'reportes.ver', 'reportes.generar',
+              'notificaciones.ver', 'notificaciones.enviar'
+            ];
+            rolNombre = 'Administrador';
+          } else if (userInfo.rol_id === 3) {
+            permisos = [
+              'pedidos.ver', 'pedidos.crear', 'pedidos.editar',
+              'caja.ver', 'caja.abrir', 'caja.cerrar', 'caja.registrar_ingresos',
+              'menu.ver'
+            ];
+            rolNombre = 'Cajero';
+          }
+        }
+      } catch (dbError) {
+        console.warn('Error al obtener permisos de la BD en login:', dbError);
       }
     }
 
@@ -643,6 +698,55 @@ export const getUserInfo = async (req: Request, res: Response) => {
     res.status(500).json({
       ok: false,
       message: "Error en el servidor al obtener información del usuario",
+    });
+    return;
+  }
+};
+
+/**
+ * Enviar email de recuperación de contraseña
+ */
+export const sendPasswordReset = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      res.status(400).json({
+        ok: false,
+        message: "El email es obligatorio",
+      });
+      return;
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+
+    if (!supabaseAdmin) {
+      res.status(500).json({
+        ok: false,
+        message: "Error de configuración del servidor",
+      });
+      return;
+    }
+
+    const { error } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
+      redirectTo: `${frontendUrl}/auth/callback`,
+    });
+
+    if (error) {
+      console.error("Error al enviar email de recuperación:", error.message);
+    }
+
+    // Respuesta genérica siempre (no revelar si el email existe)
+    res.status(200).json({
+      ok: true,
+      message: "Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.",
+    });
+    return;
+  } catch (error) {
+    console.error("Error en recuperación de contraseña:", error);
+    res.status(500).json({
+      ok: false,
+      message: "Error en el servidor al procesar la solicitud",
     });
     return;
   }
