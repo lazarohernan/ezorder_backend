@@ -22,11 +22,6 @@ export const requirePermissions = (requiredPermissions: string[]) => {
         return next();
       }
 
-      // Si el usuario tiene restaurante asignado y solo quiere VER restaurantes, permitir
-      if (req.user_info.restaurante_id && requiredPermissions.includes('restaurantes.ver')) {
-        return next();
-      }
-
       const rolPersonalizadoId = req.user_info.rol_personalizado_id;
       if (!rolPersonalizadoId) {
         return res.status(403).json({
@@ -56,11 +51,6 @@ export const requirePermissions = (requiredPermissions: string[]) => {
       }
 
       const permissionNames = userPermissions.map((rp: any) => rp.permisos.nombre);
-
-      if ((requiredPermissions.includes('restaurantes.ver') || requiredPermissions.includes('categorias.ver')) 
-          && permissionNames.some(p => p.startsWith('menu.'))) {
-        return next();
-      }
 
       const hasPermission = requiredPermissions.some(permission => {
         if (permissionNames.includes('*')) return true;

@@ -12,7 +12,6 @@ import menuCategoriesRoutes from "./routes/menuCategories";
 import clientesRoutes from "./routes/clientes";
 import pedidosRoutes from "./routes/pedidos";
 import pedidoItemsRoutes from "./routes/pedidoItems";
-import metodoPagoRoutes from "./routes/metodoPagoRoutes";
 import inventarioRoutes from "./routes/inventario";
 import cajaRoutes from "./routes/caja";
 import gastosRoutes from "./routes/gastos";
@@ -21,6 +20,7 @@ import invitacionesRoutes from "./routes/invitaciones";
 import descuentoRoutes from "./routes/descuentoRoutes";
 import reportesRoutes from "./routes/reportes";
 import cocinaRoutes from "./routes/cocina";
+import facturacionRoutes from "./routes/facturacion";
 
 // Initialize express
 const app = express();
@@ -111,7 +111,6 @@ app.use("/api/menu", menuRoutes);
 app.use("/api/clientes", clientesRoutes);
 app.use("/api/pedidos", pedidosRoutes);
 app.use("/api/pedido-items", pedidoItemsRoutes);
-app.use("/api/metodos-pago", metodoPagoRoutes);
 app.use("/api/inventario", inventarioRoutes);
 app.use("/api/caja", cajaRoutes);
 app.use("/api/gastos", gastosRoutes);
@@ -120,6 +119,7 @@ app.use("/api/invitaciones", invitacionesRoutes);
 app.use("/api/descuentos", descuentoRoutes);
 app.use("/api/reportes", reportesRoutes);
 app.use("/api/cocina", cocinaRoutes);
+app.use("/api/facturacion", facturacionRoutes);
 
 // Error handling middleware (debe ir después de todas las rutas)
 app.use((err: any, req: Request, res: Response, next: any) => {
