@@ -728,18 +728,46 @@ export const sendPasswordReset = async (req: Request, res: Response) => {
       return;
     }
 
+    // Verificar si el email existe en el sistema antes de enviar
+    const { data: usersData, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+
+    if (listError) {
+      console.error("Error al verificar usuario:", listError.message);
+      res.status(500).json({
+        ok: false,
+        message: "Error al procesar la solicitud",
+      });
+      return;
+    }
+
+    const userExists = usersData.users.some(
+      (u) => u.email?.toLowerCase() === email.toLowerCase()
+    );
+
+    if (!userExists) {
+      res.status(404).json({
+        ok: false,
+        message: "No existe una cuenta registrada con este correo electrónico.",
+      });
+      return;
+    }
+
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
       redirectTo: `${frontendUrl}/auth/callback`,
     });
 
     if (error) {
       console.error("Error al enviar email de recuperación:", error.message);
+      res.status(500).json({
+        ok: false,
+        message: "Error al enviar el correo de recuperación",
+      });
+      return;
     }
 
-    // Respuesta genérica siempre (no revelar si el email existe)
     res.status(200).json({
       ok: true,
-      message: "Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.",
+      message: "Se ha enviado un enlace de recuperación a tu correo electrónico.",
     });
     return;
   } catch (error) {
