@@ -6,7 +6,7 @@ export const obtenerUnidadesMedida = async (req: Request, res: Response) => {
   if (!req.user_info) return res.status(403).json({ ok: false, message: 'No autorizado' });
 
   try {
-    const client = supabaseAdmin;
+    const client = supabaseAdmin!;
     const restauranteId = req.user_info.restaurante_id;
 
     let query = client.from('unidades_medida').select('*').order('nombre');
@@ -34,7 +34,7 @@ export const crearUnidadMedida = async (req: Request, res: Response) => {
   }
 
   try {
-    const client = supabaseAdmin;
+    const client = supabaseAdmin!;
     const nombreUpper = nombre.trim().toUpperCase();
 
     const { data, error } = await client
@@ -67,7 +67,7 @@ export const actualizarUnidadMedida = async (req: Request, res: Response) => {
   }
 
   try {
-    const client = supabaseAdmin;
+    const client = supabaseAdmin!;
     const nombreUpper = nombre.trim().toUpperCase();
 
     const { data, error } = await client
@@ -96,7 +96,7 @@ export const eliminarUnidadMedida = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
-    const client = supabaseAdmin;
+    const client = supabaseAdmin!;
     const { error } = await client.from('unidades_medida').delete().eq('id', id);
     if (error) throw error;
 
