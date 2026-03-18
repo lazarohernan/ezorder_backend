@@ -6,8 +6,8 @@ let proxy: ReturnType<typeof awsLambdaFastify> | null = null;
 const getProxy = async () => {
   if (!proxy) {
     const app = await buildApp();
-    await app.ready();
     proxy = awsLambdaFastify(app);
+    await app.ready();
   }
 
   return proxy;
