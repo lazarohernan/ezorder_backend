@@ -1,4 +1,4 @@
-import express, { Request, Response } from "express";
+import { Request, Response } from "express";
 import { supabase } from "../supabase/supabase";
 
 // Separate function to handle the database check
