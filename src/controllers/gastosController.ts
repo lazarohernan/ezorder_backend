@@ -214,7 +214,9 @@ export const gastosController = {
         monto,
         metodo_pago_id,
         proveedor,
-        tipo_gasto
+        tipo_gasto,
+        cantidad,
+        unidad_medida
       } = req.body;
 
       // Validaciones básicas
@@ -268,7 +270,9 @@ export const gastosController = {
           monto: Number(monto),
           metodo_pago_id: metodo_pago_id || null,
           proveedor: proveedor || null,
-          tipo_gasto: tipo_gasto || 'variable'
+          tipo_gasto: tipo_gasto || 'variable',
+          cantidad: cantidad != null ? Number(cantidad) : null,
+          unidad_medida: unidad_medida || null
         })
         .select('*')
         .single();
@@ -303,7 +307,9 @@ export const gastosController = {
         monto,
         metodo_pago_id,
         proveedor,
-        tipo_gasto
+        tipo_gasto,
+        cantidad,
+        unidad_medida
       } = req.body;
 
       if (monto !== undefined && Number(monto) <= 0) {
@@ -360,6 +366,8 @@ export const gastosController = {
       if (metodo_pago_id !== undefined) updateData.metodo_pago_id = metodo_pago_id;
       if (proveedor !== undefined) updateData.proveedor = proveedor;
       if (tipo_gasto !== undefined) updateData.tipo_gasto = tipo_gasto;
+      if (cantidad !== undefined) updateData.cantidad = cantidad != null ? Number(cantidad) : null;
+      if (unidad_medida !== undefined) updateData.unidad_medida = unidad_medida || null;
 
       const { data, error } = await client
         .from('gastos')
