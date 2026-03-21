@@ -6,18 +6,22 @@ type GastoRecord = {
   usuario_nombre?: string | null;
   metodo_pago_id?: number | null;
   metodo_pago?: string | null;
+  inventario_id?: string | null;
 };
 
 const enrichGastosWithRelatedData = async <T extends GastoRecord>(
   gastos: T[]
-): Promise<(T & { usuario_nombre: string | null; metodo_pago: string | null })[]> => {
+): Promise<(T & { usuario_nombre: string | null; metodo_pago: string | null; inventario_nombre: string | null })[]> => {
   if (!gastos.length) {
-    return gastos.map((gasto) => ({ 
-      ...gasto, 
+    return gastos.map((gasto) => ({
+      ...gasto,
       usuario_nombre: gasto.usuario_nombre ?? null,
-      metodo_pago: gasto.metodo_pago ?? null 
+      metodo_pago: gasto.metodo_pago ?? null,
+      inventario_nombre: null
     }));
   }
+
+  const client = supabaseAdmin || supabase;
 
   // Obtener nombres de usuarios
   const usuarioIds = Array.from(
@@ -31,7 +35,6 @@ const enrichGastosWithRelatedData = async <T extends GastoRecord>(
   let usuariosMap = new Map<string, string | null>();
 
   if (usuarioIds.length) {
-    const client = supabaseAdmin || supabase;
     const { data: usuariosData, error: usuariosError } = await client
       .from('usuarios_info')
       .select('id, nombre_usuario')
@@ -44,6 +47,35 @@ const enrichGastosWithRelatedData = async <T extends GastoRecord>(
         (usuariosData || []).map((usuario: { id: string; nombre_usuario: string | null }) => [
           usuario.id,
           usuario.nombre_usuario ?? null
+        ])
+      );
+    }
+  }
+
+  // Obtener nombres de inventario
+  const inventarioIds = Array.from(
+    new Set(
+      gastos
+        .map((gasto) => gasto.inventario_id)
+        .filter((id): id is string => Boolean(id))
+    )
+  );
+
+  let inventarioMap = new Map<string, string | null>();
+
+  if (inventarioIds.length) {
+    const { data: inventarioData, error: inventarioError } = await client
+      .from('inventario')
+      .select('id, nombre')
+      .in('id', inventarioIds);
+
+    if (inventarioError) {
+      console.error('Error fetching inventario info for gastos:', inventarioError);
+    } else {
+      inventarioMap = new Map<string, string | null>(
+        (inventarioData || []).map((inv: { id: string; nombre: string }) => [
+          inv.id,
+          inv.nombre
         ])
       );
     }
@@ -62,7 +94,8 @@ const enrichGastosWithRelatedData = async <T extends GastoRecord>(
   return gastos.map((gasto) => ({
     ...gasto,
     usuario_nombre: gasto.usuario_id ? usuariosMap.get(gasto.usuario_id) ?? null : null,
-    metodo_pago: gasto.metodo_pago_id ? metodosMap.get(gasto.metodo_pago_id) ?? null : null
+    metodo_pago: gasto.metodo_pago_id ? metodosMap.get(gasto.metodo_pago_id) ?? null : null,
+    inventario_nombre: gasto.inventario_id ? inventarioMap.get(gasto.inventario_id) ?? null : null
   }));
 };
 
@@ -216,18 +249,26 @@ export const gastosController = {
         proveedor,
         tipo_gasto,
         cantidad,
-        unidad_medida
+        unidad_medida,
+        inventario_id
       } = req.body;
 
       // Validaciones básicas
       if (!restaurante_id || !usuario_id || !categoria || !descripcion || !monto) {
-        return res.status(400).json({ 
-          error: 'Faltan campos obligatorios: restaurante_id, usuario_id, categoria, descripcion, monto' 
+        return res.status(400).json({
+          error: 'Faltan campos obligatorios: restaurante_id, usuario_id, categoria, descripcion, monto'
         });
       }
 
       if (Number(monto) <= 0) {
         return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+      }
+
+      // Si se vincula a inventario, la cantidad es obligatoria y > 0
+      if (inventario_id && (!cantidad || Number(cantidad) <= 0)) {
+        return res.status(400).json({
+          error: 'Cuando se vincula a un producto de inventario, la cantidad debe ser mayor a 0'
+        });
       }
 
       const client = supabaseAdmin || supabase;
@@ -244,17 +285,17 @@ export const gastosController = {
           .eq('usuario_id', req.user_info.id);
 
         const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-        
+
         if (!restaurantIds.includes(restaurante_id)) {
-          return res.status(403).json({ 
-            error: 'No tienes acceso a este restaurante' 
+          return res.status(403).json({
+            error: 'No tienes acceso a este restaurante'
           });
         }
       } else {
         // Usuarios normales solo pueden crear gastos en su restaurante
         if (req.user_info.restaurante_id !== restaurante_id) {
-          return res.status(403).json({ 
-            error: 'No puedes crear gastos para este restaurante' 
+          return res.status(403).json({
+            error: 'No puedes crear gastos para este restaurante'
           });
         }
       }
@@ -272,13 +313,64 @@ export const gastosController = {
           proveedor: proveedor || null,
           tipo_gasto: tipo_gasto || 'variable',
           cantidad: cantidad != null ? Number(cantidad) : null,
-          unidad_medida: unidad_medida || null
+          unidad_medida: unidad_medida || null,
+          inventario_id: inventario_id || null
         })
         .select('*')
         .single();
 
       if (error) {
         return res.status(400).json({ error: error.message });
+      }
+
+      // Crear movimiento automático de inventario si se vinculó a un producto
+      if (data && inventario_id && cantidad && Number(cantidad) > 0) {
+        try {
+          const { data: invItem, error: invError } = await client
+            .from('inventario')
+            .select('id, nombre, restaurante_id')
+            .eq('id', inventario_id)
+            .single();
+
+          if (invItem && !invError && invItem.restaurante_id === restaurante_id) {
+            const cantidadNum = Number(cantidad);
+
+            // Crear movimiento de entrada
+            await client
+              .from('movimientos_inventario')
+              .insert({
+                inventario_id,
+                tipo_movimiento: 'entrada',
+                cantidad: cantidadNum,
+                motivo: `Compra de proveedor - Gasto${proveedor ? ` (${proveedor})` : ''}`,
+                referencia: data.id,
+                usuario_id: req.user_info!.id,
+              });
+
+            // Desglose automático si el producto tiene reglas
+            const { data: reglas } = await client
+              .from('inventario_desglose')
+              .select('componente_id, cantidad')
+              .eq('producto_id', inventario_id);
+
+            if (reglas && reglas.length > 0) {
+              for (const regla of reglas) {
+                await client
+                  .from('movimientos_inventario')
+                  .insert({
+                    inventario_id: regla.componente_id,
+                    tipo_movimiento: 'entrada',
+                    cantidad: cantidadNum * regla.cantidad,
+                    motivo: `Desglose automático de ${invItem.nombre} (×${cantidadNum}) - Gasto`,
+                    referencia: data.id,
+                    usuario_id: req.user_info!.id,
+                  });
+              }
+            }
+          }
+        } catch (invMovError) {
+          console.error('Error creating automatic inventory movement from gasto:', invMovError);
+        }
       }
 
       const [dataWithRelations] = await enrichGastosWithRelatedData(data ? [data] : []);
@@ -309,7 +401,8 @@ export const gastosController = {
         proveedor,
         tipo_gasto,
         cantidad,
-        unidad_medida
+        unidad_medida,
+        inventario_id
       } = req.body;
 
       if (monto !== undefined && Number(monto) <= 0) {
@@ -321,7 +414,7 @@ export const gastosController = {
       // Primero obtener el gasto para verificar permisos
       const { data: gastoExistente, error: errorBuscar } = await client
         .from('gastos')
-        .select('id, restaurante_id')
+        .select('id, restaurante_id, inventario_id')
         .eq('id', id)
         .single();
 
@@ -358,6 +451,13 @@ export const gastosController = {
         }
       }
 
+      // No permitir cambiar inventario_id si ya tiene uno vinculado (evita movimientos huérfanos)
+      if (inventario_id !== undefined && gastoExistente.inventario_id && inventario_id !== gastoExistente.inventario_id) {
+        return res.status(400).json({
+          error: 'No se puede cambiar el producto de inventario vinculado. Elimine el gasto y cree uno nuevo.'
+        });
+      }
+
       const updateData: any = {};
       if (fecha_gasto !== undefined) updateData.fecha_gasto = fecha_gasto;
       if (categoria !== undefined) updateData.categoria = categoria;
@@ -368,6 +468,7 @@ export const gastosController = {
       if (tipo_gasto !== undefined) updateData.tipo_gasto = tipo_gasto;
       if (cantidad !== undefined) updateData.cantidad = cantidad != null ? Number(cantidad) : null;
       if (unidad_medida !== undefined) updateData.unidad_medida = unidad_medida || null;
+      if (inventario_id !== undefined) updateData.inventario_id = inventario_id || null;
 
       const { data, error } = await client
         .from('gastos')
@@ -402,16 +503,16 @@ export const gastosController = {
 
       const client = supabaseAdmin || supabase;
 
-      // Primero obtener el gasto para verificar permisos
+      // Primero obtener el gasto para verificar permisos y datos de inventario
       const { data: gastoExistente, error: errorBuscar } = await client
         .from('gastos')
-        .select('id, restaurante_id')
+        .select('id, restaurante_id, inventario_id, cantidad')
         .eq('id', id)
         .single();
 
       if (errorBuscar || !gastoExistente) {
-        return res.status(404).json({ 
-          error: 'Gasto no encontrado' 
+        return res.status(404).json({
+          error: 'Gasto no encontrado'
         });
       }
 
@@ -427,18 +528,60 @@ export const gastosController = {
           .eq('usuario_id', req.user_info.id);
 
         const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-        
+
         if (!restaurantIds.includes(gastoExistente.restaurante_id)) {
-          return res.status(403).json({ 
-            error: 'No tienes acceso a este gasto' 
+          return res.status(403).json({
+            error: 'No tienes acceso a este gasto'
           });
         }
       } else {
         // Usuarios normales solo pueden eliminar gastos de su restaurante
         if (req.user_info.restaurante_id !== gastoExistente.restaurante_id) {
-          return res.status(403).json({ 
-            error: 'No tienes acceso a este gasto' 
+          return res.status(403).json({
+            error: 'No tienes acceso a este gasto'
           });
+        }
+      }
+
+      // Revertir movimiento de inventario si el gasto estaba vinculado
+      if (gastoExistente.inventario_id && gastoExistente.cantidad && Number(gastoExistente.cantidad) > 0) {
+        try {
+          const cantidadNum = Number(gastoExistente.cantidad);
+
+          // Crear movimiento de salida para revertir la entrada original
+          await client
+            .from('movimientos_inventario')
+            .insert({
+              inventario_id: gastoExistente.inventario_id,
+              tipo_movimiento: 'salida',
+              cantidad: cantidadNum,
+              motivo: `Reversión por eliminación de gasto`,
+              referencia: gastoExistente.id,
+              usuario_id: req.user_info!.id,
+            });
+
+          // Revertir desglose automático si existía
+          const { data: reglas } = await client
+            .from('inventario_desglose')
+            .select('componente_id, cantidad')
+            .eq('producto_id', gastoExistente.inventario_id);
+
+          if (reglas && reglas.length > 0) {
+            for (const regla of reglas) {
+              await client
+                .from('movimientos_inventario')
+                .insert({
+                  inventario_id: regla.componente_id,
+                  tipo_movimiento: 'salida',
+                  cantidad: cantidadNum * regla.cantidad,
+                  motivo: `Reversión desglose por eliminación de gasto`,
+                  referencia: gastoExistente.id,
+                  usuario_id: req.user_info!.id,
+                });
+            }
+          }
+        } catch (invError) {
+          console.error('Error reverting inventory movement on gasto delete:', invError);
         }
       }
 
