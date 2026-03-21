@@ -445,9 +445,14 @@ export const createPedido = async (req: Request, res: Response) => {
 
     // Automatización de estado: si está pagado, cambiar a "en_preparacion"
     let estadoFinal = estado_pedido;
+    const ahora = new Date().toISOString();
+    let en_preparacion_at: string | null = null;
     if (pagado && estado_pedido === "pendiente") {
       estadoFinal = "en_preparacion";
+      en_preparacion_at = ahora;
       console.log("🔄 Pedido pagado, cambiando estado automáticamente a 'en_preparacion'");
+    } else if (estado_pedido === "en_preparacion") {
+      en_preparacion_at = ahora;
     }
 
     const pedidoParaInsertar = {
@@ -470,6 +475,7 @@ export const createPedido = async (req: Request, res: Response) => {
       importe_exento,
       importe_exonerado,
       numero_ticket: ticketFinal,
+      en_preparacion_at,
     };
 
     console.log("📝 Pedido a insertar:", JSON.stringify(pedidoParaInsertar, null, 2));
@@ -578,6 +584,18 @@ export const updatePedido = async (req: Request, res: Response) => {
         message: "No puedes cambiar el restaurante de un pedido",
       });
       return;
+    }
+
+    // Registrar timestamps automáticos en cambios de estado
+    if (updates.estado_pedido) {
+      const ahora = new Date().toISOString();
+      if (updates.estado_pedido === 'en_preparacion' && !updates.en_preparacion_at) {
+        updates.en_preparacion_at = ahora;
+      } else if (updates.estado_pedido === 'listo' && !updates.listo_at) {
+        updates.listo_at = ahora;
+      } else if (updates.estado_pedido === 'entregado' && !updates.entregado_at) {
+        updates.entregado_at = ahora;
+      }
     }
 
     console.log(`🔄 Actualizando pedido ${id} con:`, updates);

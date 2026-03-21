@@ -8,7 +8,8 @@ type TipoReporte =
   | "gastos_categoria"
   | "inventario_movimientos"
   | "caja_auditoria"
-  | "consolidado_ejecutivo";
+  | "consolidado_ejecutivo"
+  | "rendimiento_cocina";
 
 type PreviewRequestBody = {
   tipo?: TipoReporte;
@@ -212,6 +213,7 @@ export const previewReporte = async (req: Request, res: Response) => {
         "inventario_movimientos",
         "caja_auditoria",
         "consolidado_ejecutivo",
+        "rendimiento_cocina",
       ].includes(tipo)
     ) {
       return res.status(400).json({
@@ -740,6 +742,90 @@ export const previewReporte = async (req: Request, res: Response) => {
           resumen,
           detalle: {
             cajas,
+          },
+        },
+      });
+    }
+
+    if (tipo === "rendimiento_cocina") {
+      // Query pedidos con timestamps de cocina
+      const { data: pedidosCocina, error: cocinaError } = await client
+        .from("pedidos")
+        .select("id, numero_ticket, tipo_pedido, estado_pedido, created_at, en_preparacion_at, listo_at, entregado_at, mesa")
+        .in("restaurante_id", restaurantesScope)
+        .gte("created_at", from)
+        .lte("created_at", to)
+        .in("estado_pedido", ["en_preparacion", "listo", "entregado"])
+        .order("created_at", { ascending: false })
+        .limit(1000);
+      if (cocinaError) throw cocinaError;
+
+      const pedidosCocinaList = (pedidosCocina || []).map((p: any) => {
+        const creado = new Date(p.created_at).getTime();
+        const listoTime = p.listo_at ? new Date(p.listo_at).getTime() : null;
+        const entregadoTime = p.entregado_at ? new Date(p.entregado_at).getTime() : null;
+        const preparacionTime = p.en_preparacion_at ? new Date(p.en_preparacion_at).getTime() : null;
+
+        // Minutos de preparación: desde en_preparacion_at (o created_at) hasta listo_at
+        const inicioPrep = preparacionTime || creado;
+        const minPreparacion = listoTime ? Math.round((listoTime - inicioPrep) / 60000) : null;
+
+        // Minutos totales: desde created_at hasta entregado_at (o listo_at)
+        const finTotal = entregadoTime || listoTime;
+        const minTotal = finTotal ? Math.round((finTotal - creado) / 60000) : null;
+
+        return {
+          id: p.id,
+          ticket: p.numero_ticket,
+          tipo_pedido: p.tipo_pedido,
+          estado: p.estado_pedido,
+          mesa: p.mesa,
+          hora_entrada: p.created_at,
+          hora_preparacion: p.en_preparacion_at,
+          hora_listo: p.listo_at,
+          hora_entregado: p.entregado_at,
+          min_preparacion: minPreparacion,
+          min_total: minTotal,
+        };
+      });
+
+      // Calcular métricas
+      const conTiempo = pedidosCocinaList.filter((p: any) => p.min_preparacion !== null);
+      const tiempos = conTiempo.map((p: any) => p.min_preparacion as number);
+      const promedioPrep = tiempos.length ? tiempos.reduce((a: number, b: number) => a + b, 0) / tiempos.length : 0;
+      const maxPrep = tiempos.length ? Math.max(...tiempos) : 0;
+      const minPrep = tiempos.length ? Math.min(...tiempos) : 0;
+
+      // Distribución por velocidad
+      const rapidos = tiempos.filter((t: number) => t <= 10).length;
+      const normales = tiempos.filter((t: number) => t > 10 && t <= 20).length;
+      const lentos = tiempos.filter((t: number) => t > 20).length;
+      const totalConTiempo = tiempos.length || 1;
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          tipo,
+          rango: { fechaInicio: fechaInicioOk, fechaFin: fechaFinOk },
+          restaurantes: restaurantesScope.map((id) => ({
+            id,
+            nombre: restaurantesMap.get(id) || "Restaurante",
+          })),
+          resumen: {
+            totalPedidos: pedidosCocinaList.length,
+            pedidosConTiempo: conTiempo.length,
+            promedioMinutos: Math.round(promedioPrep * 10) / 10,
+            maxMinutos: maxPrep,
+            minMinutos: minPrep,
+            rapidos,
+            normales,
+            lentos,
+            pctRapidos: Math.round((rapidos / totalConTiempo) * 100),
+            pctNormales: Math.round((normales / totalConTiempo) * 100),
+            pctLentos: Math.round((lentos / totalConTiempo) * 100),
+          },
+          detalle: {
+            pedidos: pedidosCocinaList,
           },
         },
       });
