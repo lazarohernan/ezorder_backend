@@ -159,9 +159,22 @@ export const crearInventario = async (req: Request, res: Response) => {
       return res.status(403).json({ ok: false, message: 'No tienes acceso a este restaurante' });
     }
 
+    // Verificar que no exista un producto con el mismo nombre en el mismo restaurante
+    const { data: existente } = await client
+      .from('inventario')
+      .select('id')
+      .eq('restaurante_id', restaurante_id)
+      .ilike('nombre', nombre.trim())
+      .eq('activo', true)
+      .limit(1);
+
+    if (existente && existente.length > 0) {
+      return res.status(400).json({ ok: false, message: `Ya existe un producto llamado "${nombre}" en este restaurante` });
+    }
+
     const { data, error } = await client
       .from('inventario')
-      .insert({ nombre, descripcion, restaurante_id, stock_actual, stock_minimo, stock_maximo, unidad_medida: unidad_medida || null, costo_unitario: costo_unitario ?? 0, codigo_sku: codigo_sku || null, tiene_desglose: tiene_desglose ?? false })
+      .insert({ nombre: nombre.trim(), descripcion, restaurante_id, stock_actual, stock_minimo, stock_maximo, unidad_medida: unidad_medida || null, costo_unitario: costo_unitario ?? 0, codigo_sku: codigo_sku || null, tiene_desglose: tiene_desglose ?? false })
       .select('*')
       .single();
 
