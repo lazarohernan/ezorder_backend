@@ -3,6 +3,11 @@ import { supabase, supabaseAdmin } from '../supabase/supabase';
 import '../types/express'; // Importar tipos personalizados
 import notificacionesService from '../services/notificacionesService';
 import { getHondurasDate, getStartOfDayHonduras, getEndOfDayHonduras, toISOStringHonduras } from '../utils/dateUtils';
+import {
+  FILTRO_PEDIDOS_CUENTAN_CAJA,
+  sumarMontoGastosEfectivo,
+  calcularEfectivoEsperadoCaja,
+} from '../utils/cajaCuadre';
 
 type CajaRecord = {
   usuario_id?: string | null;
@@ -394,6 +399,7 @@ export const cajaController = {
             total_ingresos_dia: 0,
             total_egresos_dia: 0,
             total_gastos_dia: 0,
+            gastos_efectivo_dia: 0,
             gastos_dia: [],
             diferencia: 0
           }
@@ -403,18 +409,23 @@ export const cajaController = {
       // Usar el restaurante_id de la caja abierta para calcular ventas y gastos
       const restauranteIdCaja = cajaActualWithRestaurant.restaurante_id;
 
-      // Calcular fecha de inicio del día
-      const fechaInicio = fecha ? getStartOfDayHonduras(fecha as string) : getStartOfDayHonduras();
-      const fechaFin = getEndOfDayHonduras(fechaInicio);
+      // Ventas: desde la apertura de esta caja hasta ahora (sesión real), no solo el calendario “hoy”
+      const aperturaISO = cajaActualWithRestaurant.fecha_apertura;
+      const hastaISO = toISOStringHonduras(getHondurasDate());
+      // Gastos por fecha calendario: del día de apertura al día actual (HN), por si la sesión cruza medianoche
+      const diaGastosDesde = fecha
+        ? getStartOfDayHonduras(fecha as string)
+        : getStartOfDayHonduras(aperturaISO);
+      const diaGastosHasta = getEndOfDayHonduras(getHondurasDate());
 
-      // Obtener todas las ventas del día con método de pago (del restaurante de la caja abierta)
+      // Obtener ventas de la sesión con método de pago (del restaurante de la caja abierta)
       const { data: todasVentas, error: ventasError } = await client
         .from('pedidos')
         .select('total, metodo_pago_id')
         .eq('restaurante_id', restauranteIdCaja)
-        .eq('pagado', true)
-        .gte('created_at', toISOStringHonduras(fechaInicio))
-        .lte('created_at', toISOStringHonduras(fechaFin));
+        .or(FILTRO_PEDIDOS_CUENTAN_CAJA)
+        .gte('created_at', aperturaISO)
+        .lte('created_at', hastaISO);
 
       if (ventasError) {
         return res.status(400).json({ error: ventasError.message });
@@ -426,19 +437,20 @@ export const cajaController = {
       const ventasTransferencia = todasVentas?.filter(v => v.metodo_pago_id === 3).reduce((sum, v) => sum + Number(v.total), 0) || 0;
       const totalVentasDia = todasVentas?.reduce((sum, venta) => sum + Number(venta.total), 0) || 0;
 
-      // Obtener gastos del día (del restaurante de la caja abierta)
+      // Obtener gastos del rango de días de la sesión (del restaurante de la caja abierta)
       const { data: gastos, error: gastosError } = await client
         .from('gastos')
         .select('*')
         .eq('restaurante_id', restauranteIdCaja)
-        .gte('fecha_gasto', toISOStringHonduras(fechaInicio))
-        .lte('fecha_gasto', toISOStringHonduras(fechaFin));
+        .gte('fecha_gasto', toISOStringHonduras(diaGastosDesde))
+        .lte('fecha_gasto', toISOStringHonduras(diaGastosHasta));
 
       if (gastosError) {
         return res.status(400).json({ error: gastosError.message });
       }
 
       const totalGastosDia = gastos?.reduce((sum, gasto) => sum + Number(gasto.monto), 0) || 0;
+      const gastosEfectivoDia = sumarMontoGastosEfectivo(gastos || []);
 
       // Obtener retiros del día (de la caja abierta)
       let retirosDia: Array<{ id: string; nombre_responsable: string; hora_retiro: string; monto: number; observaciones?: string | null }> = [];
@@ -466,6 +478,7 @@ export const cajaController = {
         total_ingresos_dia: cajaActualWithRestaurant?.total_ingresos || 0,
         total_egresos_dia: cajaActualWithRestaurant?.total_egresos || 0,
         total_gastos_dia: totalGastosDia,
+        gastos_efectivo_dia: gastosEfectivoDia,
         gastos_dia: gastos || [],
         total_retiros_dia: totalRetirosDia,
         retiros_dia: retirosDia,
@@ -713,18 +726,20 @@ export const cajaController = {
         }
       }
 
-      // Calcular totales del día
-      const fechaInicio = getStartOfDayHonduras(cajaActual.fecha_apertura);
-      const fechaFin = getEndOfDayHonduras();
+      // Ventas de la sesión: desde apertura de caja hasta el cierre (ahora)
+      const sesionDesde = cajaActual.fecha_apertura;
+      const sesionHasta = toISOStringHonduras(getHondurasDate());
+      const diaGastosDesde = getStartOfDayHonduras(cajaActual.fecha_apertura);
+      const diaGastosHasta = getEndOfDayHonduras(getHondurasDate());
 
-      // Obtener ventas del día por método de pago
+      // Obtener ventas de la sesión por método de pago (mismo criterio que reportes de ventas)
       const { data: todasVentas, error: ventasError } = await client
         .from('pedidos')
         .select('total, metodo_pago_id')
         .eq('restaurante_id', cajaActual.restaurante_id)
-        .eq('pagado', true)
-        .gte('created_at', toISOStringHonduras(fechaInicio))
-        .lte('created_at', toISOStringHonduras(fechaFin));
+        .or(FILTRO_PEDIDOS_CUENTAN_CAJA)
+        .gte('created_at', sesionDesde)
+        .lte('created_at', sesionHasta);
 
       if (ventasError) {
         return res.status(400).json({ error: ventasError.message });
@@ -736,21 +751,20 @@ export const cajaController = {
       const ventasTransferencia = todasVentas?.filter(v => v.metodo_pago_id === 3).reduce((sum, v) => sum + Number(v.total), 0) || 0;
       const totalVentasDia = todasVentas?.reduce((sum, venta) => sum + Number(venta.total), 0) || 0;
 
-      // Obtener gastos del día (con método de pago para filtrar)
+      // Gastos del rango de calendario que cubre la sesión (con método de pago para efectivo en caja)
       const { data: gastos, error: gastosError } = await client
         .from('gastos')
         .select('monto, metodo_pago_id')
         .eq('restaurante_id', cajaActual.restaurante_id)
-        .gte('fecha_gasto', toISOStringHonduras(fechaInicio))
-        .lte('fecha_gasto', toISOStringHonduras(fechaFin));
+        .gte('fecha_gasto', toISOStringHonduras(diaGastosDesde))
+        .lte('fecha_gasto', toISOStringHonduras(diaGastosHasta));
 
       if (gastosError) {
         return res.status(400).json({ error: gastosError.message });
       }
 
       const totalGastos = gastos?.reduce((sum, gasto) => sum + Number(gasto.monto), 0) || 0;
-      // Solo gastos pagados en efectivo afectan el balance de caja física
-      const gastosEfectivo = gastos?.filter(g => g.metodo_pago_id === 1).reduce((sum, g) => sum + Number(g.monto), 0) || 0;
+      const gastosEfectivo = sumarMontoGastosEfectivo(gastos || []);
 
       // Obtener total de retiros de esta caja
       const totalRetiros = Number(cajaActual.total_retiros || 0);
@@ -759,7 +773,13 @@ export const cajaController = {
       // Solo se restan gastos en efectivo (no los pagados por POS/transferencia)
       const montoInicial = Number(cajaActual.monto_inicial);
       const ingresosAdicionales = Number(cajaActual.total_ingresos || 0);
-      const efectivoEsperado = montoInicial + ventasEfectivo + ingresosAdicionales - gastosEfectivo - totalRetiros;
+      const efectivoEsperado = calcularEfectivoEsperadoCaja({
+        montoInicial,
+        ventasEfectivo,
+        ingresosAdicionales,
+        gastosEfectivo,
+        totalRetiros,
+      });
       const efectivoReal = Number(monto_final);
 
       const parseReportado = (valor: unknown): number | null => {
