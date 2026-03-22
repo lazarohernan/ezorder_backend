@@ -305,9 +305,9 @@ export const createUsuario = async (req: Request, res: Response) => {
 
 export const updateUsuario = async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { nombre_usuario, rol_id, rol_personalizado_id, restaurante_id, user_image, password } =
+  const { nombre_usuario, rol_id, rol_personalizado_id, restaurante_id, user_image, password, bienvenida_aceptada } =
     req.body;
-  if (!nombre_usuario && rol_id === undefined && rol_personalizado_id === undefined && restaurante_id === undefined) {
+  if (!nombre_usuario && rol_id === undefined && rol_personalizado_id === undefined && restaurante_id === undefined && user_image === undefined && bienvenida_aceptada === undefined) {
     res.status(400).json({
       success: false,
       message: "Se debe proporcionar al menos un campo para actualizar",
@@ -414,6 +414,7 @@ export const updateUsuario = async (req: Request, res: Response) => {
     if (restaurante_id !== undefined)
       updateFields.restaurante_id = restaurante_id;
     if (user_image !== undefined) updateFields.user_image = user_image;
+    if (bienvenida_aceptada !== undefined) updateFields.bienvenida_aceptada = bienvenida_aceptada;
 
     console.log('📝 Actualizando usuario:', { id, updateFields });
 
