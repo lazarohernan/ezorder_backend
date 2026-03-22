@@ -705,4 +705,54 @@ export const getCurrentUserInfo = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Actualizar perfil propio (sin requerir permiso usuarios.editar)
+ * Solo permite: nombre_usuario, user_image, bienvenida_aceptada
+ */
+export const updateMyProfile = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user_info?.id;
+    if (!userId) {
+      res.status(401).json({ success: false, message: "No autenticado" });
+      return;
+    }
+
+    const { nombre_usuario, user_image, bienvenida_aceptada } = req.body;
+
+    if (nombre_usuario === undefined && user_image === undefined && bienvenida_aceptada === undefined) {
+      res.status(400).json({ success: false, message: "Se debe proporcionar al menos un campo para actualizar" });
+      return;
+    }
+
+    const client = supabaseAdmin || supabase;
+    const updateFields: Record<string, unknown> = { updated_at: new Date() };
+
+    if (nombre_usuario !== undefined) updateFields.nombre_usuario = nombre_usuario;
+    if (user_image !== undefined) updateFields.user_image = user_image;
+    if (bienvenida_aceptada !== undefined) updateFields.bienvenida_aceptada = bienvenida_aceptada;
+
+    const { error } = await client
+      .from("usuarios_info")
+      .update(updateFields)
+      .eq("id", userId);
+
+    if (error) throw error;
+
+    const { data: updated, error: fetchError } = await client
+      .from("usuarios_info")
+      .select("*")
+      .eq("id", userId)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    res.status(200).json({ success: true, message: "Perfil actualizado", data: updated });
+    return;
+  } catch (error: any) {
+    console.error("Error al actualizar perfil propio:", error);
+    res.status(500).json({ success: false, message: error.message || "Error al actualizar perfil" });
+    return;
+  }
+};
+
 

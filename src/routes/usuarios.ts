@@ -6,6 +6,7 @@ import {
   updateUsuario,
   deleteUsuario,
   getCurrentUserInfo,
+  updateMyProfile,
 } from "../controllers/usuarioController";
 import { createInvitacion } from "../controllers/invitacionController";
 import { requireAuth } from "../middlewares/auth";
@@ -16,8 +17,9 @@ const router = express.Router();
 // Todas las rutas de usuarios requieren autenticación
 router.use(requireAuth);
 
-// Ruta para obtener el perfil del usuario actual (sin permisos especiales)
+// Rutas del perfil propio (sin permisos especiales, solo autenticación)
 router.get("/me", getCurrentUserInfo);
+router.put("/me", updateMyProfile);
 
 // Ruta para obtener todos los usuarios
 router.get("/", requirePermissions(['usuarios.ver']), getUsuarios);
