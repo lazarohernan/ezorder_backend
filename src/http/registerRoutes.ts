@@ -141,6 +141,7 @@ import {
   getUsuarioById,
   getUsuarios,
   updateUsuario,
+  updateMyProfile,
 } from "../controllers/usuarioController";
 import { requireAuth } from "../middlewares/auth";
 import {
@@ -230,6 +231,7 @@ export const registerRoutes = async (app: FastifyInstance) => {
     { method: "POST", url: "/api/uploads", handlers: [requireAuth, multipartUploadMiddleware, uploadFile] },
 
     { method: "GET", url: "/api/usuarios/me", handlers: [requireAuth, getCurrentUserInfo] },
+    { method: "PUT", url: "/api/usuarios/me", handlers: [requireAuth, updateMyProfile] },
     { method: "GET", url: "/api/usuarios", handlers: [requireAuth, requirePermissions(["usuarios.ver"]), getUsuarios] },
     { method: "GET", url: "/api/usuarios/:id", handlers: [requireAuth, requirePermissions(["usuarios.ver"]), getUsuarioById] },
     { method: "POST", url: "/api/usuarios/invite", handlers: [requireAuth, requirePermissions(["usuarios.crear"]), createInvitacion] },
