@@ -194,14 +194,19 @@ export const login = async (req: Request, res: Response) => {
               'inventario.ver', 'inventario.crear', 'inventario.editar', 'inventario.eliminar',
               'caja.ver', 'caja.abrir', 'caja.cerrar', 'caja.registrar_ingresos', 'caja.registrar_egresos',
               'reportes.ver', 'reportes.generar',
-              'notificaciones.ver', 'notificaciones.enviar'
+              'notificaciones.ver', 'notificaciones.enviar',
+              'facturacion.ver', 'facturacion.editar', 'facturacion.anular',
+              'gastos.ver', 'gastos.crear', 'gastos.editar', 'gastos.eliminar',
+              'movimientos.ver', 'movimientos.crear'
             ];
             rolNombre = 'Administrador';
           } else if (userInfo.rol_id === 3) {
             permisos = [
               'pedidos.ver', 'pedidos.crear', 'pedidos.editar',
               'caja.ver', 'caja.abrir', 'caja.cerrar', 'caja.registrar_ingresos',
-              'menu.ver'
+              'menu.ver',
+              'facturacion.ver',
+              'gastos.ver', 'gastos.crear'
             ];
             rolNombre = 'Cajero';
           }
@@ -617,7 +622,10 @@ export const getUserInfo = async (req: Request, res: Response) => {
               'inventario.ver', 'inventario.crear', 'inventario.editar', 'inventario.eliminar',
               'caja.ver', 'caja.abrir', 'caja.cerrar', 'caja.registrar_ingresos', 'caja.registrar_egresos',
               'reportes.ver', 'reportes.generar',
-              'notificaciones.ver', 'notificaciones.enviar'
+              'notificaciones.ver', 'notificaciones.enviar',
+              'facturacion.ver', 'facturacion.editar', 'facturacion.anular',
+              'gastos.ver', 'gastos.crear', 'gastos.editar', 'gastos.eliminar',
+              'movimientos.ver', 'movimientos.crear'
             ];
             rolNombre = 'Administrador';
             isSuperAdmin = false;
@@ -626,7 +634,9 @@ export const getUserInfo = async (req: Request, res: Response) => {
             permisos = [
               'pedidos.ver', 'pedidos.crear', 'pedidos.editar',
               'caja.ver', 'caja.abrir', 'caja.cerrar', 'caja.registrar_ingresos',
-              'menu.ver'
+              'menu.ver',
+              'facturacion.ver',
+              'gastos.ver', 'gastos.crear'
             ];
             rolNombre = 'Cajero';
             isSuperAdmin = false;
