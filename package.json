@@ -24,8 +24,6 @@
     "uuid": "^11.1.0"
   },
   "devDependencies": {
-    "@types/express": "^5.0.1",
-    "@types/express-fileupload": "^1.5.1",
     "@types/node": "^22.15.17",
     "@types/uuid": "^10.0.0",
     "nodemon": "^3.1.10",
