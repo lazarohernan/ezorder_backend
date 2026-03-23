@@ -3,10 +3,6 @@ import fastifyCors from "@fastify/cors";
 import fastifyFormbody from "@fastify/formbody";
 import fastifyMultipart from "@fastify/multipart";
 import checkDatabaseConnection from "./controllers/healthController";
-import {
-  createCompatibilityContext,
-  runExpressHandlers,
-} from "./http/compat";
 import { corsOptions } from "./http/cors";
 import { registerRoutes } from "./http/registerRoutes";
 
@@ -23,6 +19,11 @@ export const buildApp = async () => {
       fileSize: 5 * 1024 * 1024,
     },
   });
+
+  // Declarar propiedades custom del request (requerido por Fastify 5)
+  app.decorateRequest("user", { getter: () => undefined });
+  app.decorateRequest("user_info", { getter: () => null });
+  app.decorateRequest("restaurante_filter", { getter: () => undefined });
 
   if (process.env.NODE_ENV !== "production") {
     app.addHook("onRequest", async (request) => {
@@ -70,6 +71,7 @@ export const buildApp = async () => {
   }));
 
   app.get("/api/health", async (request, reply) => {
+    const { createCompatibilityContext, runExpressHandlers } = await import("./http/compat");
     const context = createCompatibilityContext(request, reply);
     await runExpressHandlers([checkDatabaseConnection as any], context);
   });
