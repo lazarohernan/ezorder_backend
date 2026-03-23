@@ -1,50 +1,49 @@
-import { Request, Response, NextFunction } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabaseAdmin } from "../supabase/supabase";
 
 export const requirePermissions = (requiredPermissions: string[]) => {
-  return async (req: Request, res: Response, next: NextFunction) => {
+  return async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      if (!req.user_info) {
-        // Usuario no autenticado
-        return res.status(401).json({
+      if (!request.user_info) {
+        return reply.code(401).send({
           ok: false,
           message: "Usuario no autenticado"
         });
       }
 
       // Super Admin siempre tiene acceso
-      if (req.user_info.rol_id === 1 || req.user_info.es_super_admin) {
-        return next();
+      if (request.user_info.rol_id === 1 || request.user_info.es_super_admin) {
+        return;
       }
 
       // Admin siempre tiene acceso
-      if (req.user_info.rol_id === 2) {
-        return next();
+      if (request.user_info.rol_id === 2) {
+        return;
       }
 
-      const rolPersonalizadoId = req.user_info.rol_personalizado_id;
+      const rolPersonalizadoId = request.user_info.rol_personalizado_id;
       if (!rolPersonalizadoId) {
-        return res.status(403).json({
+        return reply.code(403).send({
           ok: false,
           message: "No tienes permisos para realizar esta acción. Contacta al administrador para que te asigne un rol."
         });
       }
 
       if (!supabaseAdmin) {
-        return res.status(500).json({
+        return reply.code(500).send({
           ok: false,
           message: "Error de configuración del servidor"
         });
       }
 
       const { data: userPermissions, error } = await supabaseAdmin
-        .from('rol_permisos')
-        .select('permisos!inner(nombre)')
-        .eq('rol_id', rolPersonalizadoId);
+        .from("rol_permisos")
+        .select("permisos!inner(nombre)")
+        .eq("rol_id", rolPersonalizadoId);
 
       if (error) {
-        console.error('Error al obtener permisos:', error);
-        return res.status(500).json({
+        console.error("Error al obtener permisos:", error);
+        return reply.code(500).send({
           ok: false,
           message: "Error al verificar permisos"
         });
@@ -52,136 +51,124 @@ export const requirePermissions = (requiredPermissions: string[]) => {
 
       const permissionNames = userPermissions.map((rp: any) => rp.permisos.nombre);
 
-      const hasPermission = requiredPermissions.some(permission => {
-        if (permissionNames.includes('*')) return true;
+      const hasPermission = requiredPermissions.some((permission) => {
+        if (permissionNames.includes("*")) return true;
         if (permissionNames.includes(permission)) return true;
-        
-        if (permission.includes('*')) {
-          const prefix = permission.replace('*', '');
-          return permissionNames.some(p => p.startsWith(prefix));
+
+        if (permission.includes("*")) {
+          const prefix = permission.replace("*", "");
+          return permissionNames.some((p: string) => p.startsWith(prefix));
         }
-        
-        const matchingWildcard = permissionNames.find(p => p.endsWith('.*'));
+
+        const matchingWildcard = permissionNames.find((p: string) => p.endsWith(".*"));
         if (matchingWildcard) {
-          const prefix = matchingWildcard.replace('.*', '');
-          if (permission.startsWith(prefix + '.')) return true;
+          const prefix = matchingWildcard.replace(".*", "");
+          if (permission.startsWith(prefix + ".")) return true;
         }
-        
+
         return false;
       });
 
       if (!hasPermission) {
-        return res.status(403).json({
+        return reply.code(403).send({
           ok: false,
           message: "No tienes permisos para realizar esta acción"
         });
       }
-
-      next();
     } catch (error) {
       console.error("Error en middleware de permisos:", error);
-      res.status(500).json({
-        ok: false,
-        message: "Error interno del servidor"
-      });
+      throw error;
     }
   };
 };
 
-export const requireSuperAdmin = async (req: Request, res: Response, next: NextFunction) => {
+export const requireSuperAdmin = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(401).json({
+    if (!request.user_info) {
+      return reply.code(401).send({
         ok: false,
         message: "Usuario no autenticado"
       });
     }
 
-    if (req.user_info.rol_id === 1 || req.user_info.rol_id === 2 || req.user_info.es_super_admin) {
-      return next();
+    if (request.user_info.rol_id === 1 || request.user_info.rol_id === 2 || request.user_info.es_super_admin) {
+      return;
     }
 
-    if (req.user_info.rol_personalizado_id) {
+    if (request.user_info.rol_personalizado_id) {
       if (!supabaseAdmin) {
-        return res.status(500).json({
+        return reply.code(500).send({
           ok: false,
           message: "Error de configuración del servidor"
         });
       }
 
       const { data: roleData, error } = await supabaseAdmin
-        .from('roles_personalizados')
-        .select('es_super_admin')
-        .eq('id', req.user_info.rol_personalizado_id)
+        .from("roles_personalizados")
+        .select("es_super_admin")
+        .eq("id", request.user_info.rol_personalizado_id)
         .single();
 
       if (error || !roleData?.es_super_admin) {
-        return res.status(403).json({
+        return reply.code(403).send({
           ok: false,
           message: "Se requieren permisos de super administrador"
         });
       }
 
-      return next();
+      return;
     }
 
-    return res.status(403).json({
+    return reply.code(403).send({
       ok: false,
       message: "Se requieren permisos de administrador"
     });
   } catch (error) {
     console.error("Error en middleware de super admin:", error);
-    res.status(500).json({
-      ok: false,
-      message: "Error interno del servidor"
-    });
+    throw error;
   }
 };
 
-export const restaurantScope = async (req: Request, res: Response, next: NextFunction) => {
+export const restaurantScope = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(401).json({
+    if (!request.user_info) {
+      return reply.code(401).send({
         ok: false,
         message: "Usuario no autenticado"
       });
     }
 
-    if (req.user_info.rol_id === 1 || req.user_info.es_super_admin) {
-      return next();
+    if (request.user_info.rol_id === 1 || request.user_info.es_super_admin) {
+      return;
     }
 
-    if (req.user_info.rol_id === 2) {
-      return next();
+    if (request.user_info.rol_id === 2) {
+      return;
     }
 
-    if (req.user_info.rol_personalizado_id && supabaseAdmin) {
+    if (request.user_info.rol_personalizado_id && supabaseAdmin) {
       const { data: roleData } = await supabaseAdmin
-        .from('roles_personalizados')
-        .select('es_super_admin')
-        .eq('id', req.user_info.rol_personalizado_id)
+        .from("roles_personalizados")
+        .select("es_super_admin")
+        .eq("id", request.user_info.rol_personalizado_id)
         .single();
 
       if (roleData?.es_super_admin) {
-        return next();
+        return;
       }
     }
 
-    const restauranteId = req.user_info.restaurante_id;
+    const restauranteId = request.user_info.restaurante_id;
     if (!restauranteId) {
-      return res.status(403).json({
+      return reply.code(403).send({
         ok: false,
         message: "No tienes un restaurante asignado"
       });
     }
 
-    req.restaurante_filter = restauranteId;
-    next();
+    request.restaurante_filter = restauranteId;
   } catch (error) {
     console.error("Error en middleware de scope de restaurante:", error);
-    res.status(500).json({
-      ok: false,
-      message: "Error interno del servidor"
-    });
+    throw error;
   }
 };
