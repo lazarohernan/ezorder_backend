@@ -1,59 +1,59 @@
-import { Request, Response } from 'express';
+import type { FastifyRequest, FastifyReply } from 'fastify';
 import { scanSessionStore } from '../stores/scanSessionStore';
 
-export const crearSesion = async (req: Request, res: Response) => {
-  if (!req.user_info?.restaurante_id) {
-    return res.status(403).json({ ok: false, message: 'No autorizado' });
+export const crearSesion = async (request: FastifyRequest, reply: FastifyReply) => {
+  if (!request.user_info?.restaurante_id) {
+    return reply.code(403).send({ ok: false, message: 'No autorizado' });
   }
 
-  const { sessionId, expiresAt } = scanSessionStore.create(req.user_info.restaurante_id);
-  res.status(201).json({ ok: true, data: { session_id: sessionId, expires_at: expiresAt } });
+  const { sessionId, expiresAt } = scanSessionStore.create(request.user_info.restaurante_id);
+  return reply.code(201).send({ ok: true, data: { session_id: sessionId, expires_at: expiresAt } });
 };
 
-export const obtenerEstadoSesion = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const obtenerEstadoSesion = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = request.params as { id: string };
   const valid = scanSessionStore.isValid(id);
-  res.json({ ok: true, data: { valid } });
+  reply.send({ ok: true, data: { valid } });
 };
 
-export const obtenerCodigos = async (req: Request, res: Response) => {
-  if (!req.user_info) {
-    return res.status(403).json({ ok: false, message: 'No autorizado' });
+export const obtenerCodigos = async (request: FastifyRequest, reply: FastifyReply) => {
+  if (!request.user_info) {
+    return reply.code(403).send({ ok: false, message: 'No autorizado' });
   }
 
-  const { id } = req.params;
+  const { id } = request.params as { id: string };
   const codes = scanSessionStore.getCodes(id);
 
   if (codes === null) {
-    return res.status(404).json({ ok: false, message: 'Sesión no encontrada o expirada' });
+    return reply.code(404).send({ ok: false, message: 'Sesión no encontrada o expirada' });
   }
 
-  res.json({ ok: true, data: { codes } });
+  reply.send({ ok: true, data: { codes } });
 };
 
-export const enviarCodigo = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { code } = req.body;
+export const enviarCodigo = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = request.params as { id: string };
+  const { code } = request.body as { code?: string };
 
   if (!code || typeof code !== 'string' || code.trim().length === 0 || code.length > 100) {
-    return res.status(400).json({ ok: false, message: 'Código inválido (max 100 caracteres)' });
+    return reply.code(400).send({ ok: false, message: 'Código inválido (max 100 caracteres)' });
   }
 
   const added = scanSessionStore.addCode(id, code.trim());
 
   if (!added) {
-    return res.status(404).json({ ok: false, message: 'Sesión no encontrada, expirada o llena' });
+    return reply.code(404).send({ ok: false, message: 'Sesión no encontrada, expirada o llena' });
   }
 
-  res.json({ ok: true, message: 'Código recibido' });
+  reply.send({ ok: true, message: 'Código recibido' });
 };
 
-export const cerrarSesion = async (req: Request, res: Response) => {
-  if (!req.user_info) {
-    return res.status(403).json({ ok: false, message: 'No autorizado' });
+export const cerrarSesion = async (request: FastifyRequest, reply: FastifyReply) => {
+  if (!request.user_info) {
+    return reply.code(403).send({ ok: false, message: 'No autorizado' });
   }
 
-  const { id } = req.params;
+  const { id } = request.params as { id: string };
   scanSessionStore.delete(id);
-  res.json({ ok: true, message: 'Sesión cerrada' });
+  reply.send({ ok: true, message: 'Sesión cerrada' });
 };

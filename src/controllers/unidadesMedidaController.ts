@@ -1,13 +1,13 @@
-import { Request, Response } from 'express';
+import type { FastifyRequest, FastifyReply } from 'fastify';
 import { supabaseAdmin } from '../supabase/supabase';
 
 
-export const obtenerUnidadesMedida = async (req: Request, res: Response) => {
-  if (!req.user_info) return res.status(403).json({ ok: false, message: 'No autorizado' });
+export const obtenerUnidadesMedida = async (request: FastifyRequest, reply: FastifyReply) => {
+  if (!request.user_info) return reply.code(403).send({ ok: false, message: 'No autorizado' });
 
   try {
     const client = supabaseAdmin!;
-    const restauranteId = req.user_info.restaurante_id;
+    const restauranteId = request.user_info.restaurante_id;
 
     let query = client.from('unidades_medida').select('*').order('nombre');
 
@@ -18,19 +18,19 @@ export const obtenerUnidadesMedida = async (req: Request, res: Response) => {
     const { data, error } = await query;
     if (error) throw error;
 
-    res.json({ ok: true, data: data || [] });
+    reply.send({ ok: true, data: data || [] });
   } catch (error: any) {
-    res.status(500).json({ ok: false, message: 'Error al obtener unidades de medida', error: error.message });
+    throw error;
   }
 };
 
-export const crearUnidadMedida = async (req: Request, res: Response) => {
-  if (!req.user_info) return res.status(403).json({ ok: false, message: 'No autorizado' });
+export const crearUnidadMedida = async (request: FastifyRequest, reply: FastifyReply) => {
+  if (!request.user_info) return reply.code(403).send({ ok: false, message: 'No autorizado' });
 
-  const { nombre, restaurante_id } = req.body;
+  const { nombre, restaurante_id } = request.body as { nombre?: string; restaurante_id?: string };
 
   if (!nombre || !restaurante_id) {
-    return res.status(400).json({ ok: false, message: 'nombre y restaurante_id son requeridos' });
+    return reply.code(400).send({ ok: false, message: 'nombre y restaurante_id son requeridos' });
   }
 
   try {
@@ -45,25 +45,25 @@ export const crearUnidadMedida = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === '23505') {
-        return res.status(409).json({ ok: false, message: 'Esta unidad de medida ya existe para este restaurante' });
+        return reply.code(409).send({ ok: false, message: 'Esta unidad de medida ya existe para este restaurante' });
       }
       throw error;
     }
 
-    res.status(201).json({ ok: true, data, message: 'Unidad de medida creada' });
+    return reply.code(201).send({ ok: true, data, message: 'Unidad de medida creada' });
   } catch (error: any) {
-    res.status(500).json({ ok: false, message: 'Error al crear unidad de medida', error: error.message });
+    throw error;
   }
 };
 
-export const actualizarUnidadMedida = async (req: Request, res: Response) => {
-  if (!req.user_info) return res.status(403).json({ ok: false, message: 'No autorizado' });
+export const actualizarUnidadMedida = async (request: FastifyRequest, reply: FastifyReply) => {
+  if (!request.user_info) return reply.code(403).send({ ok: false, message: 'No autorizado' });
 
-  const { id } = req.params;
-  const { nombre } = req.body;
+  const { id } = request.params as { id: string };
+  const { nombre } = request.body as { nombre?: string };
 
   if (!nombre) {
-    return res.status(400).json({ ok: false, message: 'nombre es requerido' });
+    return reply.code(400).send({ ok: false, message: 'nombre es requerido' });
   }
 
   try {
@@ -79,29 +79,29 @@ export const actualizarUnidadMedida = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === '23505') {
-        return res.status(409).json({ ok: false, message: 'Esta unidad de medida ya existe para este restaurante' });
+        return reply.code(409).send({ ok: false, message: 'Esta unidad de medida ya existe para este restaurante' });
       }
       throw error;
     }
 
-    res.json({ ok: true, data, message: 'Unidad de medida actualizada' });
+    reply.send({ ok: true, data, message: 'Unidad de medida actualizada' });
   } catch (error: any) {
-    res.status(500).json({ ok: false, message: 'Error al actualizar unidad de medida', error: error.message });
+    throw error;
   }
 };
 
-export const eliminarUnidadMedida = async (req: Request, res: Response) => {
-  if (!req.user_info) return res.status(403).json({ ok: false, message: 'No autorizado' });
+export const eliminarUnidadMedida = async (request: FastifyRequest, reply: FastifyReply) => {
+  if (!request.user_info) return reply.code(403).send({ ok: false, message: 'No autorizado' });
 
-  const { id } = req.params;
+  const { id } = request.params as { id: string };
 
   try {
     const client = supabaseAdmin!;
     const { error } = await client.from('unidades_medida').delete().eq('id', id);
     if (error) throw error;
 
-    res.json({ ok: true, message: 'Unidad de medida eliminada' });
+    reply.send({ ok: true, message: 'Unidad de medida eliminada' });
   } catch (error: any) {
-    res.status(500).json({ ok: false, message: 'Error al eliminar unidad de medida', error: error.message });
+    throw error;
   }
 };

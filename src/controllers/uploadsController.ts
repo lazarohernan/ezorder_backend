@@ -1,46 +1,42 @@
-import { Request, Response } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabaseAdmin } from "../supabase/supabase";
-import { UploadedFile } from "express-fileupload";
+import type { UploadedFile } from "../utils/multipart";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 
 const BUCKET_NAME = "ez-order-bucket";
 
-export const uploadFile = async (req: Request, res: Response) => {
+export const uploadFile = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      res.status(401).json({
+    if (!request.user_info) {
+      return reply.code(401).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Error de configuración del servidor",
       });
-      return;
     }
 
-    if (!req.files || Object.keys(req.files).length === 0) {
-      res.status(400).json({
+    if (!request.files || Object.keys(request.files).length === 0) {
+      return reply.code(400).send({
         success: false,
         message: "No se ha seleccionado ningún archivo",
       });
-      return;
     }
 
-    const folder = req.body.folder || "random";
-    const file = req.files.file as UploadedFile;
+    const folder = (request.body as any)?.folder || "random";
+    const file = (request.files as any)?.file as UploadedFile;
 
     if (!file) {
-      res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: "No se encontró el archivo en la solicitud",
       });
-      return;
     }
 
     const fileExtension = path.extname(file.name);
@@ -56,18 +52,17 @@ export const uploadFile = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.message.includes("Bucket not found") || error.message.includes("not found")) {
-        res.status(500).json({
+        return reply.code(500).send({
           success: false,
           message: `El bucket "${BUCKET_NAME}" no existe. Por favor, crea el bucket en Supabase Storage.`,
           error: error.message,
         });
-        return;
       }
 
       if (error.message.includes("The resource already exists")) {
         const retryFileName = `${uuidv4()}${fileExtension}`;
         const retryFilePath = `${folder}/${retryFileName}`;
-        
+
         const { data: retryData, error: retryError } = await supabaseAdmin.storage
           .from(BUCKET_NAME)
           .upload(retryFilePath, file.data, {
@@ -84,7 +79,7 @@ export const uploadFile = async (req: Request, res: Response) => {
           .from(BUCKET_NAME)
           .getPublicUrl(retryFilePath);
 
-        res.status(200).json({
+        return reply.code(200).send({
           success: true,
           message: "Archivo subido correctamente",
           data: {
@@ -96,22 +91,20 @@ export const uploadFile = async (req: Request, res: Response) => {
             publicUrl: urlData.publicUrl,
           },
         });
-        return;
       }
 
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Error al subir el archivo a Supabase Storage",
         error: error.message,
       });
-      return;
     }
 
     const { data: urlData } = supabaseAdmin.storage
       .from(BUCKET_NAME)
       .getPublicUrl(filePath);
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       message: "Archivo subido correctamente",
       data: {
@@ -123,14 +116,8 @@ export const uploadFile = async (req: Request, res: Response) => {
         publicUrl: urlData.publicUrl,
       },
     });
-    return;
   } catch (err: any) {
     console.error("Error en el controlador de carga de archivos:", err);
-    res.status(500).json({
-      success: false,
-      message: "Error interno del servidor al procesar el archivo",
-      error: err.message || "Error desconocido",
-    });
-    return;
+    throw err;
   }
 };

@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import type { FastifyRequest, FastifyReply } from 'fastify';
 import { supabase, supabaseAdmin } from '../supabase/supabase';
 
 /**
@@ -26,9 +26,9 @@ export const facturacionController = {
   // ==================== DATOS FISCALES ====================
 
   // Obtener datos fiscales activos de un restaurante
-  async getDatosFiscales(req: Request, res: Response) {
+  async getDatosFiscales(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { restaurante_id } = req.params;
+      const { restaurante_id } = request.params as { restaurante_id: string };
       const client = supabaseAdmin || supabase;
 
       const { data, error } = await client
@@ -39,21 +39,21 @@ export const facturacionController = {
         .single();
 
       if (error && error.code !== 'PGRST116') {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
-      res.json({ data: data || null });
+      reply.send({ data: data || null });
     } catch (error) {
       console.error('Error getting datos fiscales:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Crear datos fiscales
-  async createDatosFiscales(req: Request, res: Response) {
+  async createDatosFiscales(request: FastifyRequest, reply: FastifyReply) {
     try {
-      if (!req.user_info) {
-        return res.status(403).json({
+      if (!request.user_info) {
+        return reply.code(403).send({
           error: 'No se encontró información del usuario autenticado'
         });
       }
@@ -69,11 +69,22 @@ export const facturacionController = {
         rango_autorizado_inicial,
         rango_autorizado_final,
         fecha_limite_emision
-      } = req.body;
+      } = request.body as {
+        restaurante_id: string;
+        nombre_negocio: string;
+        rtn_negocio: string;
+        direccion_negocio?: string;
+        correo_negocio?: string;
+        telefono_negocio?: string;
+        codigo_cai: string;
+        rango_autorizado_inicial: string;
+        rango_autorizado_final: string;
+        fecha_limite_emision: string;
+      };
 
       if (!restaurante_id || !nombre_negocio || !rtn_negocio || !codigo_cai ||
           !rango_autorizado_inicial || !rango_autorizado_final || !fecha_limite_emision) {
-        return res.status(400).json({
+        return reply.code(400).send({
           error: 'Faltan campos obligatorios: restaurante_id, nombre_negocio, rtn_negocio, codigo_cai, rango_autorizado_inicial, rango_autorizado_final, fecha_limite_emision'
         });
       }
@@ -81,10 +92,10 @@ export const facturacionController = {
       const client = supabaseAdmin || supabase;
 
       // Verificar permisos según rol
-      const id_rol = req.user_info?.rol_id ?? 3;
+      const id_rol = request.user_info?.rol_id ?? 3;
       if (id_rol !== 1 && id_rol !== 2) {
-        if (req.user_info.restaurante_id !== restaurante_id) {
-          return res.status(403).json({
+        if (request.user_info.restaurante_id !== restaurante_id) {
+          return reply.code(403).send({
             error: 'No tienes acceso a este restaurante'
           });
         }
@@ -120,26 +131,26 @@ export const facturacionController = {
         .single();
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
-      res.status(201).json({ data });
+      return reply.code(201).send({ data });
     } catch (error) {
       console.error('Error creating datos fiscales:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Actualizar datos fiscales
-  async updateDatosFiscales(req: Request, res: Response) {
+  async updateDatosFiscales(request: FastifyRequest, reply: FastifyReply) {
     try {
-      if (!req.user_info) {
-        return res.status(403).json({
+      if (!request.user_info) {
+        return reply.code(403).send({
           error: 'No se encontró información del usuario autenticado'
         });
       }
 
-      const { id } = req.params;
+      const { id } = request.params as { id: string };
       const {
         nombre_negocio,
         rtn_negocio,
@@ -150,7 +161,17 @@ export const facturacionController = {
         rango_autorizado_inicial,
         rango_autorizado_final,
         fecha_limite_emision
-      } = req.body;
+      } = request.body as {
+        nombre_negocio?: string;
+        rtn_negocio?: string;
+        direccion_negocio?: string;
+        correo_negocio?: string;
+        telefono_negocio?: string;
+        codigo_cai?: string;
+        rango_autorizado_inicial?: string;
+        rango_autorizado_final?: string;
+        fecha_limite_emision?: string;
+      };
 
       const client = supabaseAdmin || supabase;
 
@@ -162,14 +183,14 @@ export const facturacionController = {
         .single();
 
       if (findError || !existing) {
-        return res.status(404).json({ error: 'Datos fiscales no encontrados' });
+        return reply.code(404).send({ error: 'Datos fiscales no encontrados' });
       }
 
       // Verificar permisos
-      const id_rol = req.user_info?.rol_id ?? 3;
+      const id_rol = request.user_info?.rol_id ?? 3;
       if (id_rol !== 1 && id_rol !== 2) {
-        if (req.user_info.restaurante_id !== existing.restaurante_id) {
-          return res.status(403).json({
+        if (request.user_info.restaurante_id !== existing.restaurante_id) {
+          return reply.code(403).send({
             error: 'No tienes acceso a estos datos fiscales'
           });
         }
@@ -194,23 +215,29 @@ export const facturacionController = {
         .single();
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
-      res.json({ data });
+      reply.send({ data });
     } catch (error) {
       console.error('Error updating datos fiscales:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // ==================== FACTURAS ====================
 
   // Obtener facturas de un restaurante (con paginación y filtros)
-  async getFacturas(req: Request, res: Response) {
+  async getFacturas(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { restaurante_id } = req.params;
-      const { page = 1, limit = 20, fecha_inicio, fecha_fin, estado } = req.query;
+      const { restaurante_id } = request.params as { restaurante_id: string };
+      const { page = 1, limit = 20, fecha_inicio, fecha_fin, estado } = request.query as {
+        page?: number;
+        limit?: number;
+        fecha_inicio?: string;
+        fecha_fin?: string;
+        estado?: string;
+      };
 
       const client = supabaseAdmin || supabase;
       let query = client
@@ -238,7 +265,7 @@ export const facturacionController = {
       const { data, error } = await query.range(from, to);
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
       // Conteo total
@@ -261,7 +288,7 @@ export const facturacionController = {
 
       const { count } = await countQuery;
 
-      res.json({
+      reply.send({
         data: data || [],
         pagination: {
           page: Number(page),
@@ -272,14 +299,14 @@ export const facturacionController = {
       });
     } catch (error) {
       console.error('Error getting facturas:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Obtener facturas del día
-  async getFacturasHoy(req: Request, res: Response) {
+  async getFacturasHoy(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { restaurante_id } = req.params;
+      const { restaurante_id } = request.params as { restaurante_id: string };
       const client = supabaseAdmin || supabase;
 
       // Inicio del día actual (UTC-6 Honduras)
@@ -297,20 +324,20 @@ export const facturacionController = {
         .order('fecha_factura', { ascending: false });
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
-      res.json({ data: data || [] });
+      reply.send({ data: data || [] });
     } catch (error) {
       console.error('Error getting facturas de hoy:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Obtener detalle de una factura
-  async getFacturaDetalle(req: Request, res: Response) {
+  async getFacturaDetalle(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { id } = req.params;
+      const { id } = request.params as { id: string };
       const client = supabaseAdmin || supabase;
 
       const { data, error } = await client
@@ -324,20 +351,20 @@ export const facturacionController = {
         .single();
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
-      res.json({ data });
+      reply.send({ data });
     } catch (error) {
       console.error('Error getting factura detalle:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Resumen de facturas del día
-  async getResumenDia(req: Request, res: Response) {
+  async getResumenDia(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { restaurante_id } = req.params;
+      const { restaurante_id } = request.params as { restaurante_id: string };
       const client = supabaseAdmin || supabase;
 
       const hoy = new Date();
@@ -353,13 +380,13 @@ export const facturacionController = {
         .lt('fecha_factura', manana.toISOString());
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
       const facturas = data || [];
       const emitidas = facturas.filter(f => f.estado === 'emitida');
 
-      res.json({
+      reply.send({
         data: {
           total_facturado: emitidas.reduce((sum, f) => sum + Number(f.total), 0),
           total_isv: emitidas.reduce((sum, f) => sum + Number(f.isv), 0),
@@ -369,20 +396,20 @@ export const facturacionController = {
       });
     } catch (error) {
       console.error('Error getting resumen del día:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Anular una factura
-  async anularFactura(req: Request, res: Response) {
+  async anularFactura(request: FastifyRequest, reply: FastifyReply) {
     try {
-      if (!req.user_info) {
-        return res.status(403).json({
+      if (!request.user_info) {
+        return reply.code(403).send({
           error: 'No se encontró información del usuario autenticado'
         });
       }
 
-      const { id } = req.params;
+      const { id } = request.params as { id: string };
       const client = supabaseAdmin || supabase;
 
       const { data: facturaExistente, error: findError } = await client
@@ -392,18 +419,18 @@ export const facturacionController = {
         .single();
 
       if (findError || !facturaExistente) {
-        return res.status(404).json({ error: 'Factura no encontrada' });
+        return reply.code(404).send({ error: 'Factura no encontrada' });
       }
 
       if (facturaExistente.estado === 'anulada') {
-        return res.status(400).json({ error: 'La factura ya está anulada' });
+        return reply.code(400).send({ error: 'La factura ya está anulada' });
       }
 
       // Verificar permisos
-      const id_rol = req.user_info?.rol_id ?? 3;
+      const id_rol = request.user_info?.rol_id ?? 3;
       if (id_rol !== 1 && id_rol !== 2) {
-        if (req.user_info.restaurante_id !== facturaExistente.restaurante_id) {
-          return res.status(403).json({
+        if (request.user_info.restaurante_id !== facturaExistente.restaurante_id) {
+          return reply.code(403).send({
             error: 'No tienes acceso a esta factura'
           });
         }
@@ -417,21 +444,21 @@ export const facturacionController = {
         .single();
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
-      res.json({ data });
+      reply.send({ data });
     } catch (error) {
       console.error('Error anulando factura:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Generar factura desde un pedido
-  async generarFactura(req: Request, res: Response) {
+  async generarFactura(request: FastifyRequest, reply: FastifyReply) {
     try {
-      if (!req.user_info) {
-        return res.status(403).json({
+      if (!request.user_info) {
+        return reply.code(403).send({
           error: 'No se encontró información del usuario autenticado'
         });
       }
@@ -442,10 +469,16 @@ export const facturacionController = {
         nombre_cliente,
         rtn_cliente,
         metodo_pago_id
-      } = req.body;
+      } = request.body as {
+        pedido_id: string;
+        restaurante_id: string;
+        nombre_cliente?: string;
+        rtn_cliente?: string;
+        metodo_pago_id?: string;
+      };
 
       if (!pedido_id || !restaurante_id) {
-        return res.status(400).json({
+        return reply.code(400).send({
           error: 'Faltan campos obligatorios: pedido_id, restaurante_id'
         });
       }
@@ -462,7 +495,7 @@ export const facturacionController = {
 
       if (facturaExistente) {
         const { datos_fiscales: df, ...facturaSinDf } = facturaExistente;
-        return res.status(200).json({
+        return reply.code(200).send({
           data: {
             factura: facturaSinDf,
             datos_fiscales: df
@@ -479,7 +512,7 @@ export const facturacionController = {
         .single();
 
       if (dfError || !datosFiscales) {
-        return res.status(400).json({
+        return reply.code(400).send({
           error: 'No se encontraron datos fiscales activos para este restaurante. Configure los datos de facturación primero.'
         });
       }
@@ -487,7 +520,7 @@ export const facturacionController = {
       // 2. Validar fecha límite de emisión
       const fechaLimite = new Date(datosFiscales.fecha_limite_emision);
       if (new Date() > fechaLimite) {
-        return res.status(400).json({
+        return reply.code(400).send({
           error: 'La fecha límite de emisión ha expirado. Actualice los datos fiscales con un nuevo CAI.'
         });
       }
@@ -497,7 +530,7 @@ export const facturacionController = {
       const siguienteNumero = datosFiscales.numero_actual + 1;
 
       if (siguienteNumero > rangoFinal) {
-        return res.status(400).json({
+        return reply.code(400).send({
           error: 'Se ha agotado el rango autorizado de facturación. Solicite un nuevo rango.'
         });
       }
@@ -510,7 +543,7 @@ export const facturacionController = {
         .single();
 
       if (pedidoError || !pedido) {
-        return res.status(404).json({ error: 'Pedido no encontrado' });
+        return reply.code(404).send({ error: 'Pedido no encontrado' });
       }
 
       // 5. Construir número de factura
@@ -527,7 +560,7 @@ export const facturacionController = {
         .eq('numero_actual', datosFiscales.numero_actual); // Optimistic locking
 
       if (updateError) {
-        return res.status(500).json({
+        return reply.code(500).send({
           error: 'Error al actualizar el correlativo. Intente de nuevo.'
         });
       }
@@ -539,7 +572,7 @@ export const facturacionController = {
           restaurante_id,
           pedido_id,
           datos_fiscales_id: datosFiscales.id,
-          usuario_id: req.user_info.id || null,
+          usuario_id: request.user_info.id || null,
           numero_factura: numeroFactura,
           nombre_cliente: nombre_cliente || 'Consumidor final',
           rtn_cliente: rtn_cliente || null,
@@ -556,11 +589,11 @@ export const facturacionController = {
         .single();
 
       if (facturaError) {
-        return res.status(400).json({ error: facturaError.message });
+        return reply.code(400).send({ error: facturaError.message });
       }
 
       // Devolver factura + datos fiscales para generar PDF
-      res.status(201).json({
+      return reply.code(201).send({
         data: {
           factura,
           datos_fiscales: datosFiscales
@@ -568,7 +601,7 @@ export const facturacionController = {
       });
     } catch (error) {
       console.error('Error generando factura:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   }
 };
