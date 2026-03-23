@@ -150,10 +150,10 @@ import {
 } from "../middlewares/permissions";
 import {
   createCompatibilityContext,
-  parseMultipartRequest,
   runExpressHandlers,
   type ExpressLikeHandler,
 } from "./compat";
+import { parseMultipartRequest } from "../utils/multipart";
 
 type RouteDefinition = {
   method: HTTPMethods;
