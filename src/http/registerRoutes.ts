@@ -1,4 +1,4 @@
-import type { FastifyInstance, HTTPMethods } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest, HTTPMethods } from "fastify";
 import {
   checkRefreshToken,
   checkSession,
@@ -148,238 +148,211 @@ import {
   requirePermissions,
   requireSuperAdmin,
 } from "../middlewares/permissions";
-import {
-  createCompatibilityContext,
-  runExpressHandlers,
-  type ExpressLikeHandler,
-} from "./compat";
 import { parseMultipartRequest } from "../utils/multipart";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type PreHandler = (request: any, reply: any) => Promise<any>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Handler = (request: any, reply: any) => Promise<any>;
 
 type RouteDefinition = {
   method: HTTPMethods;
   url: string;
-  handlers: ExpressLikeHandler[];
+  preHandler?: PreHandler[];
+  handler: Handler;
 };
 
-const cajaLogger: ExpressLikeHandler = (req, _res, next) => {
-  console.log(`[CAJA] ${req.method} ${req.originalUrl}`);
-  next?.();
+const cajaLogger = async (request: FastifyRequest, _reply: FastifyReply) => {
+  console.log(`[CAJA] ${request.method} ${request.url}`);
 };
 
-const cajaTestRoute: ExpressLikeHandler = (req, res) => {
-  const { restaurante_id } = req.params;
-  res.json({
-    message: "Ruta de prueba funcionando",
-    restaurante_id,
-    timestamp: new Date().toISOString(),
-  });
+const gastosLogger = async (request: FastifyRequest, _reply: FastifyReply) => {
+  console.log(`[GASTOS] ${request.method} ${request.url}`);
 };
 
-const gastosLogger: ExpressLikeHandler = (req, _res, next) => {
-  console.log(`[GASTOS] ${req.method} ${req.originalUrl}`);
-  next?.();
-};
-
-const gastosTestRoute: ExpressLikeHandler = (req, res) => {
-  const { restaurante_id } = req.params;
-  res.json({
-    message: "Ruta de gastos funcionando",
-    restaurante_id,
-    timestamp: new Date().toISOString(),
-  });
-};
-
-const multipartUploadMiddleware: ExpressLikeHandler = async (req, _res, next) => {
-  const { body, files } = await parseMultipartRequest(req.__fastifyRequest);
-  req.body = {
-    ...(req.body || {}),
-    ...body,
-  };
-  req.files = files;
-  next?.();
+const multipartPreHandler = async (request: FastifyRequest, _reply: FastifyReply) => {
+  const { body, files } = await parseMultipartRequest(request);
+  request.body = { ...(request.body as object || {}), ...body } as any;
+  if (files) (request as any).files = files;
 };
 
 const registerRoute = (app: FastifyInstance, route: RouteDefinition) => {
   app.route({
     method: route.method,
     url: route.url,
-    handler: async (request, reply) => {
-      const context = createCompatibilityContext(request, reply);
-      await runExpressHandlers(route.handlers, context);
-    },
+    preHandler: route.preHandler,
+    handler: route.handler,
   });
 };
 
 export const registerRoutes = async (app: FastifyInstance) => {
   const routes: RouteDefinition[] = [
-    { method: "POST", url: "/api/auth/register", handlers: [register] },
-    { method: "POST", url: "/api/auth/login", handlers: [login] },
-    { method: "GET", url: "/api/auth/session", handlers: [checkSession] },
-    { method: "POST", url: "/api/auth/logout", handlers: [requireAuth, logout] },
-    { method: "POST", url: "/api/auth/refresh", handlers: [refreshToken] },
-    { method: "POST", url: "/api/auth/check-refresh", handlers: [checkRefreshToken] },
-    { method: "GET", url: "/api/auth/user-info", handlers: [requireAuth, getUserInfo] },
-    { method: "POST", url: "/api/auth/recover", handlers: [sendPasswordReset] },
-    { method: "POST", url: "/api/auth/update-password", handlers: [updatePassword] },
+    { method: "POST", url: "/api/auth/register", handler: register },
+    { method: "POST", url: "/api/auth/login", handler: login },
+    { method: "GET", url: "/api/auth/session", handler: checkSession },
+    { method: "POST", url: "/api/auth/logout", preHandler: [requireAuth], handler: logout },
+    { method: "POST", url: "/api/auth/refresh", handler: refreshToken },
+    { method: "POST", url: "/api/auth/check-refresh", handler: checkRefreshToken },
+    { method: "GET", url: "/api/auth/user-info", preHandler: [requireAuth], handler: getUserInfo },
+    { method: "POST", url: "/api/auth/recover", handler: sendPasswordReset },
+    { method: "POST", url: "/api/auth/update-password", handler: updatePassword },
 
-    { method: "GET", url: "/api/restaurantes", handlers: [requireAuth, requirePermissions(["restaurantes.ver"]), getRestaurantes] },
-    { method: "GET", url: "/api/restaurantes/:id", handlers: [requireAuth, getRestauranteById] },
-    { method: "POST", url: "/api/restaurantes", handlers: [requireAuth, requirePermissions(["restaurantes.crear"]), createRestaurante] },
-    { method: "PUT", url: "/api/restaurantes/:id", handlers: [requireAuth, requirePermissions(["restaurantes.editar"]), updateRestaurante] },
-    { method: "DELETE", url: "/api/restaurantes/:id", handlers: [requireAuth, requirePermissions(["restaurantes.eliminar"]), deleteRestaurante] },
+    { method: "GET", url: "/api/restaurantes", preHandler: [requireAuth, requirePermissions(["restaurantes.ver"])], handler: getRestaurantes },
+    { method: "GET", url: "/api/restaurantes/:id", preHandler: [requireAuth], handler: getRestauranteById },
+    { method: "POST", url: "/api/restaurantes", preHandler: [requireAuth, requirePermissions(["restaurantes.crear"])], handler: createRestaurante },
+    { method: "PUT", url: "/api/restaurantes/:id", preHandler: [requireAuth, requirePermissions(["restaurantes.editar"])], handler: updateRestaurante },
+    { method: "DELETE", url: "/api/restaurantes/:id", preHandler: [requireAuth, requirePermissions(["restaurantes.eliminar"])], handler: deleteRestaurante },
 
-    { method: "POST", url: "/api/uploads", handlers: [requireAuth, multipartUploadMiddleware, uploadFile] },
+    { method: "POST", url: "/api/uploads", preHandler: [requireAuth, multipartPreHandler], handler: uploadFile },
 
-    { method: "GET", url: "/api/usuarios/me", handlers: [requireAuth, getCurrentUserInfo] },
-    { method: "PUT", url: "/api/usuarios/me", handlers: [requireAuth, updateMyProfile] },
-    { method: "GET", url: "/api/usuarios", handlers: [requireAuth, requirePermissions(["usuarios.ver"]), getUsuarios] },
-    { method: "GET", url: "/api/usuarios/:id", handlers: [requireAuth, requirePermissions(["usuarios.ver"]), getUsuarioById] },
-    { method: "POST", url: "/api/usuarios/invite", handlers: [requireAuth, requirePermissions(["usuarios.crear"]), createInvitacion] },
-    { method: "POST", url: "/api/usuarios", handlers: [requireAuth, requirePermissions(["usuarios.crear"]), createUsuario] },
-    { method: "PUT", url: "/api/usuarios/:id", handlers: [requireAuth, requirePermissions(["usuarios.editar"]), updateUsuario] },
-    { method: "DELETE", url: "/api/usuarios/:id", handlers: [requireAuth, requirePermissions(["usuarios.eliminar"]), deleteUsuario] },
+    { method: "GET", url: "/api/usuarios/me", preHandler: [requireAuth], handler: getCurrentUserInfo },
+    { method: "PUT", url: "/api/usuarios/me", preHandler: [requireAuth], handler: updateMyProfile },
+    { method: "GET", url: "/api/usuarios", preHandler: [requireAuth, requirePermissions(["usuarios.ver"])], handler: getUsuarios },
+    { method: "GET", url: "/api/usuarios/:id", preHandler: [requireAuth, requirePermissions(["usuarios.ver"])], handler: getUsuarioById },
+    { method: "POST", url: "/api/usuarios/invite", preHandler: [requireAuth, requirePermissions(["usuarios.crear"])], handler: createInvitacion },
+    { method: "POST", url: "/api/usuarios", preHandler: [requireAuth, requirePermissions(["usuarios.crear"])], handler: createUsuario },
+    { method: "PUT", url: "/api/usuarios/:id", preHandler: [requireAuth, requirePermissions(["usuarios.editar"])], handler: updateUsuario },
+    { method: "DELETE", url: "/api/usuarios/:id", preHandler: [requireAuth, requirePermissions(["usuarios.eliminar"])], handler: deleteUsuario },
 
-    { method: "GET", url: "/api/roles", handlers: [requireAuth, requirePermissions(["roles.ver"]), getRolesControllerRoles] },
-    { method: "GET", url: "/api/roles/:id", handlers: [requireAuth, requirePermissions(["roles.ver"]), getRolesControllerRolById] },
-    { method: "POST", url: "/api/roles", handlers: [requireAuth, requirePermissions(["roles.crear"]), createRolesControllerRol] },
-    { method: "PUT", url: "/api/roles/:id", handlers: [requireAuth, requirePermissions(["roles.editar"]), updateRolesControllerRol] },
-    { method: "DELETE", url: "/api/roles/:id", handlers: [requireAuth, requirePermissions(["roles.eliminar"]), deleteRolesControllerRol] },
-    { method: "GET", url: "/api/roles/user/permissions", handlers: [requireAuth, getUserPermissions] },
+    { method: "GET", url: "/api/roles", preHandler: [requireAuth, requirePermissions(["roles.ver"])], handler: getRolesControllerRoles },
+    { method: "GET", url: "/api/roles/:id", preHandler: [requireAuth, requirePermissions(["roles.ver"])], handler: getRolesControllerRolById },
+    { method: "POST", url: "/api/roles", preHandler: [requireAuth, requirePermissions(["roles.crear"])], handler: createRolesControllerRol },
+    { method: "PUT", url: "/api/roles/:id", preHandler: [requireAuth, requirePermissions(["roles.editar"])], handler: updateRolesControllerRol },
+    { method: "DELETE", url: "/api/roles/:id", preHandler: [requireAuth, requirePermissions(["roles.eliminar"])], handler: deleteRolesControllerRol },
+    { method: "GET", url: "/api/roles/user/permissions", preHandler: [requireAuth], handler: getUserPermissions },
 
-    { method: "GET", url: "/api/roles-personalizados/permisos", handlers: [requireAuth, requirePermissions(["roles.ver"]), getPermisos] },
-    { method: "GET", url: "/api/roles-personalizados", handlers: [requireAuth, requirePermissions(["roles.ver"]), getRolesControllerRoles] },
-    { method: "GET", url: "/api/roles-personalizados/:id", handlers: [requireAuth, requirePermissions(["roles.ver"]), getRolesControllerRolById] },
-    { method: "POST", url: "/api/roles-personalizados", handlers: [requireAuth, requirePermissions(["roles.crear"]), createRolesControllerRol] },
-    { method: "PUT", url: "/api/roles-personalizados/:id", handlers: [requireAuth, requirePermissions(["roles.editar"]), updateRolesControllerRol] },
-    { method: "DELETE", url: "/api/roles-personalizados/:id", handlers: [requireAuth, requirePermissions(["roles.eliminar"]), deleteRolesControllerRol] },
+    { method: "GET", url: "/api/roles-personalizados/permisos", preHandler: [requireAuth, requirePermissions(["roles.ver"])], handler: getPermisos },
+    { method: "GET", url: "/api/roles-personalizados", preHandler: [requireAuth, requirePermissions(["roles.ver"])], handler: getRolesControllerRoles },
+    { method: "GET", url: "/api/roles-personalizados/:id", preHandler: [requireAuth, requirePermissions(["roles.ver"])], handler: getRolesControllerRolById },
+    { method: "POST", url: "/api/roles-personalizados", preHandler: [requireAuth, requirePermissions(["roles.crear"])], handler: createRolesControllerRol },
+    { method: "PUT", url: "/api/roles-personalizados/:id", preHandler: [requireAuth, requirePermissions(["roles.editar"])], handler: updateRolesControllerRol },
+    { method: "DELETE", url: "/api/roles-personalizados/:id", preHandler: [requireAuth, requirePermissions(["roles.eliminar"])], handler: deleteRolesControllerRol },
 
-    { method: "GET", url: "/api/menu/categories", handlers: [requireAuth, requirePermissions(["categorias.ver", "pedidos.crear"]), getMenuCategories] },
-    { method: "POST", url: "/api/menu/categories", handlers: [requireAuth, requirePermissions(["categorias.crear"]), createMenuCategory] },
-    { method: "PUT", url: "/api/menu/categories/:id", handlers: [requireAuth, requirePermissions(["categorias.editar"]), updateMenuCategory] },
-    { method: "DELETE", url: "/api/menu/categories/:id", handlers: [requireAuth, requirePermissions(["categorias.eliminar"]), deleteMenuCategory] },
+    { method: "GET", url: "/api/menu/categories", preHandler: [requireAuth, requirePermissions(["categorias.ver", "pedidos.crear"])], handler: getMenuCategories },
+    { method: "POST", url: "/api/menu/categories", preHandler: [requireAuth, requirePermissions(["categorias.crear"])], handler: createMenuCategory },
+    { method: "PUT", url: "/api/menu/categories/:id", preHandler: [requireAuth, requirePermissions(["categorias.editar"])], handler: updateMenuCategory },
+    { method: "DELETE", url: "/api/menu/categories/:id", preHandler: [requireAuth, requirePermissions(["categorias.eliminar"])], handler: deleteMenuCategory },
 
-    { method: "GET", url: "/api/menu", handlers: [requireAuth, requirePermissions(["menu.ver", "pedidos.crear"]), getMenus] },
-    { method: "GET", url: "/api/menu/restaurante/:restaurante_id", handlers: [requireAuth, requirePermissions(["menu.ver", "pedidos.crear"]), getMenusByRestauranteId] },
-    { method: "GET", url: "/api/menu/:id", handlers: [requireAuth, requirePermissions(["menu.ver", "pedidos.crear"]), getMenuById] },
-    { method: "GET", url: "/api/menu/:id/consumos", handlers: [requireAuth, requirePermissions(["menu.ver"]), getMenuConsumos] },
-    { method: "PUT", url: "/api/menu/:id/consumos", handlers: [requireAuth, requirePermissions(["menu.editar"]), updateMenuConsumos] },
-    { method: "POST", url: "/api/menu", handlers: [requireAuth, requirePermissions(["menu.crear"]), createMenu] },
-    { method: "PUT", url: "/api/menu/:id", handlers: [requireAuth, requirePermissions(["menu.editar"]), updateMenu] },
-    { method: "DELETE", url: "/api/menu/:id", handlers: [requireAuth, requirePermissions(["menu.eliminar"]), deleteMenu] },
+    { method: "GET", url: "/api/menu", preHandler: [requireAuth, requirePermissions(["menu.ver", "pedidos.crear"])], handler: getMenus },
+    { method: "GET", url: "/api/menu/restaurante/:restaurante_id", preHandler: [requireAuth, requirePermissions(["menu.ver", "pedidos.crear"])], handler: getMenusByRestauranteId },
+    { method: "GET", url: "/api/menu/:id", preHandler: [requireAuth, requirePermissions(["menu.ver", "pedidos.crear"])], handler: getMenuById },
+    { method: "GET", url: "/api/menu/:id/consumos", preHandler: [requireAuth, requirePermissions(["menu.ver"])], handler: getMenuConsumos },
+    { method: "PUT", url: "/api/menu/:id/consumos", preHandler: [requireAuth, requirePermissions(["menu.editar"])], handler: updateMenuConsumos },
+    { method: "POST", url: "/api/menu", preHandler: [requireAuth, requirePermissions(["menu.crear"])], handler: createMenu },
+    { method: "PUT", url: "/api/menu/:id", preHandler: [requireAuth, requirePermissions(["menu.editar"])], handler: updateMenu },
+    { method: "DELETE", url: "/api/menu/:id", preHandler: [requireAuth, requirePermissions(["menu.eliminar"])], handler: deleteMenu },
 
-    { method: "GET", url: "/api/clientes", handlers: [requireAuth, requirePermissions(["clientes.ver", "pedidos.crear"]), getClientes] },
-    { method: "GET", url: "/api/clientes/restaurante/:restaurante_id", handlers: [requireAuth, requirePermissions(["clientes.ver", "pedidos.crear"]), getClientesByRestauranteId] },
-    { method: "GET", url: "/api/clientes/:id", handlers: [requireAuth, requirePermissions(["clientes.ver", "pedidos.crear"]), getClienteById] },
-    { method: "POST", url: "/api/clientes", handlers: [requireAuth, requirePermissions(["clientes.crear", "pedidos.crear"]), createCliente] },
-    { method: "PUT", url: "/api/clientes/:id", handlers: [requireAuth, requirePermissions(["clientes.editar"]), updateCliente] },
-    { method: "DELETE", url: "/api/clientes/:id", handlers: [requireAuth, requirePermissions(["clientes.eliminar"]), deleteCliente] },
+    { method: "GET", url: "/api/clientes", preHandler: [requireAuth, requirePermissions(["clientes.ver", "pedidos.crear"])], handler: getClientes },
+    { method: "GET", url: "/api/clientes/restaurante/:restaurante_id", preHandler: [requireAuth, requirePermissions(["clientes.ver", "pedidos.crear"])], handler: getClientesByRestauranteId },
+    { method: "GET", url: "/api/clientes/:id", preHandler: [requireAuth, requirePermissions(["clientes.ver", "pedidos.crear"])], handler: getClienteById },
+    { method: "POST", url: "/api/clientes", preHandler: [requireAuth, requirePermissions(["clientes.crear", "pedidos.crear"])], handler: createCliente },
+    { method: "PUT", url: "/api/clientes/:id", preHandler: [requireAuth, requirePermissions(["clientes.editar"])], handler: updateCliente },
+    { method: "DELETE", url: "/api/clientes/:id", preHandler: [requireAuth, requirePermissions(["clientes.eliminar"])], handler: deleteCliente },
 
-    { method: "GET", url: "/api/pedidos", handlers: [requireAuth, requirePermissions(["pedidos.ver"]), getPedidos] },
-    { method: "GET", url: "/api/pedidos/restaurante/:restaurante_id", handlers: [requireAuth, requirePermissions(["pedidos.ver"]), getPedidosByRestauranteId] },
-    { method: "GET", url: "/api/pedidos/:id", handlers: [requireAuth, requirePermissions(["pedidos.ver"]), getPedidoById] },
-    { method: "POST", url: "/api/pedidos", handlers: [requireAuth, requirePermissions(["pedidos.crear"]), createPedido] },
-    { method: "PUT", url: "/api/pedidos/:id", handlers: [requireAuth, requirePermissions(["pedidos.editar"]), updatePedido] },
-    { method: "DELETE", url: "/api/pedidos/:id", handlers: [requireAuth, requirePermissions(["pedidos.eliminar"]), deletePedido] },
+    { method: "GET", url: "/api/pedidos", preHandler: [requireAuth, requirePermissions(["pedidos.ver"])], handler: getPedidos },
+    { method: "GET", url: "/api/pedidos/restaurante/:restaurante_id", preHandler: [requireAuth, requirePermissions(["pedidos.ver"])], handler: getPedidosByRestauranteId },
+    { method: "GET", url: "/api/pedidos/:id", preHandler: [requireAuth, requirePermissions(["pedidos.ver"])], handler: getPedidoById },
+    { method: "POST", url: "/api/pedidos", preHandler: [requireAuth, requirePermissions(["pedidos.crear"])], handler: createPedido },
+    { method: "PUT", url: "/api/pedidos/:id", preHandler: [requireAuth, requirePermissions(["pedidos.editar"])], handler: updatePedido },
+    { method: "DELETE", url: "/api/pedidos/:id", preHandler: [requireAuth, requirePermissions(["pedidos.eliminar"])], handler: deletePedido },
 
-    { method: "GET", url: "/api/pedido-items", handlers: [requireAuth, requirePermissions(["pedidos.ver"]), getPedidoItems] },
-    { method: "GET", url: "/api/pedido-items/pedido/:pedido_id", handlers: [requireAuth, requirePermissions(["pedidos.ver"]), getItemsByPedidoId] },
-    { method: "GET", url: "/api/pedido-items/:id", handlers: [requireAuth, requirePermissions(["pedidos.ver"]), getPedidoItemById] },
-    { method: "POST", url: "/api/pedido-items", handlers: [requireAuth, requirePermissions(["pedidos.crear"]), createPedidoItem] },
-    { method: "POST", url: "/api/pedido-items/batch", handlers: [requireAuth, requirePermissions(["pedidos.crear"]), createPedidoItemsBatch] },
-    { method: "PUT", url: "/api/pedido-items/:id", handlers: [requireAuth, requirePermissions(["pedidos.editar"]), updatePedidoItem] },
-    { method: "PUT", url: "/api/pedido-items/:id/enviar-cocina", handlers: [requireAuth, requirePermissions(["pedidos.cambiar_estado"]), marcarEnviadoACocina] },
-    { method: "DELETE", url: "/api/pedido-items/:id", handlers: [requireAuth, requirePermissions(["pedidos.editar"]), deletePedidoItem] },
+    { method: "GET", url: "/api/pedido-items", preHandler: [requireAuth, requirePermissions(["pedidos.ver"])], handler: getPedidoItems },
+    { method: "GET", url: "/api/pedido-items/pedido/:pedido_id", preHandler: [requireAuth, requirePermissions(["pedidos.ver"])], handler: getItemsByPedidoId },
+    { method: "GET", url: "/api/pedido-items/:id", preHandler: [requireAuth, requirePermissions(["pedidos.ver"])], handler: getPedidoItemById },
+    { method: "POST", url: "/api/pedido-items", preHandler: [requireAuth, requirePermissions(["pedidos.crear"])], handler: createPedidoItem },
+    { method: "POST", url: "/api/pedido-items/batch", preHandler: [requireAuth, requirePermissions(["pedidos.crear"])], handler: createPedidoItemsBatch },
+    { method: "PUT", url: "/api/pedido-items/:id", preHandler: [requireAuth, requirePermissions(["pedidos.editar"])], handler: updatePedidoItem },
+    { method: "PUT", url: "/api/pedido-items/:id/enviar-cocina", preHandler: [requireAuth, requirePermissions(["pedidos.cambiar_estado"])], handler: marcarEnviadoACocina },
+    { method: "DELETE", url: "/api/pedido-items/:id", preHandler: [requireAuth, requirePermissions(["pedidos.editar"])], handler: deletePedidoItem },
 
-    { method: "GET", url: "/api/metodos-pago", handlers: [requireAuth, getMetodosPago] },
-    { method: "GET", url: "/api/metodos-pago/:id", handlers: [requireAuth, getMetodoPagoById] },
-    { method: "POST", url: "/api/metodos-pago", handlers: [requireAuth, requirePermissions(["dashboard.ver"]), createMetodoPago] },
-    { method: "PUT", url: "/api/metodos-pago/:id", handlers: [requireAuth, requirePermissions(["dashboard.ver"]), updateMetodoPago] },
-    { method: "DELETE", url: "/api/metodos-pago/:id", handlers: [requireAuth, requirePermissions(["dashboard.ver"]), deleteMetodoPago] },
+    { method: "GET", url: "/api/metodos-pago", preHandler: [requireAuth], handler: getMetodosPago },
+    { method: "GET", url: "/api/metodos-pago/:id", preHandler: [requireAuth], handler: getMetodoPagoById },
+    { method: "POST", url: "/api/metodos-pago", preHandler: [requireAuth, requirePermissions(["dashboard.ver"])], handler: createMetodoPago },
+    { method: "PUT", url: "/api/metodos-pago/:id", preHandler: [requireAuth, requirePermissions(["dashboard.ver"])], handler: updateMetodoPago },
+    { method: "DELETE", url: "/api/metodos-pago/:id", preHandler: [requireAuth, requirePermissions(["dashboard.ver"])], handler: deleteMetodoPago },
 
-    { method: "GET", url: "/api/inventario/estadisticas", handlers: [requireAuth, requirePermissions(["inventario.ver"]), obtenerEstadisticas] },
-    { method: "GET", url: "/api/inventario/alertas", handlers: [requireAuth, requirePermissions(["inventario.ver", "pedidos.crear"]), obtenerAlertas] },
-    { method: "PUT", url: "/api/inventario/alertas/marcar-todas-leidas", handlers: [requireAuth, requirePermissions(["inventario.ver", "pedidos.crear"]), marcarTodasAlertasLeidas] },
-    { method: "PUT", url: "/api/inventario/alertas/:id/leer", handlers: [requireAuth, requirePermissions(["inventario.ver", "pedidos.crear"]), marcarAlertaLeida] },
-    { method: "DELETE", url: "/api/inventario/alertas/:id", handlers: [requireAuth, requirePermissions(["inventario.ver", "pedidos.crear"]), eliminarAlerta] },
-    { method: "GET", url: "/api/inventario/movimientos", handlers: [requireAuth, requirePermissions(["movimientos.ver"]), obtenerMovimientos] },
-    { method: "POST", url: "/api/inventario/movimientos", handlers: [requireAuth, requirePermissions(["movimientos.crear"]), crearMovimiento] },
-    { method: "GET", url: "/api/inventario/stock-bajo", handlers: [requireAuth, requirePermissions(["inventario.ver"]), obtenerProductosStockBajo] },
-    { method: "GET", url: "/api/inventario/verificar-stock/:inventarioId", handlers: [requireAuth, requirePermissions(["inventario.ver"]), verificarStockDisponible] },
-    { method: "GET", url: "/api/inventario", handlers: [requireAuth, requirePermissions(["inventario.ver"]), obtenerInventario] },
-    { method: "POST", url: "/api/inventario", handlers: [requireAuth, requirePermissions(["inventario.crear"]), crearInventario] },
-    { method: "GET", url: "/api/inventario/:id/desglose", handlers: [requireAuth, requirePermissions(["inventario.ver"]), obtenerDesglose] },
-    { method: "POST", url: "/api/inventario/:id/desglose", handlers: [requireAuth, requirePermissions(["inventario.editar"]), crearReglaDesglose] },
-    { method: "DELETE", url: "/api/inventario/:id/desglose/:reglaId", handlers: [requireAuth, requirePermissions(["inventario.editar"]), eliminarReglaDesglose] },
-    { method: "GET", url: "/api/inventario/:id", handlers: [requireAuth, requirePermissions(["inventario.ver"]), obtenerInventarioPorId] },
-    { method: "PUT", url: "/api/inventario/:id", handlers: [requireAuth, requirePermissions(["inventario.editar"]), actualizarInventario] },
-    { method: "DELETE", url: "/api/inventario/:id", handlers: [requireAuth, requirePermissions(["inventario.eliminar"]), eliminarInventario] },
+    { method: "GET", url: "/api/inventario/estadisticas", preHandler: [requireAuth, requirePermissions(["inventario.ver"])], handler: obtenerEstadisticas },
+    { method: "GET", url: "/api/inventario/alertas", preHandler: [requireAuth, requirePermissions(["inventario.ver", "pedidos.crear"])], handler: obtenerAlertas },
+    { method: "PUT", url: "/api/inventario/alertas/marcar-todas-leidas", preHandler: [requireAuth, requirePermissions(["inventario.ver", "pedidos.crear"])], handler: marcarTodasAlertasLeidas },
+    { method: "PUT", url: "/api/inventario/alertas/:id/leer", preHandler: [requireAuth, requirePermissions(["inventario.ver", "pedidos.crear"])], handler: marcarAlertaLeida },
+    { method: "DELETE", url: "/api/inventario/alertas/:id", preHandler: [requireAuth, requirePermissions(["inventario.ver", "pedidos.crear"])], handler: eliminarAlerta },
+    { method: "GET", url: "/api/inventario/movimientos", preHandler: [requireAuth, requirePermissions(["movimientos.ver"])], handler: obtenerMovimientos },
+    { method: "POST", url: "/api/inventario/movimientos", preHandler: [requireAuth, requirePermissions(["movimientos.crear"])], handler: crearMovimiento },
+    { method: "GET", url: "/api/inventario/stock-bajo", preHandler: [requireAuth, requirePermissions(["inventario.ver"])], handler: obtenerProductosStockBajo },
+    { method: "GET", url: "/api/inventario/verificar-stock/:inventarioId", preHandler: [requireAuth, requirePermissions(["inventario.ver"])], handler: verificarStockDisponible },
+    { method: "GET", url: "/api/inventario", preHandler: [requireAuth, requirePermissions(["inventario.ver"])], handler: obtenerInventario },
+    { method: "POST", url: "/api/inventario", preHandler: [requireAuth, requirePermissions(["inventario.crear"])], handler: crearInventario },
+    { method: "GET", url: "/api/inventario/:id/desglose", preHandler: [requireAuth, requirePermissions(["inventario.ver"])], handler: obtenerDesglose },
+    { method: "POST", url: "/api/inventario/:id/desglose", preHandler: [requireAuth, requirePermissions(["inventario.editar"])], handler: crearReglaDesglose },
+    { method: "DELETE", url: "/api/inventario/:id/desglose/:reglaId", preHandler: [requireAuth, requirePermissions(["inventario.editar"])], handler: eliminarReglaDesglose },
+    { method: "GET", url: "/api/inventario/:id", preHandler: [requireAuth, requirePermissions(["inventario.ver"])], handler: obtenerInventarioPorId },
+    { method: "PUT", url: "/api/inventario/:id", preHandler: [requireAuth, requirePermissions(["inventario.editar"])], handler: actualizarInventario },
+    { method: "DELETE", url: "/api/inventario/:id", preHandler: [requireAuth, requirePermissions(["inventario.eliminar"])], handler: eliminarInventario },
 
-    { method: "GET", url: "/api/caja/test/:restaurante_id", handlers: [cajaLogger, cajaTestRoute] },
-    { method: "GET", url: "/api/caja/all", handlers: [cajaLogger, requireAuth, requirePermissions(["caja.ver"]), requireSuperAdmin, cajaController.getAllCajas] },
-    { method: "GET", url: "/api/caja/open", handlers: [cajaLogger, requireAuth, requirePermissions(["caja.ver"]), requireSuperAdmin, cajaController.getAllCajasAbiertas] },
-    { method: "GET", url: "/api/caja/restaurante/:restaurante_id", handlers: [cajaLogger, requireAuth, requirePermissions(["caja.ver"]), cajaController.getCajas] },
-    { method: "GET", url: "/api/caja/restaurante/:restaurante_id/actual", handlers: [cajaLogger, requireAuth, requirePermissions(["caja.ver", "pedidos.crear", "pedidos.ver"]), cajaController.getCajaActual] },
-    { method: "GET", url: "/api/caja/restaurante/:restaurante_id/resumen", handlers: [cajaLogger, requireAuth, requirePermissions(["caja.ver"]), cajaController.getResumenCaja] },
-    { method: "GET", url: "/api/caja/:id", handlers: [cajaLogger, requireAuth, requirePermissions(["caja.ver"]), cajaController.getCajaById] },
-    { method: "POST", url: "/api/caja/abrir", handlers: [cajaLogger, requireAuth, requirePermissions(["caja.abrir"]), cajaController.abrirCaja] },
-    { method: "PUT", url: "/api/caja/:id/cerrar", handlers: [cajaLogger, requireAuth, requirePermissions(["caja.cerrar"]), cajaController.cerrarCaja] },
-    { method: "POST", url: "/api/caja/:id/retiro", handlers: [cajaLogger, requireAuth, requirePermissions(["caja.cerrar"]), cajaController.registrarRetiro] },
-    { method: "GET", url: "/api/caja/:id/retiros", handlers: [cajaLogger, requireAuth, requirePermissions(["caja.ver"]), cajaController.getRetirosCaja] },
-    { method: "DELETE", url: "/api/caja/retiro/:retiro_id", handlers: [cajaLogger, requireAuth, requirePermissions(["caja.cerrar"]), cajaController.eliminarRetiro] },
-    { method: "PUT", url: "/api/caja/:id", handlers: [cajaLogger, requireAuth, requirePermissions(["caja.registrar_ingresos"]), cajaController.actualizarCaja] },
+    { method: "GET", url: "/api/caja/all", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.ver"]), requireSuperAdmin], handler: cajaController.getAllCajas },
+    { method: "GET", url: "/api/caja/open", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.ver"]), requireSuperAdmin], handler: cajaController.getAllCajasAbiertas },
+    { method: "GET", url: "/api/caja/restaurante/:restaurante_id", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.ver"])], handler: cajaController.getCajas },
+    { method: "GET", url: "/api/caja/restaurante/:restaurante_id/actual", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.ver", "pedidos.crear", "pedidos.ver"])], handler: cajaController.getCajaActual },
+    { method: "GET", url: "/api/caja/restaurante/:restaurante_id/resumen", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.ver"])], handler: cajaController.getResumenCaja },
+    { method: "GET", url: "/api/caja/:id", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.ver"])], handler: cajaController.getCajaById },
+    { method: "POST", url: "/api/caja/abrir", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.abrir"])], handler: cajaController.abrirCaja },
+    { method: "PUT", url: "/api/caja/:id/cerrar", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.cerrar"])], handler: cajaController.cerrarCaja },
+    { method: "POST", url: "/api/caja/:id/retiro", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.cerrar"])], handler: cajaController.registrarRetiro },
+    { method: "GET", url: "/api/caja/:id/retiros", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.ver"])], handler: cajaController.getRetirosCaja },
+    { method: "DELETE", url: "/api/caja/retiro/:retiro_id", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.cerrar"])], handler: cajaController.eliminarRetiro },
+    { method: "PUT", url: "/api/caja/:id", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.registrar_ingresos"])], handler: cajaController.actualizarCaja },
 
-    { method: "GET", url: "/api/gastos/test/:restaurante_id", handlers: [gastosLogger, gastosTestRoute] },
-    { method: "GET", url: "/api/gastos/restaurante/:restaurante_id", handlers: [gastosLogger, requireAuth, requirePermissions(["gastos.ver"]), gastosController.getGastos] },
-    { method: "GET", url: "/api/gastos/restaurante/:restaurante_id/resumen-categoria", handlers: [gastosLogger, requireAuth, requirePermissions(["gastos.ver"]), gastosController.getResumenPorCategoria] },
-    { method: "GET", url: "/api/gastos/restaurante/:restaurante_id/total", handlers: [gastosLogger, requireAuth, requirePermissions(["gastos.ver"]), gastosController.getTotalGastos] },
-    { method: "GET", url: "/api/gastos/:id", handlers: [gastosLogger, requireAuth, requirePermissions(["gastos.ver"]), gastosController.getGastoById] },
-    { method: "POST", url: "/api/gastos", handlers: [gastosLogger, requireAuth, requirePermissions(["gastos.crear"]), gastosController.createGasto] },
-    { method: "PUT", url: "/api/gastos/:id", handlers: [gastosLogger, requireAuth, requirePermissions(["gastos.editar"]), gastosController.updateGasto] },
-    { method: "DELETE", url: "/api/gastos/:id", handlers: [gastosLogger, requireAuth, requirePermissions(["gastos.eliminar"]), gastosController.deleteGasto] },
+    { method: "GET", url: "/api/gastos/restaurante/:restaurante_id", preHandler: [gastosLogger, requireAuth, requirePermissions(["gastos.ver"])], handler: gastosController.getGastos },
+    { method: "GET", url: "/api/gastos/restaurante/:restaurante_id/resumen-categoria", preHandler: [gastosLogger, requireAuth, requirePermissions(["gastos.ver"])], handler: gastosController.getResumenPorCategoria },
+    { method: "GET", url: "/api/gastos/restaurante/:restaurante_id/total", preHandler: [gastosLogger, requireAuth, requirePermissions(["gastos.ver"])], handler: gastosController.getTotalGastos },
+    { method: "GET", url: "/api/gastos/:id", preHandler: [gastosLogger, requireAuth, requirePermissions(["gastos.ver"])], handler: gastosController.getGastoById },
+    { method: "POST", url: "/api/gastos", preHandler: [gastosLogger, requireAuth, requirePermissions(["gastos.crear"])], handler: gastosController.createGasto },
+    { method: "PUT", url: "/api/gastos/:id", preHandler: [gastosLogger, requireAuth, requirePermissions(["gastos.editar"])], handler: gastosController.updateGasto },
+    { method: "DELETE", url: "/api/gastos/:id", preHandler: [gastosLogger, requireAuth, requirePermissions(["gastos.eliminar"])], handler: gastosController.deleteGasto },
 
-    { method: "GET", url: "/api/notificaciones", handlers: [requireAuth, getNotificaciones] },
-    { method: "GET", url: "/api/notificaciones/no-leidas/count", handlers: [requireAuth, getNotificacionesNoLeidasCount] },
-    { method: "PUT", url: "/api/notificaciones/:id/leida", handlers: [requireAuth, marcarNotificacionLeida] },
-    { method: "PUT", url: "/api/notificaciones/marcar-todas-leidas", handlers: [requireAuth, marcarTodasNotificacionesLeidas] },
-    { method: "DELETE", url: "/api/notificaciones/:id", handlers: [requireAuth, deleteNotificacion] },
+    { method: "GET", url: "/api/notificaciones", preHandler: [requireAuth], handler: getNotificaciones },
+    { method: "GET", url: "/api/notificaciones/no-leidas/count", preHandler: [requireAuth], handler: getNotificacionesNoLeidasCount },
+    { method: "PUT", url: "/api/notificaciones/:id/leida", preHandler: [requireAuth], handler: marcarNotificacionLeida },
+    { method: "PUT", url: "/api/notificaciones/marcar-todas-leidas", preHandler: [requireAuth], handler: marcarTodasNotificacionesLeidas },
+    { method: "DELETE", url: "/api/notificaciones/:id", preHandler: [requireAuth], handler: deleteNotificacion },
 
-    { method: "POST", url: "/api/invitaciones", handlers: [requireAuth, requirePermissions(["invitaciones.crear"]), createInvitacion] },
-    { method: "GET", url: "/api/invitaciones", handlers: [requireAuth, requirePermissions(["invitaciones.ver"]), getInvitaciones] },
-    { method: "DELETE", url: "/api/invitaciones/:id", handlers: [requireAuth, requirePermissions(["invitaciones.eliminar"]), deleteInvitacion] },
-    { method: "POST", url: "/api/invitaciones/:id/resend", handlers: [requireAuth, requirePermissions(["invitaciones.reenviar"]), resendInvitacion] },
+    { method: "POST", url: "/api/invitaciones", preHandler: [requireAuth, requirePermissions(["invitaciones.crear"])], handler: createInvitacion },
+    { method: "GET", url: "/api/invitaciones", preHandler: [requireAuth, requirePermissions(["invitaciones.ver"])], handler: getInvitaciones },
+    { method: "DELETE", url: "/api/invitaciones/:id", preHandler: [requireAuth, requirePermissions(["invitaciones.eliminar"])], handler: deleteInvitacion },
+    { method: "POST", url: "/api/invitaciones/:id/resend", preHandler: [requireAuth, requirePermissions(["invitaciones.reenviar"])], handler: resendInvitacion },
 
-    { method: "GET", url: "/api/descuentos", handlers: [requireAuth, requirePermissions(["descuentos.ver"]), getDescuentos] },
-    { method: "GET", url: "/api/descuentos/activos", handlers: [requireAuth, requirePermissions(["descuentos.ver", "pedidos.crear"]), getDescuentosActivos] },
-    { method: "GET", url: "/api/descuentos/:id", handlers: [requireAuth, requirePermissions(["descuentos.ver"]), getDescuentoById] },
-    { method: "POST", url: "/api/descuentos", handlers: [requireAuth, requirePermissions(["descuentos.crear"]), createDescuento] },
-    { method: "PUT", url: "/api/descuentos/:id", handlers: [requireAuth, requirePermissions(["descuentos.editar"]), updateDescuento] },
-    { method: "DELETE", url: "/api/descuentos/:id", handlers: [requireAuth, requirePermissions(["descuentos.eliminar"]), deleteDescuento] },
+    { method: "GET", url: "/api/descuentos", preHandler: [requireAuth, requirePermissions(["descuentos.ver"])], handler: getDescuentos },
+    { method: "GET", url: "/api/descuentos/activos", preHandler: [requireAuth, requirePermissions(["descuentos.ver", "pedidos.crear"])], handler: getDescuentosActivos },
+    { method: "GET", url: "/api/descuentos/:id", preHandler: [requireAuth, requirePermissions(["descuentos.ver"])], handler: getDescuentoById },
+    { method: "POST", url: "/api/descuentos", preHandler: [requireAuth, requirePermissions(["descuentos.crear"])], handler: createDescuento },
+    { method: "PUT", url: "/api/descuentos/:id", preHandler: [requireAuth, requirePermissions(["descuentos.editar"])], handler: updateDescuento },
+    { method: "DELETE", url: "/api/descuentos/:id", preHandler: [requireAuth, requirePermissions(["descuentos.eliminar"])], handler: deleteDescuento },
 
-    { method: "GET", url: "/api/unidades-medida", handlers: [requireAuth, requirePermissions(["inventario.ver"]), obtenerUnidadesMedida] },
-    { method: "POST", url: "/api/unidades-medida", handlers: [requireAuth, requirePermissions(["inventario.crear"]), crearUnidadMedida] },
-    { method: "PUT", url: "/api/unidades-medida/:id", handlers: [requireAuth, requirePermissions(["inventario.editar"]), actualizarUnidadMedida] },
-    { method: "DELETE", url: "/api/unidades-medida/:id", handlers: [requireAuth, requirePermissions(["inventario.editar"]), eliminarUnidadMedida] },
+    { method: "GET", url: "/api/unidades-medida", preHandler: [requireAuth, requirePermissions(["inventario.ver"])], handler: obtenerUnidadesMedida },
+    { method: "POST", url: "/api/unidades-medida", preHandler: [requireAuth, requirePermissions(["inventario.crear"])], handler: crearUnidadMedida },
+    { method: "PUT", url: "/api/unidades-medida/:id", preHandler: [requireAuth, requirePermissions(["inventario.editar"])], handler: actualizarUnidadMedida },
+    { method: "DELETE", url: "/api/unidades-medida/:id", preHandler: [requireAuth, requirePermissions(["inventario.editar"])], handler: eliminarUnidadMedida },
 
     // Sesiones de escaneo (barcode scanner desde celular)
-    { method: "POST", url: "/api/scan-sessions", handlers: [requireAuth, crearSesion] },
-    { method: "GET", url: "/api/scan-sessions/:id/status", handlers: [obtenerEstadoSesion] },
-    { method: "GET", url: "/api/scan-sessions/:id/codes", handlers: [requireAuth, obtenerCodigos] },
-    { method: "POST", url: "/api/scan-sessions/:id/codes", handlers: [enviarCodigo] },
-    { method: "DELETE", url: "/api/scan-sessions/:id", handlers: [requireAuth, cerrarSesion] },
+    { method: "POST", url: "/api/scan-sessions", preHandler: [requireAuth], handler: crearSesion },
+    { method: "GET", url: "/api/scan-sessions/:id/status", handler: obtenerEstadoSesion },
+    { method: "GET", url: "/api/scan-sessions/:id/codes", preHandler: [requireAuth], handler: obtenerCodigos },
+    { method: "POST", url: "/api/scan-sessions/:id/codes", handler: enviarCodigo },
+    { method: "DELETE", url: "/api/scan-sessions/:id", preHandler: [requireAuth], handler: cerrarSesion },
 
-    { method: "POST", url: "/api/reportes/preview", handlers: [requireAuth, requirePermissions(["reportes.ver"]), previewReporte] },
+    { method: "POST", url: "/api/reportes/preview", preHandler: [requireAuth, requirePermissions(["reportes.ver"])], handler: previewReporte },
 
-    { method: "GET", url: "/api/cocina/:restaurante_id", handlers: [requireAuth, requirePermissions(["cocina.ver"]), getPedidosCocina] },
+    { method: "GET", url: "/api/cocina/:restaurante_id", preHandler: [requireAuth, requirePermissions(["cocina.ver"])], handler: getPedidosCocina },
 
-    { method: "GET", url: "/api/facturacion/datos-fiscales/:restaurante_id", handlers: [requireAuth, requirePermissions(["facturacion.ver"]), facturacionController.getDatosFiscales] },
-    { method: "POST", url: "/api/facturacion/datos-fiscales", handlers: [requireAuth, requirePermissions(["facturacion.editar"]), facturacionController.createDatosFiscales] },
-    { method: "PUT", url: "/api/facturacion/datos-fiscales/:id", handlers: [requireAuth, requirePermissions(["facturacion.editar"]), facturacionController.updateDatosFiscales] },
-    { method: "POST", url: "/api/facturacion/facturas/generar", handlers: [requireAuth, requirePermissions(["facturacion.crear"]), facturacionController.generarFactura] },
-    { method: "GET", url: "/api/facturacion/facturas/detalle/:id", handlers: [requireAuth, requirePermissions(["facturacion.ver"]), facturacionController.getFacturaDetalle] },
-    { method: "GET", url: "/api/facturacion/facturas/:restaurante_id/hoy", handlers: [requireAuth, requirePermissions(["facturacion.ver"]), facturacionController.getFacturasHoy] },
-    { method: "GET", url: "/api/facturacion/facturas/:restaurante_id/resumen", handlers: [requireAuth, requirePermissions(["facturacion.ver"]), facturacionController.getResumenDia] },
-    { method: "GET", url: "/api/facturacion/facturas/:restaurante_id", handlers: [requireAuth, requirePermissions(["facturacion.ver"]), facturacionController.getFacturas] },
-    { method: "PUT", url: "/api/facturacion/facturas/:id/anular", handlers: [requireAuth, requirePermissions(["facturacion.anular"]), facturacionController.anularFactura] },
+    { method: "GET", url: "/api/facturacion/datos-fiscales/:restaurante_id", preHandler: [requireAuth, requirePermissions(["facturacion.ver"])], handler: facturacionController.getDatosFiscales },
+    { method: "POST", url: "/api/facturacion/datos-fiscales", preHandler: [requireAuth, requirePermissions(["facturacion.editar"])], handler: facturacionController.createDatosFiscales },
+    { method: "PUT", url: "/api/facturacion/datos-fiscales/:id", preHandler: [requireAuth, requirePermissions(["facturacion.editar"])], handler: facturacionController.updateDatosFiscales },
+    { method: "POST", url: "/api/facturacion/facturas/generar", preHandler: [requireAuth, requirePermissions(["facturacion.crear"])], handler: facturacionController.generarFactura },
+    { method: "GET", url: "/api/facturacion/facturas/detalle/:id", preHandler: [requireAuth, requirePermissions(["facturacion.ver"])], handler: facturacionController.getFacturaDetalle },
+    { method: "GET", url: "/api/facturacion/facturas/:restaurante_id/hoy", preHandler: [requireAuth, requirePermissions(["facturacion.ver"])], handler: facturacionController.getFacturasHoy },
+    { method: "GET", url: "/api/facturacion/facturas/:restaurante_id/resumen", preHandler: [requireAuth, requirePermissions(["facturacion.ver"])], handler: facturacionController.getResumenDia },
+    { method: "GET", url: "/api/facturacion/facturas/:restaurante_id", preHandler: [requireAuth, requirePermissions(["facturacion.ver"])], handler: facturacionController.getFacturas },
+    { method: "PUT", url: "/api/facturacion/facturas/:id/anular", preHandler: [requireAuth, requirePermissions(["facturacion.anular"])], handler: facturacionController.anularFactura },
   ];
 
   routes.forEach((route) => registerRoute(app, route));
