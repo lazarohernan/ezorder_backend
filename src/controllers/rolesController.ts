@@ -1,10 +1,10 @@
-import { Request, Response } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabaseAdmin } from "../supabase/supabase";
 
 // Helper function para verificar supabaseAdmin
-const ensureSupabaseAdmin = (res: Response) => {
+const ensureSupabaseAdmin = (reply: FastifyReply) => {
   if (!supabaseAdmin) {
-    res.status(500).json({
+    reply.code(500).send({
       ok: false,
       message: "Error de configuración del servidor"
     });
@@ -14,8 +14,8 @@ const ensureSupabaseAdmin = (res: Response) => {
 };
 
 // Helper para obtener supabaseAdmin garantizado
-const getSupabaseAdmin = (res: Response) => {
-  if (!ensureSupabaseAdmin(res)) {
+const getSupabaseAdmin = (reply: FastifyReply) => {
+  if (!ensureSupabaseAdmin(reply)) {
     return null;
   }
   return supabaseAdmin;
@@ -36,9 +36,9 @@ interface UpdateRoleDTO extends Partial<CreateRoleDTO> {
 }
 
 // Obtener todos los permisos disponibles
-export const getPermisos = async (req: Request, res: Response) => {
+export const getPermisos = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!ensureSupabaseAdmin(res)) return;
+    if (!ensureSupabaseAdmin(reply)) return;
 
     const { data: permisos, error } = await supabaseAdmin!
       .from('permisos')
@@ -48,7 +48,7 @@ export const getPermisos = async (req: Request, res: Response) => {
 
     if (error) {
       console.error('Error al obtener permisos:', error);
-      return res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error al obtener permisos"
       });
@@ -91,13 +91,13 @@ export const getPermisos = async (req: Request, res: Response) => {
       });
     });
 
-    res.json({
+    return reply.send({
       ok: true,
       data: permisosPorTipo
     });
   } catch (error) {
     console.error('Error en getPermisos:', error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error interno del servidor"
     });
@@ -105,10 +105,10 @@ export const getPermisos = async (req: Request, res: Response) => {
 };
 
 // Obtener todos los roles personalizados
-export const getRoles = async (req: Request, res: Response) => {
+export const getRoles = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     if (!supabaseAdmin) {
-      return res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error de configuración del servidor"
       });
@@ -131,7 +131,7 @@ export const getRoles = async (req: Request, res: Response) => {
 
     if (error) {
       console.error('Error al obtener roles:', error);
-      return res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error al obtener roles personalizados"
       });
@@ -143,13 +143,13 @@ export const getRoles = async (req: Request, res: Response) => {
       permisos: rol.rol_permisos?.map((rp: any) => rp.permisos) || []
     })) || [];
 
-    res.json({
+    return reply.send({
       ok: true,
       data: rolesWithPermisos
     });
   } catch (error) {
     console.error('Error en getRoles:', error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error interno del servidor"
     });
@@ -157,9 +157,9 @@ export const getRoles = async (req: Request, res: Response) => {
 };
 
 // Obtener un rol específico
-export const getRolById = async (req: Request, res: Response) => {
+export const getRolById = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const { id } = req.params;
+    const { id } = (request.params as any);
 
     const { data: role, error } = await supabaseAdmin!
       .from('roles_personalizados')
@@ -179,13 +179,13 @@ export const getRolById = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === 'PGRST116') {
-        return res.status(404).json({
+        return reply.code(404).send({
           ok: false,
           message: "Rol no encontrado"
         });
       }
       console.error('Error al obtener rol:', error);
-      return res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error al obtener rol"
       });
@@ -197,13 +197,13 @@ export const getRolById = async (req: Request, res: Response) => {
       permisos: role.rol_permisos.map((rp: any) => rp.permisos)
     };
 
-    res.json({
+    return reply.send({
       ok: true,
       data: roleProcesado
     });
   } catch (error) {
     console.error('Error en getRolById:', error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error interno del servidor"
     });
@@ -211,38 +211,38 @@ export const getRolById = async (req: Request, res: Response) => {
 };
 
 // Crear un nuevo rol personalizado
-export const createRol = async (req: Request, res: Response) => {
+export const createRol = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         ok: false,
         message: "No se encontró información del usuario autenticado"
       });
     }
 
     // Solo Super Admin y Admin pueden crear roles personalizados
-    const id_rol = req.user_info?.rol_id ?? 3;
-    const hasCustomRole = req.user_info?.rol_personalizado_id;
-    
+    const id_rol = request.user_info?.rol_id ?? 3;
+    const hasCustomRole = request.user_info?.rol_personalizado_id;
+
     if (id_rol !== 1 && id_rol !== 2 && !hasCustomRole) {
-      return res.status(403).json({
+      return reply.code(403).send({
         ok: false,
         message: "No tienes permisos para crear roles personalizados"
       });
     }
 
-    const { nombre, descripcion, color, icono, permisos }: CreateRoleDTO = req.body;
+    const { nombre, descripcion, color, icono, permisos }: CreateRoleDTO = (request.body as any);
 
     // Validaciones
     if (!nombre || !permisos || !Array.isArray(permisos)) {
-      return res.status(400).json({
+      return reply.code(400).send({
         ok: false,
         message: "Nombre y permisos son requeridos"
       });
     }
 
     if (!supabaseAdmin) {
-      return res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error de configuración del servidor"
       });
@@ -256,7 +256,7 @@ export const createRol = async (req: Request, res: Response) => {
       .single();
 
     if (existingRole) {
-      return res.status(400).json({
+      return reply.code(400).send({
         ok: false,
         message: "Ya existe un rol con este nombre"
       });
@@ -270,14 +270,14 @@ export const createRol = async (req: Request, res: Response) => {
         descripcion,
         color: color || '#3B82F6',
         icono: icono || 'user',
-        created_by: req.user_info.id
+        created_by: request.user_info.id
       }])
       .select()
       .single();
 
     if (roleError) {
       console.error('Error al crear rol:', roleError);
-      return res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error al crear rol"
       });
@@ -302,21 +302,21 @@ export const createRol = async (req: Request, res: Response) => {
           .delete()
           .eq('id', newRole.id);
 
-        return res.status(500).json({
+        return reply.code(500).send({
           ok: false,
           message: "Error al asignar permisos al rol"
         });
       }
     }
 
-    res.status(201).json({
+    return reply.code(201).send({
       ok: true,
       data: newRole,
       message: "Rol creado exitosamente"
     });
   } catch (error) {
     console.error('Error en createRol:', error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error interno del servidor"
     });
@@ -324,35 +324,35 @@ export const createRol = async (req: Request, res: Response) => {
 };
 
 // Actualizar un rol
-export const updateRol = async (req: Request, res: Response) => {
+export const updateRol = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         ok: false,
         message: "No se encontró información del usuario autenticado"
       });
     }
 
     // Solo Super Admin y Admin pueden actualizar roles personalizados
-    const id_rol = req.user_info?.rol_id ?? 3;
-    const hasCustomRole = req.user_info?.rol_personalizado_id;
-    
+    const id_rol = request.user_info?.rol_id ?? 3;
+    const hasCustomRole = request.user_info?.rol_personalizado_id;
+
     if (id_rol !== 1 && id_rol !== 2 && !hasCustomRole) {
-      return res.status(403).json({
+      return reply.code(403).send({
         ok: false,
         message: "No tienes permisos para actualizar roles personalizados"
       });
     }
 
     if (!supabaseAdmin) {
-      return res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error de configuración del servidor"
       });
     }
 
-    const { id } = req.params;
-    const { nombre, descripcion, color, icono, permisos, activo, requiere_cierre_manual }: UpdateRoleDTO = req.body;
+    const { id } = (request.params as any);
+    const { nombre, descripcion, color, icono, permisos, activo, requiere_cierre_manual }: UpdateRoleDTO = (request.body as any);
 
     // Verificar que el rol existe
     const { data: existingRole, error: findError } = await supabaseAdmin!
@@ -362,7 +362,7 @@ export const updateRol = async (req: Request, res: Response) => {
       .single();
 
     if (findError || !existingRole) {
-      return res.status(404).json({
+      return reply.code(404).send({
         ok: false,
         message: "Rol no encontrado"
       });
@@ -378,7 +378,7 @@ export const updateRol = async (req: Request, res: Response) => {
         .single();
 
       if (duplicateName) {
-        return res.status(400).json({
+        return reply.code(400).send({
           ok: false,
           message: "Ya existe un rol con este nombre"
         });
@@ -404,7 +404,7 @@ export const updateRol = async (req: Request, res: Response) => {
 
     if (updateError) {
       console.error('Error al actualizar rol:', updateError);
-      return res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error al actualizar rol"
       });
@@ -431,7 +431,7 @@ export const updateRol = async (req: Request, res: Response) => {
 
         if (permisosError) {
           console.error('Error al actualizar permisos:', permisosError);
-          return res.status(500).json({
+          return reply.code(500).send({
             ok: false,
             message: "Error al actualizar permisos del rol"
           });
@@ -439,14 +439,14 @@ export const updateRol = async (req: Request, res: Response) => {
       }
     }
 
-    res.json({
+    return reply.send({
       ok: true,
       data: updatedRole,
       message: "Rol actualizado exitosamente"
     });
   } catch (error) {
     console.error('Error en updateRol:', error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error interno del servidor"
     });
@@ -454,34 +454,34 @@ export const updateRol = async (req: Request, res: Response) => {
 };
 
 // Eliminar un rol completamente
-export const deleteRol = async (req: Request, res: Response) => {
+export const deleteRol = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         ok: false,
         message: "No se encontró información del usuario autenticado"
       });
     }
 
     // Solo Super Admin y Admin pueden eliminar roles personalizados
-    const id_rol = req.user_info?.rol_id ?? 3;
-    const hasCustomRole = req.user_info?.rol_personalizado_id;
-    
+    const id_rol = request.user_info?.rol_id ?? 3;
+    const hasCustomRole = request.user_info?.rol_personalizado_id;
+
     if (id_rol !== 1 && id_rol !== 2 && !hasCustomRole) {
-      return res.status(403).json({
+      return reply.code(403).send({
         ok: false,
         message: "No tienes permisos para eliminar roles personalizados"
       });
     }
 
     if (!supabaseAdmin) {
-      return res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error de configuración del servidor"
       });
     }
 
-    const { id } = req.params;
+    const { id } = (request.params as any);
 
     // Verificar que no haya usuarios usando este rol
     const { data: usersWithRole, error: checkError } = await supabaseAdmin!
@@ -492,14 +492,14 @@ export const deleteRol = async (req: Request, res: Response) => {
 
     if (checkError) {
       console.error('Error al verificar usuarios con rol:', checkError);
-      return res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error al verificar dependencias"
       });
     }
 
     if (usersWithRole && usersWithRole.length > 0) {
-      return res.status(400).json({
+      return reply.code(400).send({
         ok: false,
         message: "No se puede eliminar el rol porque hay usuarios asignados a él. Primero debe reasignar estos usuarios a otro rol."
       });
@@ -513,7 +513,7 @@ export const deleteRol = async (req: Request, res: Response) => {
 
     if (permisosError) {
       console.error('Error al eliminar permisos asociados:', permisosError);
-      return res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error al eliminar permisos asociados al rol"
       });
@@ -527,19 +527,19 @@ export const deleteRol = async (req: Request, res: Response) => {
 
     if (deleteError) {
       console.error('Error al eliminar rol:', deleteError);
-      return res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error al eliminar rol"
       });
     }
 
-    res.json({
+    return reply.send({
       ok: true,
       message: "Rol eliminado exitosamente"
     });
   } catch (error) {
     console.error('Error en deleteRol:', error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error interno del servidor"
     });
@@ -547,34 +547,34 @@ export const deleteRol = async (req: Request, res: Response) => {
 };
 
 // Obtener permisos del usuario actual
-export const getUserPermissions = async (req: Request, res: Response) => {
+export const getUserPermissions = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(401).json({
+    if (!request.user_info) {
+      return reply.code(401).send({
         ok: false,
         message: "Usuario no autenticado"
       });
     }
 
     // Super Admin y Admin tienen acceso a todo, no necesitan permisos específicos
-    if (req.user_info.rol_id === 1 || req.user_info.rol_id === 2) {
-      return res.json({
+    if (request.user_info.rol_id === 1 || request.user_info.rol_id === 2) {
+      return reply.send({
         ok: true,
         data: []
       });
     }
 
     // Si no tiene rol personalizado, no tiene permisos
-    if (!req.user_info.rol_personalizado_id) {
-      return res.json({
+    if (!request.user_info.rol_personalizado_id) {
+      return reply.send({
         ok: true,
         data: []
       });
     }
 
-    const supabase = getSupabaseAdmin(res);
+    const supabase = getSupabaseAdmin(reply);
     if (!supabase) {
-      return res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error de configuración del servidor"
       });
@@ -584,11 +584,11 @@ export const getUserPermissions = async (req: Request, res: Response) => {
     const { data: rolPermisos, error } = await supabase
       .from('rol_permisos')
       .select('permisos!inner(nombre)')
-      .eq('rol_id', req.user_info.rol_personalizado_id);
+      .eq('rol_id', request.user_info.rol_personalizado_id);
 
     if (error) {
       console.error('Error al obtener permisos del usuario:', error);
-      return res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error al obtener permisos"
       });
@@ -596,13 +596,13 @@ export const getUserPermissions = async (req: Request, res: Response) => {
 
     const permissions = rolPermisos?.map((rp: any) => rp.permisos.nombre) || [];
 
-    res.json({
+    return reply.send({
       ok: true,
       data: permissions
     });
   } catch (error) {
     console.error('Error en getUserPermissions:', error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error interno del servidor"
     });

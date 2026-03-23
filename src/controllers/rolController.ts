@@ -1,8 +1,8 @@
-import { Request, Response } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
 
 // Obtener todos los roles
-export const getRoles = async (req: Request, res: Response) => {
+export const getRoles = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
@@ -12,26 +12,24 @@ export const getRoles = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener roles",
     });
-    return;
   }
 };
 
 // Obtener un rol por ID
-export const getRolById = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const getRolById = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
 
   try {
-    console.log(`Usuario ${req.user?.id} solicitó el rol ${id}`);
+    console.log(`Usuario ${request.user?.id} solicitó el rol ${id}`);
 
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
@@ -42,59 +40,53 @@ export const getRolById = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return reply.code(404).send({
           success: false,
           message: "Rol no encontrado",
         });
-        return;
       }
       throw error;
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener rol",
     });
-    return;
   }
 };
 
 // Crear un nuevo rol
-export const createRol = async (req: Request, res: Response) => {
-  const { rol } = req.body;
+export const createRol = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { rol } = (request.body as any);
 
   // Verificar que el nombre del rol sea proporcionado
   if (!rol) {
-    res.status(400).json({
+    return reply.code(400).send({
       success: false,
       message: "El nombre del rol es obligatorio",
     });
-    return;
   }
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     // Solo Super Admin puede crear roles básicos
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol !== 1) {
-      res.status(403).json({
+      return reply.code(403).send({
         success: false,
         message: "Solo el Super Admin puede crear roles",
       });
-      return;
     }
 
     const client = supabaseAdmin || supabase;
@@ -106,56 +98,51 @@ export const createRol = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    res.status(201).json({
+    return reply.code(201).send({
       success: true,
       message: "Rol creado exitosamente",
       data,
     });
-    return;
   } catch (error: any) {
     console.error("Error al crear rol:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al crear rol",
     });
-    return;
   }
 };
 
 // Actualizar un rol
-export const updateRol = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { rol } = req.body;
+export const updateRol = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
+  const { rol } = (request.body as any);
 
   // Verificar que se proporcione el campo para actualizar
   if (!rol) {
-    res.status(400).json({
+    return reply.code(400).send({
       success: false,
       message: "Se debe proporcionar el nombre del rol para actualizar",
     });
-    return;
   }
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     // Solo Super Admin puede actualizar roles básicos
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol !== 1) {
-      res.status(403).json({
+      return reply.code(403).send({
         success: false,
         message: "Solo el Super Admin puede actualizar roles",
       });
-      return;
     }
 
-    console.log(`Usuario ${req.user_info.id} está actualizando el rol ${id}`);
+    console.log(`Usuario ${request.user_info.id} está actualizando el rol ${id}`);
 
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
@@ -167,70 +154,63 @@ export const updateRol = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return reply.code(404).send({
           success: false,
           message: "Rol no encontrado",
         });
-        return;
       }
       throw error;
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       message: "Rol actualizado exitosamente",
       data,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al actualizar rol",
     });
-    return;
   }
 };
 
 // Eliminar un rol
-export const deleteRol = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const deleteRol = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     // Solo Super Admin puede eliminar roles básicos
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol !== 1) {
-      res.status(403).json({
+      return reply.code(403).send({
         success: false,
         message: "Solo el Super Admin puede eliminar roles",
       });
-      return;
     }
 
-    console.log(`Usuario ${req.user_info.id} está eliminando el rol ${id}`);
+    console.log(`Usuario ${request.user_info.id} está eliminando el rol ${id}`);
 
     const client = supabaseAdmin || supabase;
     const { error } = await client.from("rol").delete().eq("id", id);
 
     if (error) throw error;
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       message: "Rol eliminado exitosamente",
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al eliminar rol",
     });
-    return;
   }
 };

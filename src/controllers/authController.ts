@@ -1,6 +1,5 @@
-import { Request, Response } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
-import "../types/express"; // Importar tipos personalizados
 
 // Interfaz para los datos de login
 interface LoginData {
@@ -17,17 +16,16 @@ interface RegisterData extends LoginData {
 /**
  * Registro de un nuevo usuario
  */
-export const register = async (req: Request, res: Response) => {
+export const register = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     // Validar datos de entrada
-    const { email, password, name, role = "user" }: RegisterData = req.body;
+    const { email, password, name, role = "user" }: RegisterData = (request.body as any);
 
     if (!email || !password) {
-      res.status(400).json({
+      return reply.code(400).send({
         ok: false,
         message: "El email y la contraseña son obligatorios",
       });
-      return;
     }
 
     // Intentar registrar al usuario con Supabase
@@ -44,12 +42,11 @@ export const register = async (req: Request, res: Response) => {
 
     // Manejar errores de registro
     if (error) {
-      res.status(400).json({
+      return reply.code(400).send({
         ok: false,
         message: "Error al registrar el usuario",
         error: error.message,
       });
-      return;
     }
 
     // Crear registro básico en usuarios_info para que el usuario exista en el sistema
@@ -72,36 +69,33 @@ export const register = async (req: Request, res: Response) => {
     }
 
     // Registro exitoso
-    res.status(201).json({
+    return reply.code(201).send({
       ok: true,
       message: "Usuario registrado correctamente",
       user: data.user,
     });
-    return;
   } catch (error) {
     console.error("Error en registro:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error en el servidor al procesar el registro",
     });
-    return;
   }
 };
 
 /**
  * Login de usuario con email y contraseña
  */
-export const login = async (req: Request, res: Response) => {
+export const login = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     // Validar datos de entrada
-    const { email, password }: LoginData = req.body;
+    const { email, password }: LoginData = (request.body as any);
 
     if (!email || !password) {
-      res.status(400).json({
+      return reply.code(400).send({
         ok: false,
         message: "El email y la contraseña son obligatorios",
       });
-      return;
     }
 
     // Intentar autenticar al usuario con Supabase
@@ -112,12 +106,11 @@ export const login = async (req: Request, res: Response) => {
 
     // Manejar errores de autenticación
     if (error) {
-      res.status(401).json({
+      return reply.code(401).send({
         ok: false,
         message: "Credenciales inválidas",
         error: error.message,
       });
-      return;
     }
 
     // Obtener información adicional del usuario desde usuarios_info
@@ -225,7 +218,7 @@ export const login = async (req: Request, res: Response) => {
         .select('propietario_id')
         .eq('id', userInfo.restaurante_id)
         .single();
-      
+
       if (restauranteData && restauranteData.propietario_id === userInfo.id) {
         esPropietario = true;
       }
@@ -240,7 +233,7 @@ export const login = async (req: Request, res: Response) => {
         .select('requiere_cierre_manual')
         .eq('id', userInfo.rol_personalizado_id)
         .single();
-      
+
       if (rolData) {
         requiereCierreManual = rolData.requiere_cierre_manual || false;
       }
@@ -265,38 +258,35 @@ export const login = async (req: Request, res: Response) => {
     };
 
     // Autenticación exitosa
-    res.status(200).json({
+    return reply.code(200).send({
       ok: true,
       message: "Login exitoso",
       user: data.user,
       session: sessionObject,
       usuarios_info: usuariosInfoConPermisos,
     });
-    return;
   } catch (error) {
     console.error("Error en login:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error en el servidor al procesar el login",
     });
-    return;
   }
 };
 
 /**
  * Verificar el estado de la sesión actual
  */
-export const checkSession = async (req: Request, res: Response) => {
+export const checkSession = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     // Obtener el token del header Authorization
-    const authHeader = req.headers.authorization;
-    
+    const authHeader = request.headers.authorization;
+
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.status(401).json({
+      return reply.code(401).send({
         ok: false,
         message: "No se proporcionó un token de autenticación",
       });
-      return;
     }
 
     const token = authHeader.split(" ")[1];
@@ -305,15 +295,14 @@ export const checkSession = async (req: Request, res: Response) => {
     const { data, error } = await supabase.auth.getUser(token);
 
     if (error || !data.user) {
-      res.status(401).json({
+      return reply.code(401).send({
         ok: false,
         message: "Token inválido o expirado",
         error: error?.message,
       });
-      return;
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       ok: true,
       message: "Sesión activa",
       session: {
@@ -321,63 +310,58 @@ export const checkSession = async (req: Request, res: Response) => {
         user: data.user,
       },
     });
-    return;
   } catch (error) {
     console.error("Error al verificar sesión:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error en el servidor al verificar sesión",
     });
-    return;
   }
 };
 
 /**
  * Cerrar sesión del usuario
  */
-export const logout = async (req: Request, res: Response) => {
+export const logout = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     // Usar supabaseAdmin para revocar la sesión del usuario específico
     // supabase.auth.signOut() no tiene efecto en el backend porque el cliente no tiene sesión persistente
-    if (supabaseAdmin && req.user?.id) {
-      const { error } = await supabaseAdmin.auth.admin.signOut(req.user.id);
+    if (supabaseAdmin && request.user?.id) {
+      const { error } = await supabaseAdmin.auth.admin.signOut(request.user.id);
       if (error) {
         console.warn("Error al revocar sesión con admin:", error.message);
         // No fallar el logout por esto, continuar
       }
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       ok: true,
       message: "Sesión cerrada correctamente",
     });
-    return;
   } catch (error) {
     console.error("Error en logout:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error en el servidor al cerrar sesión",
     });
-    return;
   }
 };
 
 /**
  * Renovar token de autenticación
  */
-export const refreshToken = async (req: Request, res: Response) => {
+export const refreshToken = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     // Verificar si hay un token de actualización en la solicitud
-    const { refresh_token } = req.body;
+    const { refresh_token } = (request.body as any);
 
     if (!refresh_token) {
       console.log("Error: Refresh token no proporcionado");
-      res.status(400).json({
+      return reply.code(400).send({
         ok: false,
         message: "El token de actualización es obligatorio",
         code: "REFRESH_TOKEN_MISSING",
       });
-      return;
     }
 
     // Intentar renovar el token con Supabase
@@ -391,30 +375,27 @@ export const refreshToken = async (req: Request, res: Response) => {
 
       // Manejar diferentes tipos de errores
       if (error.message.includes("expired")) {
-        res.status(401).json({
+        return reply.code(401).send({
           ok: false,
           message: "Refresh token expirado",
           code: "REFRESH_TOKEN_EXPIRED",
         });
-        return;
       }
 
       if (error.message.includes("invalid")) {
-        res.status(401).json({
+        return reply.code(401).send({
           ok: false,
           message: "Refresh token inválido",
           code: "REFRESH_TOKEN_INVALID",
         });
-        return;
       }
 
-      res.status(401).json({
+      return reply.code(401).send({
         ok: false,
         message: "No se pudo renovar el token",
         error: error.message,
         code: "REFRESH_TOKEN_ERROR",
       });
-      return;
     }
 
     // Verificar que tenemos todos los datos necesarios
@@ -423,16 +404,15 @@ export const refreshToken = async (req: Request, res: Response) => {
       !data.session.access_token ||
       !data.session.refresh_token
     ) {
-      res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Datos de sesión incompletos",
         code: "INCOMPLETE_SESSION_DATA",
       });
-      return;
     }
 
     // Renovación exitosa
-    res.status(200).json({
+    return reply.code(200).send({
       ok: true,
       message: "Token renovado correctamente",
       session: {
@@ -449,31 +429,28 @@ export const refreshToken = async (req: Request, res: Response) => {
         updated_at: data.user?.updated_at,
       },
     });
-    return;
   } catch (error) {
     console.error("Error en renovación de token:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error en el servidor al renovar el token",
       code: "INTERNAL_SERVER_ERROR",
     });
-    return;
   }
 };
 
 /**
  * Verificar un refresh token
  */
-export const checkRefreshToken = async (req: Request, res: Response) => {
+export const checkRefreshToken = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const { refresh_token } = req.body;
+    const { refresh_token } = (request.body as any);
 
     if (!refresh_token) {
-      res.status(400).json({
+      return reply.code(400).send({
         ok: false,
         message: "El refresh token es obligatorio",
       });
-      return;
     }
 
     // Intentar verificar el refresh token con Supabase
@@ -503,16 +480,15 @@ export const checkRefreshToken = async (req: Request, res: Response) => {
     });
 
     if (error || !data.session) {
-      res.status(401).json({
+      return reply.code(401).send({
         ok: false,
         message: "Refresh token inválido o expirado",
         error: error?.message,
       });
-      return;
     }
 
     // Devolver los nuevos tokens ya que refreshSession() rota el refresh token
-    res.status(200).json({
+    return reply.code(200).send({
       ok: true,
       message: "Refresh token válido",
       validUntil: data.session.expires_at,
@@ -521,14 +497,12 @@ export const checkRefreshToken = async (req: Request, res: Response) => {
         refresh_token: data.session.refresh_token,
       },
     });
-    return;
   } catch (error) {
     console.error("Error al verificar refresh token:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error en el servidor al verificar refresh token",
     });
-    return;
   }
 };
 
@@ -536,37 +510,36 @@ export const checkRefreshToken = async (req: Request, res: Response) => {
  * Obtener información extendida del usuario autenticado
  * Incluye permisos del JWT y datos de usuarios_info
  */
-export const getUserInfo = async (req: Request, res: Response) => {
+export const getUserInfo = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     // El middleware de autenticación ya verificó el token y agregó el usuario
-    const user = req.user;
-    const userInfo = req.user_info;
+    const user = request.user;
+    const userInfo = request.user_info;
 
     if (!user || !userInfo) {
-      res.status(404).json({
+      return reply.code(404).send({
         ok: false,
         message: "No se encontró información del usuario",
       });
-      return;
     }
 
     // Obtener el token del header para extraer los custom claims
-    const authHeader = req.headers.authorization;
+    const authHeader = request.headers.authorization;
     let permisos: string[] = [];
     let isSuperAdmin = false;
     let rolNombre = '';
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
-      
+
       try {
         // Decodificar el JWT para obtener los custom claims
         const base64Url = token.split('.')[1];
         const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
         const jsonPayload = Buffer.from(base64, 'base64').toString('utf-8');
-        
+
         const decoded = JSON.parse(jsonPayload);
-        
+
         // Extraer los custom claims del JWT
         permisos = decoded.user_permissions || [];
         isSuperAdmin = decoded.is_super_admin || false;
@@ -657,7 +630,7 @@ export const getUserInfo = async (req: Request, res: Response) => {
         .select('propietario_id')
         .eq('id', userInfo.restaurante_id)
         .single();
-      
+
       if (restauranteData && restauranteData.propietario_id === userInfo.id) {
         esPropietario = true;
       }
@@ -672,7 +645,7 @@ export const getUserInfo = async (req: Request, res: Response) => {
         .select('requiere_cierre_manual')
         .eq('id', userInfo.rol_personalizado_id)
         .single();
-      
+
       if (rolData) {
         requiereCierreManual = rolData.requiere_cierre_manual || false;
       }
@@ -697,45 +670,41 @@ export const getUserInfo = async (req: Request, res: Response) => {
       requiere_cierre_manual: requiereCierreManual,
     };
 
-    res.status(200).json({
+    return reply.code(200).send({
       ok: true,
       message: "Información del usuario obtenida correctamente",
       usuarios_info: usuariosInfoConPermisos,
     });
-    return;
   } catch (error) {
     console.error("Error al obtener información del usuario:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error en el servidor al obtener información del usuario",
     });
-    return;
   }
 };
 
 /**
  * Enviar email de recuperación de contraseña
  */
-export const sendPasswordReset = async (req: Request, res: Response) => {
+export const sendPasswordReset = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const { email } = req.body;
+    const { email } = (request.body as any);
 
     if (!email) {
-      res.status(400).json({
+      return reply.code(400).send({
         ok: false,
         message: "El email es obligatorio",
       });
-      return;
     }
 
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
 
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error de configuración del servidor",
       });
-      return;
     }
 
     // Verificar si el email existe en el sistema antes de enviar
@@ -743,11 +712,10 @@ export const sendPasswordReset = async (req: Request, res: Response) => {
 
     if (listError) {
       console.error("Error al verificar usuario:", listError.message);
-      res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error al procesar la solicitud",
       });
-      return;
     }
 
     const userExists = usersData.users.some(
@@ -755,11 +723,10 @@ export const sendPasswordReset = async (req: Request, res: Response) => {
     );
 
     if (!userExists) {
-      res.status(404).json({
+      return reply.code(404).send({
         ok: false,
         message: "No existe una cuenta registrada con este correo electrónico.",
       });
-      return;
     }
 
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
@@ -768,25 +735,22 @@ export const sendPasswordReset = async (req: Request, res: Response) => {
 
     if (error) {
       console.error("Error al enviar email de recuperación:", error.message);
-      res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error al enviar el correo de recuperación",
       });
-      return;
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       ok: true,
       message: "Se ha enviado un enlace de recuperación a tu correo electrónico.",
     });
-    return;
   } catch (error) {
     console.error("Error en recuperación de contraseña:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error en el servidor al procesar la solicitud",
     });
-    return;
   }
 };
 
@@ -794,38 +758,35 @@ export const sendPasswordReset = async (req: Request, res: Response) => {
  * Actualizar contraseña del usuario con access_token
  * Se usa para establecer contraseña después de invitación o recuperación
  */
-export const updatePassword = async (req: Request, res: Response) => {
+export const updatePassword = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     // Obtener el token del header Authorization
-    const authHeader = req.headers.authorization;
-    
+    const authHeader = request.headers.authorization;
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      res.status(401).json({
+      return reply.code(401).send({
         ok: false,
         message: "Token de autorización no proporcionado",
       });
-      return;
     }
 
     const accessToken = authHeader.substring(7); // Remover 'Bearer '
-    const { password, refresh_token } = req.body;
-    
+    const { password, refresh_token } = (request.body as any);
+
     // Validar que se proporcione la contraseña
     if (!password) {
-      res.status(400).json({
+      return reply.code(400).send({
         ok: false,
         message: "La contraseña es obligatoria",
       });
-      return;
     }
 
     // Validar longitud mínima
     if (password.length < 6) {
-      res.status(400).json({
+      return reply.code(400).send({
         ok: false,
         message: "La contraseña debe tener al menos 6 caracteres",
       });
-      return;
     }
 
     // Crear un cliente de Supabase con el access_token del usuario para verificar
@@ -834,11 +795,10 @@ export const updatePassword = async (req: Request, res: Response) => {
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseAnonKey) {
-      res.status(500).json({
+      return reply.code(500).send({
         ok: false,
         message: "Error de configuración del servidor",
       });
-      return;
     }
 
     // Crear cliente para verificar el token
@@ -856,12 +816,11 @@ export const updatePassword = async (req: Request, res: Response) => {
     });
 
     if (sessionError || !sessionData.session || !sessionData.user) {
-      res.status(401).json({
+      return reply.code(401).send({
         ok: false,
         message: "Token inválido o expirado",
         error: sessionError?.message,
       });
-      return;
     }
 
     // Ahora actualizar la contraseña con la sesión activa
@@ -870,24 +829,23 @@ export const updatePassword = async (req: Request, res: Response) => {
     });
 
     if (error) {
-      res.status(400).json({
+      return reply.code(400).send({
         ok: false,
         message: "No se pudo actualizar la contraseña",
         error: error.message,
       });
-      return;
     }
 
     // Después de actualizar la contraseña, procesar la invitación para crear usuarios_info
     const userEmail = data.user?.email;
     const userId = data.user?.id;
-    
+
     if (userEmail && userId && supabaseAdmin) {
       const { data: invResult, error: invError } = await supabaseAdmin.rpc('aceptar_invitacion', {
         p_email: userEmail,
         p_user_id: userId
       });
-      
+
       // Procesar resultado de invitación silenciosamente
       if (invError) {
         // Error no crítico, continuar
@@ -895,7 +853,7 @@ export const updatePassword = async (req: Request, res: Response) => {
     }
 
     // Respuesta exitosa
-    res.status(200).json({
+    return reply.code(200).send({
       ok: true,
       message: "Contraseña actualizada exitosamente",
       user: {
@@ -905,13 +863,11 @@ export const updatePassword = async (req: Request, res: Response) => {
         role: data.user?.user_metadata?.role,
       },
     });
-    return;
   } catch (error) {
     console.error("Error en actualización de contraseña:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       ok: false,
       message: "Error en el servidor al actualizar la contraseña",
     });
-    return;
   }
 };

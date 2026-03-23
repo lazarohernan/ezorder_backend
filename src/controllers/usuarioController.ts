@@ -1,17 +1,15 @@
-import { Request, Response } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
-import "../types/express"; // Importar tipos personalizados
 
-export const getUsuarios = async (req: Request, res: Response) => {
+export const getUsuarios = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const page = parseInt((request.query as any).page as string) || 1;
+    const limit = parseInt((request.query as any).limit as string) || 10;
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Configuración de administrador no disponible",
       });
-      return;
     }
 
     const { data: userInfos, error: userInfoError } = await supabaseAdmin
@@ -26,7 +24,7 @@ export const getUsuarios = async (req: Request, res: Response) => {
     let userDataMap: { [key: string]: any } = {};
     try {
       const { data: authUsersData, error: authError } = await supabaseAdmin.auth.admin.listUsers();
-      
+
       if (!authError && authUsersData?.users) {
         authUsersData.users.forEach((user: any) => {
           emailMap[user.id] = user.email;
@@ -63,7 +61,7 @@ export const getUsuarios = async (req: Request, res: Response) => {
     const endIndex = Math.min(startIndex + limit, total);
     const paginatedUsers = usersWithInfo.slice(startIndex, endIndex);
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data: {
         items: paginatedUsers,
@@ -76,38 +74,34 @@ export const getUsuarios = async (req: Request, res: Response) => {
         },
       },
     });
-    return;
   } catch (error: any) {
     console.error("Error al obtener usuarios:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener usuarios",
     });
-    return;
   }
 };
 
-export const getUsuarioById = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const getUsuarioById = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
 
   try {
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Configuración de administrador no disponible",
       });
-      return;
     }
 
     const { data: authUser, error: authError } =
       await supabaseAdmin.auth.admin.getUserById(id);
 
     if (authError || !authUser) {
-      res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: "Usuario no encontrado",
       });
-      return;
     }
 
     const infoClient = supabaseAdmin || supabase;
@@ -128,22 +122,20 @@ export const getUsuarioById = async (req: Request, res: Response) => {
       user_info: userInfoError ? null : userInfo,
     };
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data: userWithInfo,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener usuario",
     });
-    return;
   }
 };
 
 
-export const createUsuario = async (req: Request, res: Response) => {
+export const createUsuario = async (request: FastifyRequest, reply: FastifyReply) => {
   const {
     email,
     password,
@@ -151,43 +143,39 @@ export const createUsuario = async (req: Request, res: Response) => {
     rol_id,
     restaurante_id,
     user_image,
-  } = req.body;
+  } = (request.body as any);
 
   if (!email || !password) {
-    res.status(400).json({
+    return reply.code(400).send({
       success: false,
       message: "El email y password son obligatorios",
     });
-    return;
   }
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    const id_rol = req.user_info?.rol_id ?? 3;
-    const hasCustomRole = req.user_info?.rol_personalizado_id;
-    
+    const id_rol = request.user_info?.rol_id ?? 3;
+    const hasCustomRole = request.user_info?.rol_personalizado_id;
+
     if (id_rol !== 1 && id_rol !== 2 && !hasCustomRole) {
-      res.status(403).json({
+      return reply.code(403).send({
         success: false,
         message: "No tienes permisos para crear usuarios",
       });
-      return;
     }
 
     // Verificar disponibilidad de supabaseAdmin antes de cualquier operación
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Configuración de administrador no disponible",
       });
-      return;
     }
 
     // Validar acceso al restaurante si es rol 2
@@ -195,16 +183,15 @@ export const createUsuario = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await supabaseAdmin
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este restaurante",
         });
-        return;
       }
     }
 
@@ -216,12 +203,11 @@ export const createUsuario = async (req: Request, res: Response) => {
       });
 
     if (authError || !authData) {
-      res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: "Error al crear el usuario en el sistema de autenticación",
         error: authError,
       });
-      return;
     }
 
     const userId = authData.user.id;
@@ -233,11 +219,10 @@ export const createUsuario = async (req: Request, res: Response) => {
       .maybeSingle();
 
     if (existingInfo) {
-      res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: "Ya existe información para este usuario",
       });
-      return;
     }
 
     const { data, error } = await supabaseAdmin
@@ -287,61 +272,55 @@ export const createUsuario = async (req: Request, res: Response) => {
       user_info: data,
     };
 
-    res.status(201).json({
+    return reply.code(201).send({
       success: true,
       message: "Usuario creado exitosamente",
       data: userWithInfo,
     });
-    return;
   } catch (error: any) {
     console.error("Error al crear usuario:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al crear usuario",
     });
-    return;
   }
 };
 
-export const updateUsuario = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const updateUsuario = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
   const { nombre_usuario, rol_id, rol_personalizado_id, restaurante_id, user_image, password, bienvenida_aceptada } =
-    req.body;
+    (request.body as any);
   if (!nombre_usuario && rol_id === undefined && rol_personalizado_id === undefined && restaurante_id === undefined && user_image === undefined && bienvenida_aceptada === undefined) {
-    res.status(400).json({
+    return reply.code(400).send({
       success: false,
       message: "Se debe proporcionar al menos un campo para actualizar",
     });
-    return;
   }
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    const id_rol = req.user_info?.rol_id ?? 3;
-    const hasCustomRole = req.user_info?.rol_personalizado_id;
-    
+    const id_rol = request.user_info?.rol_id ?? 3;
+    const hasCustomRole = request.user_info?.rol_personalizado_id;
+
     if (id_rol !== 1 && id_rol !== 2 && !hasCustomRole) {
-      res.status(403).json({
+      return reply.code(403).send({
         success: false,
         message: "No tienes permisos para actualizar usuarios",
       });
-      return;
     }
 
     // Usar supabaseAdmin para evitar problemas con RLS
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Configuración de administrador no disponible",
       });
-      return;
     }
 
     const { data: authUser, error: authError } = await supabaseAdmin
@@ -351,11 +330,10 @@ export const updateUsuario = async (req: Request, res: Response) => {
       .maybeSingle();
 
     if (authError || !authUser) {
-      res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: "Usuario no encontrado",
       });
-      return;
     }
 
     // Validar acceso al restaurante si es rol 2 y se está asignando un restaurante específico
@@ -363,40 +341,37 @@ export const updateUsuario = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await supabaseAdmin
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este restaurante",
         });
-        return;
       }
     }
 
     // Validar asignación de roles
     if (id_rol === 2 && rol_id !== undefined) {
       if (rol_id === 1 || rol_id === 2) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No puedes asignar roles de Super Admin o Admin",
         });
-        return;
       }
     }
 
     // Solo usar supabaseAdmin para actualizar contraseña en auth
     if (password !== undefined) {
       if (!supabaseAdmin) {
-        res.status(500).json({
+        return reply.code(500).send({
           success: false,
           message: "Configuración de administrador no disponible",
         });
-        return;
       }
-      
+
       await supabaseAdmin.auth.admin.updateUserById(id, {
         password,
       });
@@ -480,14 +455,14 @@ export const updateUsuario = async (req: Request, res: Response) => {
       user_info: updatedUser,
     };
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       message: "Información de usuario actualizada exitosamente",
       data: userWithInfo,
     });
   } catch (error: unknown) {
     console.error("Error al actualizar usuario:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: "Error al actualizar usuario",
       error: error instanceof Error ? error.message : "Error desconocido",
@@ -496,45 +471,41 @@ export const updateUsuario = async (req: Request, res: Response) => {
 };
 
 
-export const deleteUsuario = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const deleteUsuario = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    const id_rol = req.user_info?.rol_id ?? 3;
-    const hasCustomRole = req.user_info?.rol_personalizado_id;
-    
+    const id_rol = request.user_info?.rol_id ?? 3;
+    const hasCustomRole = request.user_info?.rol_personalizado_id;
+
     if (id_rol !== 1 && id_rol !== 2 && !hasCustomRole) {
-      res.status(403).json({
+      return reply.code(403).send({
         success: false,
         message: "Solo el Super Admin y Admin pueden eliminar usuarios",
       });
-      return;
     }
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Configuración de administrador no disponible",
       });
-      return;
     }
 
     const { data: authUser, error: authCheckError } =
       await supabaseAdmin.auth.admin.getUserById(id);
 
     if (authCheckError || !authUser) {
-      res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: "Usuario no encontrado",
       });
-      return;
     }
 
     const { data: userInfo, error: userInfoError } = await supabaseAdmin
@@ -545,27 +516,25 @@ export const deleteUsuario = async (req: Request, res: Response) => {
 
     if (!userInfoError && userInfo) {
       if (userInfo.rol_id === 2) {
-        res.status(400).json({
+        return reply.code(400).send({
           success: false,
           message: "No se puede eliminar un usuario propietario del sistema",
         });
-        return;
       }
 
       if (id_rol === 2 && userInfo.restaurante_id) {
         const { data: userRestaurants } = await supabaseAdmin
           .from("usuarios_restaurantes")
           .select("restaurante_id")
-          .eq("usuario_id", req.user_info.id);
+          .eq("usuario_id", request.user_info.id);
 
         const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-        
+
         if (!restaurantIds.includes(userInfo.restaurante_id)) {
-          res.status(403).json({
+          return reply.code(403).send({
             success: false,
             message: "No puedes eliminar usuarios de restaurantes que no te pertenecen",
           });
-          return;
         }
       }
     }
@@ -575,7 +544,7 @@ export const deleteUsuario = async (req: Request, res: Response) => {
     // para mantener la actividad registrada en el sistema
     try {
       if (!supabaseAdmin) {
-        return res.status(500).json({
+        return reply.code(500).send({
           success: false,
           message: "Configuración de administrador no disponible",
         });
@@ -587,7 +556,7 @@ export const deleteUsuario = async (req: Request, res: Response) => {
 
       if (rpcError) {
         console.error('Error al ejecutar función RPC eliminar_usuario_completo:', rpcError);
-        return res.status(500).json({
+        return reply.code(500).send({
           success: false,
           message: "Error al eliminar información del usuario",
           error: rpcError.message,
@@ -598,7 +567,7 @@ export const deleteUsuario = async (req: Request, res: Response) => {
       if (!rpcResult || !rpcResult.success) {
         const errorMessage = rpcResult?.message || rpcResult?.error || 'Error desconocido';
         console.error('La función RPC retornó error:', errorMessage);
-        return res.status(500).json({
+        return reply.code(500).send({
           success: false,
           message: errorMessage,
           error: rpcResult?.error,
@@ -608,7 +577,7 @@ export const deleteUsuario = async (req: Request, res: Response) => {
       console.log('Función RPC ejecutada exitosamente. Historial preservado:', rpcResult.registros_historicos_preservados);
     } catch (dataError) {
       console.error('Error al eliminar información del usuario:', dataError);
-      return res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Error al eliminar información del usuario",
         error: dataError instanceof Error ? dataError.message : "Error desconocido",
@@ -619,58 +588,52 @@ export const deleteUsuario = async (req: Request, res: Response) => {
 
     if (deleteAuthError) {
       console.error('Error al eliminar usuario del auth:', deleteAuthError);
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Error al eliminar usuario del sistema de autenticación",
         error: deleteAuthError.message,
       });
-      return;
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       message: "Usuario eliminado correctamente del sistema",
     });
-    return;
   } catch (error: any) {
     console.error("Error al eliminar usuario:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al eliminar usuario",
     });
-    return;
   }
 };
 
-export const getCurrentUserInfo = async (req: Request, res: Response) => {
+export const getCurrentUserInfo = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const userId = req.user?.id;
+    const userId = request.user?.id;
 
     if (!userId) {
-      res.status(401).json({
+      return reply.code(401).send({
         success: false,
         message: "No se encontró información de usuario autenticado",
       });
-      return;
     }
 
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Configuración de administrador no disponible",
       });
-      return;
     }
 
     const { data: authUser, error: authError } =
       await supabaseAdmin.auth.admin.getUserById(userId);
 
     if (authError || !authUser) {
-      res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: "Usuario no encontrado",
       });
-      return;
     }
 
     const infoClient = supabaseAdmin || supabase;
@@ -691,17 +654,15 @@ export const getCurrentUserInfo = async (req: Request, res: Response) => {
       user_info: userInfoError ? null : userInfo,
     };
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data: userWithInfo,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener perfil de usuario",
     });
-    return;
   }
 };
 
@@ -709,19 +670,17 @@ export const getCurrentUserInfo = async (req: Request, res: Response) => {
  * Actualizar perfil propio (sin requerir permiso usuarios.editar)
  * Solo permite: nombre_usuario, user_image, bienvenida_aceptada
  */
-export const updateMyProfile = async (req: Request, res: Response) => {
+export const updateMyProfile = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const userId = req.user_info?.id;
+    const userId = request.user_info?.id;
     if (!userId) {
-      res.status(401).json({ success: false, message: "No autenticado" });
-      return;
+      return reply.code(401).send({ success: false, message: "No autenticado" });
     }
 
-    const { nombre_usuario, user_image, bienvenida_aceptada } = req.body;
+    const { nombre_usuario, user_image, bienvenida_aceptada } = (request.body as any);
 
     if (nombre_usuario === undefined && user_image === undefined && bienvenida_aceptada === undefined) {
-      res.status(400).json({ success: false, message: "Se debe proporcionar al menos un campo para actualizar" });
-      return;
+      return reply.code(400).send({ success: false, message: "Se debe proporcionar al menos un campo para actualizar" });
     }
 
     const client = supabaseAdmin || supabase;
@@ -746,12 +705,10 @@ export const updateMyProfile = async (req: Request, res: Response) => {
 
     if (fetchError) throw fetchError;
 
-    res.status(200).json({ success: true, message: "Perfil actualizado", data: updated });
-    return;
+    return reply.code(200).send({ success: true, message: "Perfil actualizado", data: updated });
   } catch (error: any) {
     console.error("Error al actualizar perfil propio:", error);
-    res.status(500).json({ success: false, message: error.message || "Error al actualizar perfil" });
-    return;
+    return reply.code(500).send({ success: false, message: error.message || "Error al actualizar perfil" });
   }
 };
 
