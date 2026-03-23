@@ -1,5 +1,6 @@
 {
   "info": {
+    "_postman_id": "ezorder-api-collection",
     "name": "EZOrder API",
     "description": "EZOrder backend API collection for testing critical flows",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
@@ -186,9 +187,9 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/menu/categorias",
+              "raw": "{{base_url}}/api/menu/categories",
               "host": ["{{base_url}}"],
-              "path": ["api", "menu", "categorias"]
+              "path": ["api", "menu", "categories"]
             }
           }
         },

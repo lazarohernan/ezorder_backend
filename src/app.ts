@@ -21,9 +21,9 @@ export const buildApp = async () => {
   });
 
   // Declarar propiedades custom del request (requerido por Fastify 5)
-  app.decorateRequest("user", { getter: () => undefined });
-  app.decorateRequest("user_info", { getter: () => null });
-  app.decorateRequest("restaurante_filter", { getter: () => undefined });
+  app.decorateRequest<any>("user", null);
+  app.decorateRequest<any>("user_info", null);
+  app.decorateRequest<any>("restaurante_filter", null);
 
   if (process.env.NODE_ENV !== "production") {
     app.addHook("onRequest", async (request) => {
