@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import type { FastifyRequest, FastifyReply } from 'fastify';
 import { supabase, supabaseAdmin } from '../supabase/supabase';
 import NotificacionesService from '../services/notificacionesService';
 
@@ -53,13 +53,20 @@ async function tieneAccesoRestaurante(client: any, user_info: any, restaurante_i
 }
 
 // Obtener todos los items de inventario con filtros
-export const obtenerInventario = async (req: Request, res: Response) => {
+export const obtenerInventario = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
-    const { busqueda, estado_stock, activo, restaurante_id, pagina = 1, limite = 10 } = req.query;
+    const { busqueda, estado_stock, activo, restaurante_id, pagina = 1, limite = 10 } = request.query as {
+      busqueda?: string;
+      estado_stock?: string;
+      activo?: string;
+      restaurante_id?: string;
+      pagina?: number;
+      limite?: number;
+    };
 
     const client = supabaseAdmin || supabase;
 
@@ -68,10 +75,10 @@ export const obtenerInventario = async (req: Request, res: Response) => {
       .select('*', { count: 'exact' });
 
     // Filtrar por restaurante según rol
-    const restauranteIds = await getRestauranteIds(client, req.user_info);
+    const restauranteIds = await getRestauranteIds(client, request.user_info);
     if (restauranteIds !== null) {
       if (restauranteIds.length === 0) {
-        return res.json({ ok: true, data: [], total: 0, pagina: Number(pagina), total_paginas: 0 });
+        return reply.send({ ok: true, data: [], total: 0, pagina: Number(pagina), total_paginas: 0 });
       }
       query = query.in('restaurante_id', restauranteIds);
     }
@@ -93,10 +100,10 @@ export const obtenerInventario = async (req: Request, res: Response) => {
 
     if (error) {
       console.error('Error al obtener inventario:', error);
-      return res.status(500).json({ ok: false, message: 'Error al obtener inventario', error: error.message });
+      return reply.code(500).send({ ok: false, message: 'Error al obtener inventario', error: error.message });
     }
 
-    res.json({
+    reply.send({
       ok: true,
       data: data || [],
       total: count || 0,
@@ -105,58 +112,70 @@ export const obtenerInventario = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error en obtenerInventario:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // Obtener un item de inventario por ID
-export const obtenerInventarioPorId = async (req: Request, res: Response) => {
+export const obtenerInventarioPorId = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
+    const { id } = request.params as { id: string };
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
       .from('inventario')
       .select('*')
-      .eq('id', req.params.id)
+      .eq('id', id)
       .single();
 
     if (error || !data) {
-      return res.status(404).json({ ok: false, message: 'Item de inventario no encontrado' });
+      return reply.code(404).send({ ok: false, message: 'Item de inventario no encontrado' });
     }
 
-    const acceso = await tieneAccesoRestaurante(client, req.user_info, data.restaurante_id);
+    const acceso = await tieneAccesoRestaurante(client, request.user_info, data.restaurante_id);
     if (!acceso) {
-      return res.status(403).json({ ok: false, message: 'No tienes acceso a este inventario' });
+      return reply.code(403).send({ ok: false, message: 'No tienes acceso a este inventario' });
     }
 
-    res.json({ ok: true, data });
+    reply.send({ ok: true, data });
   } catch (error) {
     console.error('Error en obtenerInventarioPorId:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // Crear nuevo item de inventario
-export const crearInventario = async (req: Request, res: Response) => {
+export const crearInventario = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
-    const { nombre, descripcion, restaurante_id, stock_actual, stock_minimo, stock_maximo, unidad_medida, costo_unitario, codigo_sku, tiene_desglose } = req.body;
+    const { nombre, descripcion, restaurante_id, stock_actual, stock_minimo, stock_maximo, unidad_medida, costo_unitario, codigo_sku, tiene_desglose } = request.body as {
+      nombre?: string;
+      descripcion?: string;
+      restaurante_id?: string;
+      stock_actual?: number;
+      stock_minimo?: number;
+      stock_maximo?: number;
+      unidad_medida?: string;
+      costo_unitario?: number;
+      codigo_sku?: string;
+      tiene_desglose?: boolean;
+    };
 
     if (!nombre || stock_actual === undefined || stock_minimo === undefined || !restaurante_id) {
-      return res.status(400).json({ ok: false, message: 'Faltan datos requeridos: nombre, restaurante_id, stock_actual, stock_minimo' });
+      return reply.code(400).send({ ok: false, message: 'Faltan datos requeridos: nombre, restaurante_id, stock_actual, stock_minimo' });
     }
 
     const client = supabaseAdmin || supabase;
 
-    const acceso = await tieneAccesoRestaurante(client, req.user_info, restaurante_id);
+    const acceso = await tieneAccesoRestaurante(client, request.user_info, restaurante_id);
     if (!acceso) {
-      return res.status(403).json({ ok: false, message: 'No tienes acceso a este restaurante' });
+      return reply.code(403).send({ ok: false, message: 'No tienes acceso a este restaurante' });
     }
 
     // Verificar que no exista un producto con el mismo nombre en el mismo restaurante
@@ -169,7 +188,7 @@ export const crearInventario = async (req: Request, res: Response) => {
       .limit(1);
 
     if (existente && existente.length > 0) {
-      return res.status(400).json({ ok: false, message: `Ya existe un producto llamado "${nombre}" en este restaurante` });
+      return reply.code(400).send({ ok: false, message: `Ya existe un producto llamado "${nombre}" en este restaurante` });
     }
 
     const { data, error } = await client
@@ -180,41 +199,52 @@ export const crearInventario = async (req: Request, res: Response) => {
 
     if (error) {
       console.error('Error al crear inventario:', error);
-      return res.status(500).json({ ok: false, message: 'Error al crear inventario', error: error.message });
+      return reply.code(500).send({ ok: false, message: 'Error al crear inventario', error: error.message });
     }
 
-    res.status(201).json({ ok: true, data, message: 'Producto de inventario creado exitosamente' });
+    reply.code(201).send({ ok: true, data, message: 'Producto de inventario creado exitosamente' });
   } catch (error) {
     console.error('Error en crearInventario:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // Actualizar item de inventario
-export const actualizarInventario = async (req: Request, res: Response) => {
+export const actualizarInventario = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
+    const { id } = request.params as { id: string };
     const client = supabaseAdmin || supabase;
 
     const { data: existing, error: checkError } = await client
       .from('inventario')
       .select('id, restaurante_id')
-      .eq('id', req.params.id)
+      .eq('id', id)
       .single();
 
     if (checkError || !existing) {
-      return res.status(404).json({ ok: false, message: 'Item de inventario no encontrado' });
+      return reply.code(404).send({ ok: false, message: 'Item de inventario no encontrado' });
     }
 
-    const acceso = await tieneAccesoRestaurante(client, req.user_info, existing.restaurante_id);
+    const acceso = await tieneAccesoRestaurante(client, request.user_info, existing.restaurante_id);
     if (!acceso) {
-      return res.status(403).json({ ok: false, message: 'No tienes acceso a este inventario' });
+      return reply.code(403).send({ ok: false, message: 'No tienes acceso a este inventario' });
     }
 
-    const { nombre, descripcion, stock_minimo, stock_maximo, unidad_medida, costo_unitario, activo, codigo_sku, tiene_desglose } = req.body;
+    const { nombre, descripcion, stock_minimo, stock_maximo, unidad_medida, costo_unitario, activo, codigo_sku, tiene_desglose } = request.body as {
+      nombre?: string;
+      descripcion?: string;
+      stock_minimo?: number;
+      stock_maximo?: number;
+      unidad_medida?: string;
+      costo_unitario?: number;
+      activo?: boolean;
+      codigo_sku?: string;
+      tiene_desglose?: boolean;
+    };
     const updateData: any = { updated_at: new Date().toISOString() };
 
     if (nombre !== undefined) updateData.nombre = nombre;
@@ -230,68 +260,76 @@ export const actualizarInventario = async (req: Request, res: Response) => {
     const { data, error } = await client
       .from('inventario')
       .update(updateData)
-      .eq('id', req.params.id)
+      .eq('id', id)
       .select('*')
       .single();
 
     if (error) {
       console.error('Error al actualizar inventario:', error);
-      return res.status(500).json({ ok: false, message: 'Error al actualizar inventario', error: error.message });
+      return reply.code(500).send({ ok: false, message: 'Error al actualizar inventario', error: error.message });
     }
 
-    res.json({ ok: true, data, message: 'Inventario actualizado exitosamente' });
+    reply.send({ ok: true, data, message: 'Inventario actualizado exitosamente' });
   } catch (error) {
     console.error('Error en actualizarInventario:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // Eliminar item de inventario
-export const eliminarInventario = async (req: Request, res: Response) => {
+export const eliminarInventario = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
+    const { id } = request.params as { id: string };
     const client = supabaseAdmin || supabase;
 
     const { data: existing, error: checkError } = await client
       .from('inventario')
       .select('id, restaurante_id')
-      .eq('id', req.params.id)
+      .eq('id', id)
       .single();
 
     if (checkError || !existing) {
-      return res.status(404).json({ ok: false, message: 'Item de inventario no encontrado' });
+      return reply.code(404).send({ ok: false, message: 'Item de inventario no encontrado' });
     }
 
-    const acceso = await tieneAccesoRestaurante(client, req.user_info, existing.restaurante_id);
+    const acceso = await tieneAccesoRestaurante(client, request.user_info, existing.restaurante_id);
     if (!acceso) {
-      return res.status(403).json({ ok: false, message: 'No tienes acceso a este inventario' });
+      return reply.code(403).send({ ok: false, message: 'No tienes acceso a este inventario' });
     }
 
-    const { error } = await client.from('inventario').delete().eq('id', req.params.id);
+    const { error } = await client.from('inventario').delete().eq('id', id);
 
     if (error) {
       console.error('Error al eliminar inventario:', error);
-      return res.status(500).json({ ok: false, message: 'Error al eliminar inventario', error: error.message });
+      return reply.code(500).send({ ok: false, message: 'Error al eliminar inventario', error: error.message });
     }
 
-    res.json({ ok: true, message: 'Inventario eliminado exitosamente' });
+    reply.send({ ok: true, message: 'Inventario eliminado exitosamente' });
   } catch (error) {
     console.error('Error en eliminarInventario:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // Obtener movimientos de inventario
-export const obtenerMovimientos = async (req: Request, res: Response) => {
+export const obtenerMovimientos = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
-    const { inventario_id, tipo_movimiento, fecha_desde, fecha_hasta, pagina = 1, limite = 10 } = req.query;
+    const { inventario_id, tipo_movimiento, fecha_desde, fecha_hasta, pagina = 1, limite = 10 } = request.query as {
+      inventario_id?: string;
+      tipo_movimiento?: string;
+      fecha_desde?: string;
+      fecha_hasta?: string;
+      pagina?: number;
+      limite?: number;
+    };
 
     const client = supabaseAdmin || supabase;
 
@@ -304,10 +342,10 @@ export const obtenerMovimientos = async (req: Request, res: Response) => {
       `, { count: 'exact' });
 
     // Filtrar por restaurante según rol
-    const restauranteIds = await getRestauranteIds(client, req.user_info);
+    const restauranteIds = await getRestauranteIds(client, request.user_info);
     if (restauranteIds !== null) {
       if (restauranteIds.length === 0) {
-        return res.json({ ok: true, data: [], total: 0, pagina: Number(pagina), total_paginas: 0 });
+        return reply.send({ ok: true, data: [], total: 0, pagina: Number(pagina), total_paginas: 0 });
       }
       // Obtener inventario_ids de los restaurantes del usuario
       const { data: invIds } = await client
@@ -316,7 +354,7 @@ export const obtenerMovimientos = async (req: Request, res: Response) => {
         .in('restaurante_id', restauranteIds);
       const inventarioIds = invIds?.map((i: any) => i.id) || [];
       if (inventarioIds.length === 0) {
-        return res.json({ ok: true, data: [], total: 0, pagina: Number(pagina), total_paginas: 0 });
+        return reply.send({ ok: true, data: [], total: 0, pagina: Number(pagina), total_paginas: 0 });
       }
       query = query.in('inventario_id', inventarioIds);
     }
@@ -334,10 +372,10 @@ export const obtenerMovimientos = async (req: Request, res: Response) => {
 
     if (error) {
       console.error('Error al obtener movimientos:', error);
-      return res.status(500).json({ ok: false, message: 'Error al obtener movimientos', error: error.message });
+      return reply.code(500).send({ ok: false, message: 'Error al obtener movimientos', error: error.message });
     }
 
-    res.json({
+    reply.send({
       ok: true,
       data: data || [],
       total: count || 0,
@@ -346,25 +384,31 @@ export const obtenerMovimientos = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error en obtenerMovimientos:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // Crear movimiento de inventario
-export const crearMovimiento = async (req: Request, res: Response) => {
+export const crearMovimiento = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
-    const { inventario_id, tipo_movimiento, cantidad, motivo, referencia } = req.body;
+    const { inventario_id, tipo_movimiento, cantidad, motivo, referencia } = request.body as {
+      inventario_id?: string;
+      tipo_movimiento?: string;
+      cantidad?: number;
+      motivo?: string;
+      referencia?: string;
+    };
 
     if (!inventario_id || !tipo_movimiento || !cantidad || !motivo) {
-      return res.status(400).json({ ok: false, message: 'Faltan datos requeridos' });
+      return reply.code(400).send({ ok: false, message: 'Faltan datos requeridos' });
     }
 
     if (!['entrada', 'salida', 'ajuste'].includes(tipo_movimiento)) {
-      return res.status(400).json({ ok: false, message: 'Tipo de movimiento inválido' });
+      return reply.code(400).send({ ok: false, message: 'Tipo de movimiento inválido' });
     }
 
     const client = supabaseAdmin || supabase;
@@ -376,28 +420,28 @@ export const crearMovimiento = async (req: Request, res: Response) => {
       .single();
 
     if (invError || !inventario) {
-      return res.status(404).json({ ok: false, message: 'Item de inventario no encontrado' });
+      return reply.code(404).send({ ok: false, message: 'Item de inventario no encontrado' });
     }
 
-    const acceso = await tieneAccesoRestaurante(client, req.user_info, inventario.restaurante_id);
+    const acceso = await tieneAccesoRestaurante(client, request.user_info, inventario.restaurante_id);
     if (!acceso) {
-      return res.status(403).json({ ok: false, message: 'No tienes acceso a este inventario' });
+      return reply.code(403).send({ ok: false, message: 'No tienes acceso a este inventario' });
     }
 
     if (tipo_movimiento === 'salida' && inventario.stock_actual < cantidad) {
-      return res.status(400).json({ ok: false, message: 'Stock insuficiente para esta operación' });
+      return reply.code(400).send({ ok: false, message: 'Stock insuficiente para esta operación' });
     }
 
     const { data, error } = await client
       .from('movimientos_inventario')
-      .insert({ inventario_id, tipo_movimiento, cantidad, motivo, referencia, usuario_id: req.user_info.id })
+      .insert({ inventario_id, tipo_movimiento, cantidad, motivo, referencia, usuario_id: request.user_info.id })
       .select(`*, inventario:inventario_id (id, nombre, stock_actual, stock_minimo, restaurante_id)`)
       .single();
 
     if (error) {
       console.error('Error al crear movimiento — detalle:', JSON.stringify(error));
-      console.error('Datos enviados:', { inventario_id, tipo_movimiento, cantidad, motivo, usuario_id: req.user_info.id });
-      return res.status(500).json({ ok: false, message: 'Error al crear movimiento', error: error.message });
+      console.error('Datos enviados:', { inventario_id, tipo_movimiento, cantidad, motivo, usuario_id: request.user_info.id });
+      return reply.code(500).send({ ok: false, message: 'Error al crear movimiento', error: error.message });
     }
 
     // Desglose automático: si es entrada y el producto tiene desglose, crear entradas para cada pieza
@@ -417,7 +461,7 @@ export const crearMovimiento = async (req: Request, res: Response) => {
               cantidad: cantidad * regla.cantidad,
               motivo: `Desglose automático de ${inventario.nombre} (×${cantidad})`,
               referencia: data.id,
-              usuario_id: req.user_info.id,
+              usuario_id: request.user_info.id,
             });
         }
       }
@@ -467,21 +511,27 @@ export const crearMovimiento = async (req: Request, res: Response) => {
       }
     }
 
-    res.status(201).json({ ok: true, data, message: 'Movimiento creado exitosamente' });
+    reply.code(201).send({ ok: true, data, message: 'Movimiento creado exitosamente' });
   } catch (error) {
     console.error('Error en crearMovimiento:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // Obtener alertas de stock
-export const obtenerAlertas = async (req: Request, res: Response) => {
+export const obtenerAlertas = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
-    const { leida, tipo_alerta, pagina = 1, limite = 10, restaurante_id: restauranteIdParam } = req.query;
+    const { leida, tipo_alerta, pagina = 1, limite = 10, restaurante_id: restauranteIdParam } = request.query as {
+      leida?: string;
+      tipo_alerta?: string;
+      pagina?: number;
+      limite?: number;
+      restaurante_id?: string;
+    };
 
     const client = supabaseAdmin || supabase;
 
@@ -489,7 +539,7 @@ export const obtenerAlertas = async (req: Request, res: Response) => {
       .from('alertas_stock')
       .select(`*, inventario:inventario_id (id, nombre, restaurante_id)`, { count: 'exact' });
 
-    let restauranteIds = await getRestauranteIds(client, req.user_info);
+    let restauranteIds = await getRestauranteIds(client, request.user_info);
     // Si se pasa restaurante_id, filtrar solo por ese restaurante (evita confusión al mezclar varios)
     if (typeof restauranteIdParam === 'string' && restauranteIdParam.trim()) {
       const idFiltro = restauranteIdParam.trim();
@@ -501,7 +551,7 @@ export const obtenerAlertas = async (req: Request, res: Response) => {
     }
     if (restauranteIds !== null) {
       if (restauranteIds.length === 0) {
-        return res.json({ ok: true, data: [], total: 0 });
+        return reply.send({ ok: true, data: [], total: 0 });
       }
       const { data: invIds } = await client
         .from('inventario')
@@ -509,7 +559,7 @@ export const obtenerAlertas = async (req: Request, res: Response) => {
         .in('restaurante_id', restauranteIds);
       const inventarioIds = invIds?.map((i: any) => i.id) || [];
       if (inventarioIds.length === 0) {
-        return res.json({ ok: true, data: [], total: 0 });
+        return reply.send({ ok: true, data: [], total: 0 });
       }
       query = query.in('inventario_id', inventarioIds);
     }
@@ -525,67 +575,68 @@ export const obtenerAlertas = async (req: Request, res: Response) => {
 
     if (error) {
       console.error('Error al obtener alertas:', error);
-      return res.status(500).json({ ok: false, message: 'Error al obtener alertas', error: error.message });
+      return reply.code(500).send({ ok: false, message: 'Error al obtener alertas', error: error.message });
     }
 
-    res.json({ ok: true, data: data || [], total: count || 0 });
+    reply.send({ ok: true, data: data || [], total: count || 0 });
   } catch (error) {
     console.error('Error en obtenerAlertas:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // Marcar alerta como leída
-export const marcarAlertaLeida = async (req: Request, res: Response) => {
+export const marcarAlertaLeida = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
+    const { id } = request.params as { id: string };
     const client = supabaseAdmin || supabase;
 
     const { data: alerta, error: alertaError } = await client
       .from('alertas_stock')
       .select(`*, inventario:inventario_id (restaurante_id)`)
-      .eq('id', req.params.id)
+      .eq('id', id)
       .single();
 
     if (alertaError || !alerta) {
-      return res.status(404).json({ ok: false, message: 'Alerta no encontrada' });
+      return reply.code(404).send({ ok: false, message: 'Alerta no encontrada' });
     }
 
-    const acceso = await tieneAccesoRestaurante(client, req.user_info, alerta.inventario?.restaurante_id);
+    const acceso = await tieneAccesoRestaurante(client, request.user_info, alerta.inventario?.restaurante_id);
     if (!acceso) {
-      return res.status(403).json({ ok: false, message: 'No tienes acceso a esta alerta' });
+      return reply.code(403).send({ ok: false, message: 'No tienes acceso a esta alerta' });
     }
 
     const { data, error } = await client
       .from('alertas_stock')
       .update({ leida: true, leida_at: new Date().toISOString() })
-      .eq('id', req.params.id)
+      .eq('id', id)
       .select()
       .single();
 
     if (error) {
-      return res.status(500).json({ ok: false, message: 'Error al marcar alerta como leída', error: error.message });
+      return reply.code(500).send({ ok: false, message: 'Error al marcar alerta como leída', error: error.message });
     }
 
-    res.json({ ok: true, data, message: 'Alerta marcada como leída' });
+    reply.send({ ok: true, data, message: 'Alerta marcada como leída' });
   } catch (error) {
     console.error('Error en marcarAlertaLeida:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // Marcar todas las alertas como leídas
-export const marcarTodasAlertasLeidas = async (req: Request, res: Response) => {
+export const marcarTodasAlertasLeidas = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
     const client = supabaseAdmin || supabase;
-    const restauranteIds = await getRestauranteIds(client, req.user_info);
+    const restauranteIds = await getRestauranteIds(client, request.user_info);
 
     let alertaIds: string[] = [];
 
@@ -595,7 +646,7 @@ export const marcarTodasAlertasLeidas = async (req: Request, res: Response) => {
       alertaIds = data?.map((a: any) => a.id) || [];
     } else {
       if (restauranteIds.length === 0) {
-        return res.json({ ok: true, message: 'No hay alertas pendientes' });
+        return reply.send({ ok: true, message: 'No hay alertas pendientes' });
       }
       const { data: invIds } = await client
         .from('inventario')
@@ -603,7 +654,7 @@ export const marcarTodasAlertasLeidas = async (req: Request, res: Response) => {
         .in('restaurante_id', restauranteIds);
       const inventarioIds = invIds?.map((i: any) => i.id) || [];
       if (inventarioIds.length === 0) {
-        return res.json({ ok: true, message: 'No hay alertas pendientes' });
+        return reply.send({ ok: true, message: 'No hay alertas pendientes' });
       }
       const { data } = await client
         .from('alertas_stock')
@@ -614,7 +665,7 @@ export const marcarTodasAlertasLeidas = async (req: Request, res: Response) => {
     }
 
     if (alertaIds.length === 0) {
-      return res.json({ ok: true, message: 'No hay alertas pendientes por marcar como leídas' });
+      return reply.send({ ok: true, message: 'No hay alertas pendientes por marcar como leídas' });
     }
 
     const { error } = await client
@@ -623,58 +674,59 @@ export const marcarTodasAlertasLeidas = async (req: Request, res: Response) => {
       .in('id', alertaIds);
 
     if (error) {
-      return res.status(500).json({ ok: false, message: 'Error al marcar alertas', error: error.message });
+      return reply.code(500).send({ ok: false, message: 'Error al marcar alertas', error: error.message });
     }
 
-    res.json({ ok: true, message: 'Todas las alertas han sido marcadas como leídas' });
+    reply.send({ ok: true, message: 'Todas las alertas han sido marcadas como leídas' });
   } catch (error) {
     console.error('Error en marcarTodasAlertasLeidas:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // Eliminar alerta de stock
-export const eliminarAlerta = async (req: Request, res: Response) => {
+export const eliminarAlerta = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
+    const { id } = request.params as { id: string };
     const client = supabaseAdmin || supabase;
 
     const { data: alerta, error: alertaError } = await client
       .from('alertas_stock')
       .select(`*, inventario:inventario_id (restaurante_id)`)
-      .eq('id', req.params.id)
+      .eq('id', id)
       .single();
 
     if (alertaError || !alerta) {
-      return res.status(404).json({ ok: false, message: 'Alerta no encontrada' });
+      return reply.code(404).send({ ok: false, message: 'Alerta no encontrada' });
     }
 
-    const acceso = await tieneAccesoRestaurante(client, req.user_info, alerta.inventario?.restaurante_id);
+    const acceso = await tieneAccesoRestaurante(client, request.user_info, alerta.inventario?.restaurante_id);
     if (!acceso) {
-      return res.status(403).json({ ok: false, message: 'No tienes acceso a esta alerta' });
+      return reply.code(403).send({ ok: false, message: 'No tienes acceso a esta alerta' });
     }
 
-    const { error } = await client.from('alertas_stock').delete().eq('id', req.params.id);
+    const { error } = await client.from('alertas_stock').delete().eq('id', id);
 
     if (error) {
-      return res.status(500).json({ ok: false, message: 'Error al eliminar alerta', error: error.message });
+      return reply.code(500).send({ ok: false, message: 'Error al eliminar alerta', error: error.message });
     }
 
-    res.json({ ok: true, message: 'Alerta eliminada' });
+    reply.send({ ok: true, message: 'Alerta eliminada' });
   } catch (error) {
     console.error('Error en eliminarAlerta:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // Obtener productos con stock bajo
-export const obtenerProductosStockBajo = async (req: Request, res: Response) => {
+export const obtenerProductosStockBajo = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
     const client = supabaseAdmin || supabase;
@@ -685,36 +737,36 @@ export const obtenerProductosStockBajo = async (req: Request, res: Response) => 
       .eq('activo', true)
       .gt('stock_actual', 0);
 
-    const restauranteIds = await getRestauranteIds(client, req.user_info);
+    const restauranteIds = await getRestauranteIds(client, request.user_info);
     if (restauranteIds !== null) {
-      if (restauranteIds.length === 0) return res.json({ ok: true, data: [] });
+      if (restauranteIds.length === 0) return reply.send({ ok: true, data: [] });
       query = query.in('restaurante_id', restauranteIds);
     }
 
     const { data, error } = await query;
 
     if (error) {
-      return res.status(500).json({ ok: false, message: 'Error al obtener productos con stock bajo', error: error.message });
+      return reply.code(500).send({ ok: false, message: 'Error al obtener productos con stock bajo', error: error.message });
     }
 
     // Filtrar productos donde stock_actual <= stock_minimo
     const stockBajo = (data || []).filter((item: any) => item.stock_actual <= item.stock_minimo);
 
-    res.json({ ok: true, data: stockBajo });
+    reply.send({ ok: true, data: stockBajo });
   } catch (error) {
     console.error('Error en obtenerProductosStockBajo:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // Verificar stock disponible por inventario_id (inventario ya no tiene menu_id)
-export const verificarStockDisponible = async (req: Request, res: Response) => {
+export const verificarStockDisponible = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const { inventarioId } = req.params;
-    const { cantidad } = req.query;
+    const { inventarioId } = request.params as { inventarioId: string };
+    const { cantidad } = request.query as { cantidad?: string };
 
     if (!cantidad) {
-      return res.status(400).json({ ok: false, message: 'Cantidad requerida' });
+      return reply.code(400).send({ ok: false, message: 'Cantidad requerida' });
     }
 
     const client = supabaseAdmin || supabase;
@@ -726,29 +778,29 @@ export const verificarStockDisponible = async (req: Request, res: Response) => {
       .single();
 
     if (error || !data) {
-      return res.json({ ok: true, disponible: true, stock_actual: 0 });
+      return reply.send({ ok: true, disponible: true, stock_actual: 0 });
     }
 
-    res.json({
+    reply.send({
       ok: true,
       disponible: data.stock_actual >= Number(cantidad),
       stock_actual: data.stock_actual
     });
   } catch (error) {
     console.error('Error en verificarStockDisponible:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // Obtener estadísticas de inventario
-export const obtenerEstadisticas = async (req: Request, res: Response) => {
+export const obtenerEstadisticas = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
     const client = supabaseAdmin || supabase;
-    const restauranteIds = await getRestauranteIds(client, req.user_info);
+    const restauranteIds = await getRestauranteIds(client, request.user_info);
 
     // Base queries
     let invQuery = client.from('inventario').select('stock_actual, stock_minimo, costo_unitario').eq('activo', true);
@@ -758,7 +810,7 @@ export const obtenerEstadisticas = async (req: Request, res: Response) => {
 
     if (restauranteIds !== null) {
       if (restauranteIds.length === 0) {
-        return res.json({
+        return reply.send({
           ok: true,
           data: { total_productos: 0, productos_stock_bajo: 0, productos_agotados: 0, valor_total_inventario: 0, movimientos_hoy: 0, alertas_pendientes: 0 }
         });
@@ -786,7 +838,7 @@ export const obtenerEstadisticas = async (req: Request, res: Response) => {
     const productosStockBajo = items.filter((i: any) => i.stock_actual > 0 && i.stock_actual <= i.stock_minimo).length;
     const valorTotalInventario = items.reduce((sum: number, i: any) => sum + (i.stock_actual * (i.costo_unitario || 0)), 0);
 
-    res.json({
+    reply.send({
       ok: true,
       data: {
         total_productos: totalProductos,
@@ -799,47 +851,49 @@ export const obtenerEstadisticas = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error en obtenerEstadisticas:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // ---- Endpoints de Desglose ----
 
 // Obtener reglas de desglose de un producto
-export const obtenerDesglose = async (req: Request, res: Response) => {
+export const obtenerDesglose = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
+    const { id } = request.params as { id: string };
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
       .from('inventario_desglose')
       .select('id, producto_id, componente_id, cantidad, componente:componente_id (id, nombre, unidad_medida)')
-      .eq('producto_id', req.params.id);
+      .eq('producto_id', id);
 
     if (error) {
       console.error('Error al obtener desglose:', error);
-      return res.status(500).json({ ok: false, message: 'Error al obtener desglose', error: error.message });
+      return reply.code(500).send({ ok: false, message: 'Error al obtener desglose', error: error.message });
     }
 
-    res.json({ ok: true, data: data || [] });
+    reply.send({ ok: true, data: data || [] });
   } catch (error) {
     console.error('Error en obtenerDesglose:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // Crear o actualizar una regla de desglose
-export const crearReglaDesglose = async (req: Request, res: Response) => {
+export const crearReglaDesglose = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
-    const { componente_id, cantidad } = req.body;
+    const { id } = request.params as { id: string };
+    const { componente_id, cantidad } = request.body as { componente_id?: string; cantidad?: number };
     if (!componente_id || !cantidad || cantidad <= 0) {
-      return res.status(400).json({ ok: false, message: 'Faltan datos: componente_id y cantidad > 0' });
+      return reply.code(400).send({ ok: false, message: 'Faltan datos: componente_id y cantidad > 0' });
     }
 
     const client = supabaseAdmin || supabase;
@@ -848,7 +902,7 @@ export const crearReglaDesglose = async (req: Request, res: Response) => {
     const { data: existing } = await client
       .from('inventario_desglose')
       .select('id')
-      .eq('producto_id', req.params.id)
+      .eq('producto_id', id)
       .eq('componente_id', componente_id)
       .single();
 
@@ -863,45 +917,46 @@ export const crearReglaDesglose = async (req: Request, res: Response) => {
     } else {
       ({ data, error } = await client
         .from('inventario_desglose')
-        .insert({ producto_id: req.params.id, componente_id, cantidad })
+        .insert({ producto_id: id, componente_id, cantidad })
         .select('id, producto_id, componente_id, cantidad, componente:componente_id (id, nombre, unidad_medida)')
         .single());
     }
 
     if (error) {
       console.error('Error al crear regla de desglose:', error);
-      return res.status(500).json({ ok: false, message: 'Error al crear regla de desglose', error: error.message });
+      return reply.code(500).send({ ok: false, message: 'Error al crear regla de desglose', error: error.message });
     }
 
-    res.status(201).json({ ok: true, data, message: 'Regla de desglose guardada' });
+    reply.code(201).send({ ok: true, data, message: 'Regla de desglose guardada' });
   } catch (error) {
     console.error('Error en crearReglaDesglose:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };
 
 // Eliminar una regla de desglose
-export const eliminarReglaDesglose = async (req: Request, res: Response) => {
+export const eliminarReglaDesglose = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ ok: false, message: 'No se encontró información del usuario autenticado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ ok: false, message: 'No se encontró información del usuario autenticado' });
     }
 
+    const { id, reglaId } = request.params as { id: string; reglaId: string };
     const client = supabaseAdmin || supabase;
     const { error } = await client
       .from('inventario_desglose')
       .delete()
-      .eq('id', req.params.reglaId)
-      .eq('producto_id', req.params.id);
+      .eq('id', reglaId)
+      .eq('producto_id', id);
 
     if (error) {
       console.error('Error al eliminar regla de desglose:', error);
-      return res.status(500).json({ ok: false, message: 'Error al eliminar regla', error: error.message });
+      return reply.code(500).send({ ok: false, message: 'Error al eliminar regla', error: error.message });
     }
 
-    res.json({ ok: true, message: 'Regla eliminada' });
+    reply.send({ ok: true, message: 'Regla eliminada' });
   } catch (error) {
     console.error('Error en eliminarReglaDesglose:', error);
-    res.status(500).json({ ok: false, message: 'Error interno del servidor' });
+    throw error;
   }
 };

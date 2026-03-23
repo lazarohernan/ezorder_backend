@@ -1,6 +1,5 @@
-import { Request, Response } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
-import "../types/express";
 
 /**
  * FLUJO:
@@ -10,32 +9,39 @@ import "../types/express";
  * 4. Admin asigna rol y restaurante manualmente
  */
 
-export const createInvitacion = async (req: Request, res: Response) => {
+export const createInvitacion = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const { email, nombre, apellido, rol_id = 3, restaurante_id, telefono } = req.body;
+    const { email, nombre, apellido, rol_id = 3, restaurante_id, telefono } = request.body as {
+      email?: string;
+      nombre?: string;
+      apellido?: string;
+      rol_id?: number;
+      restaurante_id?: string;
+      telefono?: string;
+    };
 
     if (!email || !nombre || !apellido) {
-      return res.status(400).json({ success: false, message: 'Email, nombre y apellido son obligatorios' });
+      return reply.code(400).send({ success: false, message: 'Email, nombre y apellido son obligatorios' });
     }
 
-    if (!req.user_info || !req.user) {
-      return res.status(403).json({ success: false, message: 'No autorizado' });
+    if (!request.user_info || !request.user) {
+      return reply.code(403).send({ success: false, message: 'No autorizado' });
     }
 
-    const userRole = req.user_info.rol_id;
-    const hasCustomRole = req.user_info.rol_personalizado_id;
-    
+    const userRole = request.user_info.rol_id;
+    const hasCustomRole = request.user_info.rol_personalizado_id;
+
     // Permitir acceso a Super Admin (1), Admin (2), o usuarios con rol personalizado
     if (userRole !== 1 && userRole !== 2 && !hasCustomRole) {
-      return res.status(403).json({ success: false, message: 'No tienes permisos para invitar usuarios' });
+      return reply.code(403).send({ success: false, message: 'No tienes permisos para invitar usuarios' });
     }
 
     if (!supabaseAdmin) {
-      return res.status(500).json({ success: false, message: 'Configuracion de Supabase no disponible' });
+      return reply.code(500).send({ success: false, message: 'Configuracion de Supabase no disponible' });
     }
 
-    // Usar req.user.id (ID del usuario autenticado en auth.users)
-    const invitadoPorId = req.user.id;
+    // Usar request.user.id (ID del usuario autenticado en auth.users)
+    const invitadoPorId = request.user.id;
 
     // Paso 1: Verificar si ya existe invitacion pendiente
     const { data: invExistente } = await supabaseAdmin
@@ -62,7 +68,7 @@ export const createInvitacion = async (req: Request, res: Response) => {
         data: { nombre, apellido, rol_id, restaurante_id, invitado_por: invitadoPorId }
       });
 
-      return res.status(200).json({
+      return reply.code(200).send({
         success: true,
         message: 'Invitacion reenviada',
         data: { email, invitacion_id: invExistente.id, estado: 'pendiente' }
@@ -96,7 +102,7 @@ export const createInvitacion = async (req: Request, res: Response) => {
 
     if (invError) {
       console.error('Error al crear invitacion:', invError);
-      return res.status(500).json({ success: false, message: 'Error al crear invitacion: ' + invError.message });
+      return reply.code(500).send({ success: false, message: 'Error al crear invitacion: ' + invError.message });
     }
 
     // Paso 4: Enviar invitacion via Supabase (esto crea usuario en auth.users)
@@ -121,7 +127,7 @@ export const createInvitacion = async (req: Request, res: Response) => {
     console.log('Invitacion ID:', invitacion.id);
     console.log('Auth User ID:', authData?.user?.id);
 
-    return res.status(200).json({
+    return reply.code(200).send({
       success: true,
       message: 'Invitacion enviada exitosamente',
       data: {
@@ -135,29 +141,29 @@ export const createInvitacion = async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('Error en createInvitacion:', error);
-    return res.status(500).json({ success: false, message: 'Error interno', error: error.message });
+    throw error;
   }
 };
 
 /**
  * Obtener lista de invitaciones (para mostrar pendientes en UI)
  */
-export const getInvitaciones = async (req: Request, res: Response) => {
+export const getInvitaciones = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ success: false, message: 'No autorizado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ success: false, message: 'No autorizado' });
     }
 
-    const userRole = req.user_info.rol_id;
-    const hasCustomRole = req.user_info.rol_personalizado_id;
-    
+    const userRole = request.user_info.rol_id;
+    const hasCustomRole = request.user_info.rol_personalizado_id;
+
     // Permitir acceso a Super Admin (1), Admin (2), o usuarios con rol personalizado
     if (userRole !== 1 && userRole !== 2 && !hasCustomRole) {
-      return res.status(403).json({ success: false, message: 'Sin permisos' });
+      return reply.code(403).send({ success: false, message: 'Sin permisos' });
     }
 
     if (!supabaseAdmin) {
-      return res.status(500).json({ success: false, message: 'Configuracion no disponible' });
+      return reply.code(500).send({ success: false, message: 'Configuracion no disponible' });
     }
 
     let query = supabaseAdmin
@@ -167,34 +173,34 @@ export const getInvitaciones = async (req: Request, res: Response) => {
 
     // Filtrar por restaurante si no es admin SOLO si el restaurante está asignado
     // Las invitaciones sin restaurante asignado deben ser visibles para admins
-    if (userRole !== 1 && req.user_info.restaurante_id) {
-      query = query.or(`restaurante_id.eq.${req.user_info.restaurante_id},restaurante_id.is.null`);
+    if (userRole !== 1 && request.user_info.restaurante_id) {
+      query = query.or(`restaurante_id.eq.${request.user_info.restaurante_id},restaurante_id.is.null`);
     }
 
     const { data, error } = await query;
 
     if (error) {
-      return res.status(500).json({ success: false, message: 'Error', error: error.message });
+      return reply.code(500).send({ success: false, message: 'Error', error: error.message });
     }
 
-    return res.status(200).json({ success: true, data: data || [] });
+    return reply.code(200).send({ success: true, data: data || [] });
 
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: 'Error interno', error: error.message });
+    throw error;
   }
 };
 
 /**
  * Obtener solo invitaciones pendientes (para UI de pendientes)
  */
-export const getInvitacionesPendientes = async (req: Request, res: Response) => {
+export const getInvitacionesPendientes = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({ success: false, message: 'No autorizado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ success: false, message: 'No autorizado' });
     }
 
     if (!supabaseAdmin) {
-      return res.status(500).json({ success: false, message: 'Configuracion no disponible' });
+      return reply.code(500).send({ success: false, message: 'Configuracion no disponible' });
     }
 
     let query = supabaseAdmin
@@ -204,36 +210,36 @@ export const getInvitacionesPendientes = async (req: Request, res: Response) => 
       .order('created_at', { ascending: false });
 
     // Filtrar por restaurante si no es admin
-    if (req.user_info.rol_id !== 1 && req.user_info.restaurante_id) {
-      query = query.eq('restaurante_id', req.user_info.restaurante_id);
+    if (request.user_info.rol_id !== 1 && request.user_info.restaurante_id) {
+      query = query.eq('restaurante_id', request.user_info.restaurante_id);
     }
 
     const { data, error } = await query;
 
     if (error) {
-      return res.status(500).json({ success: false, message: 'Error', error: error.message });
+      return reply.code(500).send({ success: false, message: 'Error', error: error.message });
     }
 
-    return res.status(200).json({ success: true, data: data || [] });
+    return reply.code(200).send({ success: true, data: data || [] });
 
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: 'Error interno', error: error.message });
+    throw error;
   }
 };
 
 /**
  * Marcar invitacion como aceptada (llamar cuando usuario establece password)
  */
-export const aceptarInvitacion = async (req: Request, res: Response) => {
+export const aceptarInvitacion = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const { email } = req.body;
+    const { email } = request.body as { email?: string };
 
     if (!email) {
-      return res.status(400).json({ success: false, message: 'Email es obligatorio' });
+      return reply.code(400).send({ success: false, message: 'Email es obligatorio' });
     }
 
     if (!supabaseAdmin) {
-      return res.status(500).json({ success: false, message: 'Configuracion no disponible' });
+      return reply.code(500).send({ success: false, message: 'Configuracion no disponible' });
     }
 
     // Usar RPC para aceptar invitación y crear usuarios_info + usuarios_restaurantes
@@ -244,22 +250,22 @@ export const aceptarInvitacion = async (req: Request, res: Response) => {
 
     if (rpcError) {
       console.error('Error en RPC aceptar_invitacion:', rpcError);
-      return res.status(500).json({ success: false, message: 'Error al procesar invitación', error: rpcError.message });
+      return reply.code(500).send({ success: false, message: 'Error al procesar invitación', error: rpcError.message });
     }
 
     const result = rpcResult as any;
     if (result && result.success === false) {
-      return res.status(404).json({ success: false, message: result.message || 'Invitacion no encontrada' });
+      return reply.code(404).send({ success: false, message: result.message || 'Invitacion no encontrada' });
     }
 
-    return res.status(200).json({
+    return reply.code(200).send({
       success: true,
       message: 'Invitacion aceptada',
       data: result
     });
 
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: 'Error interno', error: error.message });
+    throw error;
   }
 };
 
@@ -269,16 +275,16 @@ export const aceptarInvitacion = async (req: Request, res: Response) => {
  * 2. API Admin elimina de: auth.users
  * NOTA: Datos transaccionales (notificaciones, gastos, caja, pedidos) se conservan
  */
-export const cancelarInvitacion = async (req: Request, res: Response) => {
+export const cancelarInvitacion = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const { id } = req.params;
+    const { id } = request.params as { id: string };
 
-    if (!req.user_info) {
-      return res.status(403).json({ success: false, message: 'No autorizado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ success: false, message: 'No autorizado' });
     }
 
     if (!supabaseAdmin) {
-      return res.status(500).json({ success: false, message: 'Configuracion no disponible' });
+      return reply.code(500).send({ success: false, message: 'Configuracion no disponible' });
     }
 
     // Paso 1: Obtener email de la invitacion
@@ -289,7 +295,7 @@ export const cancelarInvitacion = async (req: Request, res: Response) => {
       .single();
 
     if (invError || !invitacion) {
-      return res.status(404).json({ success: false, message: 'Invitacion no encontrada' });
+      return reply.code(404).send({ success: false, message: 'Invitacion no encontrada' });
     }
 
     const email = invitacion.email;
@@ -321,8 +327,8 @@ export const cancelarInvitacion = async (req: Request, res: Response) => {
 
     console.log('Eliminacion completa para:', email);
 
-    return res.status(200).json({ 
-      success: true, 
+    return reply.code(200).send({
+      success: true,
       message: 'Invitación eliminada correctamente',
       data: {
         email,
@@ -340,19 +346,19 @@ export const cancelarInvitacion = async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('Error al cancelar invitacion:', error);
-    return res.status(500).json({ success: false, message: 'Error interno', error: error.message });
+    throw error;
   }
 };
 
 /**
  * Verificar token de invitacion
  */
-export const verifyInvitacionToken = async (req: Request, res: Response) => {
+export const verifyInvitacionToken = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const { token } = req.params;
+    const { token } = request.params as { token: string };
 
     if (!token || !supabaseAdmin) {
-      return res.status(400).json({ success: false, message: 'Token requerido' });
+      return reply.code(400).send({ success: false, message: 'Token requerido' });
     }
 
     const { data, error } = await supabaseAdmin
@@ -363,20 +369,20 @@ export const verifyInvitacionToken = async (req: Request, res: Response) => {
       .single();
 
     if (error || !data) {
-      return res.status(404).json({ success: false, message: 'Token invalido' });
+      return reply.code(404).send({ success: false, message: 'Token invalido' });
     }
 
     if (new Date() > new Date(data.fecha_expiracion)) {
-      return res.status(410).json({ success: false, message: 'Invitacion expirada' });
+      return reply.code(410).send({ success: false, message: 'Invitacion expirada' });
     }
 
-    return res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data: { email: data.email, nombre: data.nombre, apellido: data.apellido, estado: data.estado }
     });
 
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: 'Error interno', error: error.message });
+    throw error;
   }
 };
 
@@ -388,24 +394,24 @@ export const deleteInvitacion = cancelarInvitacion;
  * - Mínimo 5 minutos entre reenvíos
  * - Máximo 5 reenvíos por invitación
  */
-export const resendInvitacion = async (req: Request, res: Response) => {
+export const resendInvitacion = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const { id } = req.params;
+    const { id } = request.params as { id: string };
 
-    if (!req.user_info) {
-      return res.status(403).json({ success: false, message: 'No autorizado' });
+    if (!request.user_info) {
+      return reply.code(403).send({ success: false, message: 'No autorizado' });
     }
 
-    const userRole = req.user_info.rol_id;
-    const hasCustomRole = req.user_info.rol_personalizado_id;
-    
+    const userRole = request.user_info.rol_id;
+    const hasCustomRole = request.user_info.rol_personalizado_id;
+
     // Permitir acceso a Super Admin (1), Admin (2), o usuarios con rol personalizado
     if (userRole !== 1 && userRole !== 2 && !hasCustomRole) {
-      return res.status(403).json({ success: false, message: 'No tienes permisos para reenviar invitaciones' });
+      return reply.code(403).send({ success: false, message: 'No tienes permisos para reenviar invitaciones' });
     }
 
     if (!supabaseAdmin) {
-      return res.status(500).json({ success: false, message: 'Configuracion de Supabase no disponible' });
+      return reply.code(500).send({ success: false, message: 'Configuracion de Supabase no disponible' });
     }
 
     // Obtener la invitación
@@ -416,14 +422,14 @@ export const resendInvitacion = async (req: Request, res: Response) => {
       .single();
 
     if (invError || !invitacion) {
-      return res.status(404).json({ success: false, message: 'Invitación no encontrada' });
+      return reply.code(404).send({ success: false, message: 'Invitación no encontrada' });
     }
 
     // Verificar que esté pendiente
     if (invitacion.estado !== 'pendiente') {
-      return res.status(400).json({ 
-        success: false, 
-        message: `No se puede reenviar una invitación con estado "${invitacion.estado}"` 
+      return reply.code(400).send({
+        success: false,
+        message: `No se puede reenviar una invitación con estado "${invitacion.estado}"`
       });
     }
 
@@ -431,8 +437,8 @@ export const resendInvitacion = async (req: Request, res: Response) => {
     const maxReenvios = 5;
     const reenviosActuales = invitacion.reenvios_count || 0;
     if (reenviosActuales >= maxReenvios) {
-      return res.status(429).json({ 
-        success: false, 
+      return reply.code(429).send({
+        success: false,
         message: `Se ha alcanzado el límite máximo de ${maxReenvios} reenvíos para esta invitación`,
         data: { reenvios_count: reenviosActuales, max_reenvios: maxReenvios }
       });
@@ -446,10 +452,10 @@ export const resendInvitacion = async (req: Request, res: Response) => {
 
     if (minutosPasados < minMinutosEntreReenvios) {
       const minutosRestantes = Math.ceil(minMinutosEntreReenvios - minutosPasados);
-      return res.status(429).json({ 
-        success: false, 
+      return reply.code(429).send({
+        success: false,
         message: `Debes esperar ${minutosRestantes} minuto(s) antes de reenviar`,
-        data: { 
+        data: {
           minutos_restantes: minutosRestantes,
           proximo_reenvio_disponible: new Date(fechaUltimoEnvio.getTime() + minMinutosEntreReenvios * 60 * 1000).toISOString()
         }
@@ -469,7 +475,7 @@ export const resendInvitacion = async (req: Request, res: Response) => {
 
     if (updateError) {
       console.error('Error al actualizar invitación:', updateError);
-      return res.status(500).json({ success: false, message: 'Error al actualizar invitación' });
+      return reply.code(500).send({ success: false, message: 'Error al actualizar invitación' });
     }
 
     // Reenviar email via Supabase
@@ -492,7 +498,7 @@ export const resendInvitacion = async (req: Request, res: Response) => {
 
     console.log('Invitación reenviada:', invitacion.email, '- Reenvío #', reenviosActuales + 1);
 
-    return res.status(200).json({
+    return reply.code(200).send({
       success: true,
       message: 'Invitación reenviada exitosamente',
       data: {
@@ -507,6 +513,6 @@ export const resendInvitacion = async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('Error en resendInvitacion:', error);
-    return res.status(500).json({ success: false, message: 'Error interno', error: error.message });
+    throw error;
   }
 };

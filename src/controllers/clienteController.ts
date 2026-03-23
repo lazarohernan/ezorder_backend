@@ -1,19 +1,18 @@
-import { Request, Response } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
 
 // Obtener todos los clientes
-export const getClientes = async (req: Request, res: Response) => {
+export const getClientes = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     // Obtener el rol del usuario
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
 
     let data: any;
     let error: any;
@@ -29,21 +28,21 @@ export const getClientes = async (req: Request, res: Response) => {
         .order("nombre_cliente", { ascending: true });
       data = adminData;
       error = adminError;
-    } 
+    }
     // Si es Admin/Propietario (rol_id=2), obtener clientes de TODOS sus restaurantes
     else if (id_rol === 2) {
       // Obtener los IDs de todos los restaurantes del Admin
       const { data: userRestaurants, error: restaurantsError } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       if (restaurantsError) {
         error = restaurantsError;
         data = null;
       } else {
         const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-        
+
         if (restaurantIds.length === 0) {
           data = [];
           error = null;
@@ -58,17 +57,16 @@ export const getClientes = async (req: Request, res: Response) => {
           error = clientesError;
         }
       }
-    } 
+    }
     // Usuarios normales solo ven clientes de su restaurante asignado
     else {
-      const restaurante_id = req.user_info?.restaurante_id;
+      const restaurante_id = request.user_info?.restaurante_id;
 
       if (!restaurante_id) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "El usuario no tiene un restaurante asignado",
         });
-        return;
       }
 
       const { data: userClientes, error: userError } = await client
@@ -85,36 +83,30 @@ export const getClientes = async (req: Request, res: Response) => {
       throw error;
     }
 
-    res.status(200).json({
+    return reply.send({
       success: true,
       data,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error al obtener clientes",
-    });
-    return;
+    throw error;
   }
 };
 
 // Obtener todos los clientes por restaurante
 export const getClientesByRestauranteId = async (
-  req: Request,
-  res: Response
+  request: FastifyRequest,
+  reply: FastifyReply
 ) => {
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    const { restaurante_id } = req.params;
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const { restaurante_id } = request.params as { restaurante_id: string };
+    const id_rol = request.user_info?.rol_id ?? 3;
 
     // Verificar permisos según rol
     if (id_rol === 1) {
@@ -125,33 +117,30 @@ export const getClientesByRestauranteId = async (
       const { data: userRestaurants, error: restaurantsError } = await adminClient
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       if (restaurantsError) {
-        res.status(500).json({
+        return reply.code(500).send({
           success: false,
           message: "Error al verificar permisos",
         });
-        return;
       }
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este restaurante",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden ver su restaurante
-      if (req.user_info.restaurante_id !== restaurante_id) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== restaurante_id) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este restaurante",
         });
-        return;
       }
     }
 
@@ -168,26 +157,21 @@ export const getClientesByRestauranteId = async (
       throw error;
     }
 
-    res.status(200).json({
+    return reply.send({
       success: true,
       data,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error al obtener clientes",
-    });
-    return;
+    throw error;
   }
 };
 
 // Obtener un cliente por ID
-export const getClienteById = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const getClienteById = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = request.params as { id: string };
 
   try {
-    console.log(`Usuario ${req.user?.id} solicitó el cliente ${id}`);
+    console.log(`Usuario ${request.user?.id} solicitó el cliente ${id}`);
 
     // Usar supabaseAdmin para bypassear RLS
     const client = supabaseAdmin || supabase;
@@ -199,38 +183,31 @@ export const getClienteById = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return reply.code(404).send({
           success: false,
           message: "Cliente no encontrado",
         });
-        return;
       }
       throw error;
     }
 
-    res.status(200).json({
+    return reply.send({
       success: true,
       data,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error al obtener cliente",
-    });
-    return;
+    throw error;
   }
 };
 
 // Crear un nuevo cliente
-export const createCliente = async (req: Request, res: Response) => {
+export const createCliente = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     const {
@@ -239,19 +216,24 @@ export const createCliente = async (req: Request, res: Response) => {
       rtn_cliente,
       tel_cliente,
       correo_cliente,
-    } = req.body;
+    } = request.body as {
+      restaurante_id?: string;
+      nombre_cliente?: string;
+      rtn_cliente?: string;
+      tel_cliente?: string;
+      correo_cliente?: string;
+    };
 
     // Verificar que los campos obligatorios sean proporcionados
     if (!nombre_cliente || !restaurante_id) {
-      res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: "El nombre del cliente y el id del restaurante son obligatorios",
       });
-      return;
     }
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
 
     if (id_rol === 1) {
       // Super Admin puede crear clientes en cualquier restaurante
@@ -261,33 +243,30 @@ export const createCliente = async (req: Request, res: Response) => {
       const { data: userRestaurants, error: restaurantsError } = await adminClient
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       if (restaurantsError) {
-        res.status(500).json({
+        return reply.code(500).send({
           success: false,
           message: "Error al verificar permisos",
         });
-        return;
       }
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este restaurante",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden crear clientes en su restaurante
-      if (req.user_info.restaurante_id !== restaurante_id) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== restaurante_id) {
+        return reply.code(403).send({
           success: false,
           message: "No puedes crear clientes para este restaurante",
         });
-        return;
       }
     }
 
@@ -309,32 +288,33 @@ export const createCliente = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    res.status(201).json({
+    return reply.code(201).send({
       success: true,
       message: "Cliente creado exitosamente",
       data,
     });
-    return;
   } catch (error: any) {
     console.error("Error al crear cliente:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error al crear cliente",
-    });
-    return;
+    throw error;
   }
 };
 
 // Actualizar un cliente
-export const updateCliente = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const updateCliente = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = request.params as { id: string };
   const {
     restaurante_id,
     nombre_cliente,
     rtn_cliente,
     tel_cliente,
     correo_cliente,
-  } = req.body;
+  } = request.body as {
+    restaurante_id?: string;
+    nombre_cliente?: string;
+    rtn_cliente?: string;
+    tel_cliente?: string;
+    correo_cliente?: string;
+  };
 
   // Verificar que se proporcione al menos un campo para actualizar
   if (
@@ -344,23 +324,21 @@ export const updateCliente = async (req: Request, res: Response) => {
     tel_cliente === undefined &&
     correo_cliente === undefined
   ) {
-    res.status(400).json({
+    return reply.code(400).send({
       success: false,
       message: "Se debe proporcionar al menos un campo para actualizar",
     });
-    return;
   }
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    console.log(`Usuario ${req.user_info.id} está actualizando el cliente ${id}`);
+    console.log(`Usuario ${request.user_info.id} está actualizando el cliente ${id}`);
 
     // Usar supabaseAdmin para bypassear RLS
     const client = supabaseAdmin || supabase;
@@ -373,15 +351,14 @@ export const updateCliente = async (req: Request, res: Response) => {
       .single();
 
     if (errorBuscar || !clienteExistente) {
-      res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: "Cliente no encontrado",
       });
-      return;
     }
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede actualizar cualquier cliente
     } else if (id_rol === 2) {
@@ -389,35 +366,32 @@ export const updateCliente = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(clienteExistente.restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este cliente",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden actualizar clientes de su restaurante
-      if (req.user_info.restaurante_id !== clienteExistente.restaurante_id) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== clienteExistente.restaurante_id) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este cliente",
         });
-        return;
       }
     }
 
     // Prevenir cambio de restaurante_id si se intenta modificar
     if (restaurante_id && restaurante_id !== clienteExistente.restaurante_id) {
-      res.status(403).json({
+      return reply.code(403).send({
         success: false,
         message: "No puedes cambiar el restaurante de un cliente",
       });
-      return;
     }
 
     // Crear objeto con solo los campos proporcionados
@@ -437,44 +411,37 @@ export const updateCliente = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return reply.code(404).send({
           success: false,
           message: "Cliente no encontrado",
         });
-        return;
       }
       throw error;
     }
 
-    res.status(200).json({
+    return reply.send({
       success: true,
       message: "Cliente actualizado exitosamente",
       data,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error al actualizar cliente",
-    });
-    return;
+    throw error;
   }
 };
 
 // Eliminar un cliente
-export const deleteCliente = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const deleteCliente = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = request.params as { id: string };
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    console.log(`Usuario ${req.user_info.id} está eliminando el cliente ${id}`);
+    console.log(`Usuario ${request.user_info.id} está eliminando el cliente ${id}`);
 
     // Usar supabaseAdmin para bypassear RLS
     const client = supabaseAdmin || supabase;
@@ -487,15 +454,14 @@ export const deleteCliente = async (req: Request, res: Response) => {
       .single();
 
     if (errorBuscar || !clienteExistente) {
-      res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: "Cliente no encontrado",
       });
-      return;
     }
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede eliminar cualquier cliente
     } else if (id_rol === 2) {
@@ -503,25 +469,23 @@ export const deleteCliente = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(clienteExistente.restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este cliente",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden eliminar clientes de su restaurante
-      if (req.user_info.restaurante_id !== clienteExistente.restaurante_id) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== clienteExistente.restaurante_id) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este cliente",
         });
-        return;
       }
     }
 
@@ -529,16 +493,11 @@ export const deleteCliente = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    res.status(200).json({
+    return reply.send({
       success: true,
       message: "Cliente eliminado exitosamente",
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error al eliminar cliente",
-    });
-    return;
+    throw error;
   }
 };

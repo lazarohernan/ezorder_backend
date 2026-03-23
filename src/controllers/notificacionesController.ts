@@ -1,6 +1,5 @@
-import { Request, Response } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
-import "../types/express"; // Importar tipos personalizados
 
 // Interfaces
 interface Notificacion {
@@ -24,27 +23,27 @@ interface Notificacion {
 }
 
 // Helper para obtener IDs de restaurantes del usuario (cacheado en request)
-const getUserRestaurantIds = async (client: any, userId: string, req: Request): Promise<string[]> => {
+const getUserRestaurantIds = async (client: any, userId: string, request: FastifyRequest): Promise<string[]> => {
   // Usar cache en el request si ya se obtuvo
-  if ((req as any)._restaurantIds) {
-    return (req as any)._restaurantIds;
+  if ((request as any)._restaurantIds) {
+    return (request as any)._restaurantIds;
   }
-  
+
   const { data: userRestaurants } = await client
     .from('usuarios_restaurantes')
     .select('restaurante_id')
     .eq('usuario_id', userId);
 
   const ids = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-  (req as any)._restaurantIds = ids;
+  (request as any)._restaurantIds = ids;
   return ids;
 };
 
 // Obtener notificaciones del usuario
-export const getNotificaciones = async (req: Request, res: Response) => {
+export const getNotificaciones = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
@@ -56,10 +55,16 @@ export const getNotificaciones = async (req: Request, res: Response) => {
       pagina = 1,
       limite = 10,
       restaurante_id: restauranteIdParam
-    } = req.query;
+    } = request.query as {
+      leida?: string;
+      tipo?: string;
+      pagina?: number;
+      limite?: number;
+      restaurante_id?: string;
+    };
 
     const client = supabaseAdmin || supabase;
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
 
     let query = client
       .from('notificaciones')
@@ -69,25 +74,25 @@ export const getNotificaciones = async (req: Request, res: Response) => {
     const idFiltroRestaurante = typeof restauranteIdParam === 'string' ? restauranteIdParam.trim() : null;
     let usarFiltroRestaurante = false;
     if (idFiltroRestaurante) {
-      const restaurantIds = id_rol === 1 ? null : await getUserRestaurantIds(client, req.user_info.id, req);
+      const restaurantIds = id_rol === 1 ? null : await getUserRestaurantIds(client, request.user_info.id, request);
       usarFiltroRestaurante = restaurantIds === null || restaurantIds.includes(idFiltroRestaurante);
     }
 
     // Filtrar por usuario y rol
     if (usarFiltroRestaurante && idFiltroRestaurante) {
-      query = query.or(`usuario_id.eq.${req.user_info.id},restaurante_id.eq.${idFiltroRestaurante}`);
+      query = query.or(`usuario_id.eq.${request.user_info.id},restaurante_id.eq.${idFiltroRestaurante}`);
     } else {
       if (id_rol === 1) {
         // Super Admin ve todas las notificaciones
       } else if (id_rol === 2) {
-        const restaurantIds = await getUserRestaurantIds(client, req.user_info.id, req);
+        const restaurantIds = await getUserRestaurantIds(client, request.user_info.id, request);
         if (restaurantIds.length > 0) {
-          query = query.or(`usuario_id.eq.${req.user_info.id},restaurante_id.in.(${restaurantIds.join(',')})`);
+          query = query.or(`usuario_id.eq.${request.user_info.id},restaurante_id.in.(${restaurantIds.join(',')})`);
         } else {
-          query = query.eq('usuario_id', req.user_info.id);
+          query = query.eq('usuario_id', request.user_info.id);
         }
       } else {
-        query = query.eq('usuario_id', req.user_info.id);
+        query = query.eq('usuario_id', request.user_info.id);
       }
     }
 
@@ -111,14 +116,14 @@ export const getNotificaciones = async (req: Request, res: Response) => {
 
     if (error) {
       console.error('Error al obtener notificaciones:', error);
-      return res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: 'Error al obtener notificaciones',
         error: error.message
       });
     }
 
-    res.json({
+    reply.send({
       success: true,
       data: data || [],
       total: count || 0,
@@ -128,26 +133,23 @@ export const getNotificaciones = async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('Error en getNotificaciones:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor'
-    });
+    throw error;
   }
 };
 
 // Marcar notificación como leída
-export const marcarNotificacionLeida = async (req: Request, res: Response) => {
+export const marcarNotificacionLeida = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: 'No se encontró información del usuario autenticado'
       });
     }
 
-    const { id } = req.params;
+    const { id } = request.params as { id: string };
     const client = supabaseAdmin || supabase;
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
 
     // Primero verificar que la notificación pertenezca al usuario o a sus restaurantes
     const { data: notificacion, error: notificacionError } = await client
@@ -157,7 +159,7 @@ export const marcarNotificacionLeida = async (req: Request, res: Response) => {
       .single();
 
     if (notificacionError || !notificacion) {
-      return res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: 'Notificación no encontrada'
       });
@@ -171,21 +173,21 @@ export const marcarNotificacionLeida = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await client
         .from('usuarios_restaurantes')
         .select('restaurante_id')
-        .eq('usuario_id', req.user_info.id);
-      
+        .eq('usuario_id', request.user_info.id);
+
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
-      if (notificacion.usuario_id !== req.user_info.id && 
+
+      if (notificacion.usuario_id !== request.user_info.id &&
           !restaurantIds.includes(notificacion.restaurante_id)) {
-        return res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: 'No tienes acceso a esta notificación'
         });
       }
     } else {
       // Usuarios normales solo pueden marcar sus notificaciones
-      if (notificacion.usuario_id !== req.user_info.id) {
-        return res.status(403).json({
+      if (notificacion.usuario_id !== request.user_info.id) {
+        return reply.code(403).send({
           success: false,
           message: 'No tienes acceso a esta notificación'
         });
@@ -205,14 +207,14 @@ export const marcarNotificacionLeida = async (req: Request, res: Response) => {
 
     if (error) {
       console.error('Error al marcar notificación como leída:', error);
-      return res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: 'Error al marcar notificación como leída',
         error: error.message
       });
     }
 
-    res.json({
+    reply.send({
       success: true,
       data,
       message: 'Notificación marcada como leída'
@@ -220,25 +222,22 @@ export const marcarNotificacionLeida = async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('Error en marcarNotificacionLeida:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor'
-    });
+    throw error;
   }
 };
 
 // Marcar todas las notificaciones como leídas
-export const marcarTodasNotificacionesLeidas = async (req: Request, res: Response) => {
+export const marcarTodasNotificacionesLeidas = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: 'No se encontró información del usuario autenticado'
       });
     }
 
     const client = supabaseAdmin || supabase;
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
 
     let query = client
       .from('notificaciones')
@@ -253,40 +252,37 @@ export const marcarTodasNotificacionesLeidas = async (req: Request, res: Respons
       // Super Admin marca todas las no leídas
     } else if (id_rol === 2) {
       // Admin marca sus notificaciones y las de sus restaurantes
-      const restaurantIds = await getUserRestaurantIds(client, req.user_info.id, req);
-      
+      const restaurantIds = await getUserRestaurantIds(client, request.user_info.id, request);
+
       if (restaurantIds.length > 0) {
-        query = query.or(`usuario_id.eq.${req.user_info.id},restaurante_id.in.(${restaurantIds.join(',')})`);
+        query = query.or(`usuario_id.eq.${request.user_info.id},restaurante_id.in.(${restaurantIds.join(',')})`);
       } else {
-        query = query.eq('usuario_id', req.user_info.id);
+        query = query.eq('usuario_id', request.user_info.id);
       }
     } else {
       // Usuarios normales marcan solo sus notificaciones
-      query = query.eq('usuario_id', req.user_info.id);
+      query = query.eq('usuario_id', request.user_info.id);
     }
 
     const { error } = await query;
 
     if (error) {
       console.error('Error al marcar todas las notificaciones como leídas:', error);
-      return res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: 'Error al marcar todas las notificaciones como leídas',
         error: error.message
       });
     }
 
-    res.json({
+    reply.send({
       success: true,
       message: 'Todas las notificaciones han sido marcadas como leídas'
     });
 
   } catch (error: any) {
     console.error('Error en marcarTodasNotificacionesLeidas:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor'
-    });
+    throw error;
   }
 };
 
@@ -302,7 +298,7 @@ export const createNotificacion = async (
 ) => {
   try {
     const client = supabaseAdmin || supabase;
-    
+
     const { data, error } = await client
       .from('notificaciones')
       .insert({
@@ -330,18 +326,18 @@ export const createNotificacion = async (
 };
 
 // Eliminar notificación
-export const deleteNotificacion = async (req: Request, res: Response) => {
+export const deleteNotificacion = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: 'No se encontró información del usuario autenticado'
       });
     }
 
-    const { id } = req.params;
+    const { id } = request.params as { id: string };
     const client = supabaseAdmin || supabase;
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
 
     // Primero verificar que la notificación pertenezca al usuario
     const { data: notificacion, error: notificacionError } = await client
@@ -351,7 +347,7 @@ export const deleteNotificacion = async (req: Request, res: Response) => {
       .single();
 
     if (notificacionError || !notificacion) {
-      return res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: 'Notificación no encontrada'
       });
@@ -362,8 +358,8 @@ export const deleteNotificacion = async (req: Request, res: Response) => {
       // Super Admin puede eliminar cualquier notificación
     } else {
       // Usuarios normales y Admin solo pueden eliminar sus notificaciones
-      if (notificacion.usuario_id !== req.user_info.id) {
-        return res.status(403).json({
+      if (notificacion.usuario_id !== request.user_info.id) {
+        return reply.code(403).send({
           success: false,
           message: 'No tienes acceso a esta notificación'
         });
@@ -378,39 +374,36 @@ export const deleteNotificacion = async (req: Request, res: Response) => {
 
     if (error) {
       console.error('Error al eliminar notificación:', error);
-      return res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: 'Error al eliminar notificación',
         error: error.message
       });
     }
 
-    res.json({
+    reply.send({
       success: true,
       message: 'Notificación eliminada exitosamente'
     });
 
   } catch (error: any) {
     console.error('Error en deleteNotificacion:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor'
-    });
+    throw error;
   }
 };
 
 // Obtener conteo de notificaciones no leídas
-export const getNotificacionesNoLeidasCount = async (req: Request, res: Response) => {
+export const getNotificacionesNoLeidasCount = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: 'No se encontró información del usuario autenticado'
       });
     }
 
     const client = supabaseAdmin || supabase;
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
 
     let query = client
       .from('notificaciones')
@@ -422,39 +415,36 @@ export const getNotificacionesNoLeidasCount = async (req: Request, res: Response
       // Super Admin ve todas las no leídas
     } else if (id_rol === 2) {
       // Admin ve sus notificaciones y las de sus restaurantes
-      const restaurantIds = await getUserRestaurantIds(client, req.user_info.id, req);
-      
+      const restaurantIds = await getUserRestaurantIds(client, request.user_info.id, request);
+
       if (restaurantIds.length > 0) {
-        query = query.or(`usuario_id.eq.${req.user_info.id},restaurante_id.in.(${restaurantIds.join(',')})`);
+        query = query.or(`usuario_id.eq.${request.user_info.id},restaurante_id.in.(${restaurantIds.join(',')})`);
       } else {
-        query = query.eq('usuario_id', req.user_info.id);
+        query = query.eq('usuario_id', request.user_info.id);
       }
     } else {
       // Usuarios normales ven solo sus notificaciones
-      query = query.eq('usuario_id', req.user_info.id);
+      query = query.eq('usuario_id', request.user_info.id);
     }
 
     const { count, error } = await query;
 
     if (error) {
       console.error('Error al obtener conteo de notificaciones:', error);
-      return res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: 'Error al obtener conteo de notificaciones',
         error: error.message
       });
     }
 
-    res.json({
+    reply.send({
       success: true,
       count: count || 0
     });
 
   } catch (error: any) {
     console.error('Error en getNotificacionesNoLeidasCount:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor'
-    });
+    throw error;
   }
 };
