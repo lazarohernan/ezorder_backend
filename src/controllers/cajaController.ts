@@ -1,6 +1,5 @@
-import { Request, Response } from 'express';
+import type { FastifyRequest, FastifyReply } from 'fastify';
 import { supabase, supabaseAdmin } from '../supabase/supabase';
-import '../types/express'; // Importar tipos personalizados
 import notificacionesService from '../services/notificacionesService';
 import { getHondurasDate, getStartOfDayHonduras, getEndOfDayHonduras, toISOStringHonduras } from '../utils/dateUtils';
 import {
@@ -59,9 +58,9 @@ const enrichCajasWithUsuarioNombre = async <T extends CajaRecord>(
 
 export const cajaController = {
   // Obtener todas las cajas de todos los restaurantes (solo administradores)
-  async getAllCajas(req: Request, res: Response) {
+  async getAllCajas(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { page = 1, limit = 10, estado, restaurante_id, fecha_desde, fecha_hasta } = req.query;
+      const { page = 1, limit = 10, estado, restaurante_id, fecha_desde, fecha_hasta } = request.query as { page?: number; limit?: number; estado?: string; restaurante_id?: string; fecha_desde?: string; fecha_hasta?: string };
 
       const client = supabaseAdmin || supabase;
       let query = client
@@ -101,7 +100,7 @@ export const cajaController = {
       const { data, error } = await query.range(from, to);
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
       let countQuery = client
@@ -136,7 +135,7 @@ export const cajaController = {
         restaurante_nombre: caja.restaurantes?.nombre_restaurante || 'Restaurante desconocido'
       }));
 
-      res.json({
+      reply.send({
         data: dataWithRestaurant,
         pagination: {
           page: Number(page),
@@ -147,14 +146,14 @@ export const cajaController = {
       });
     } catch (error) {
       console.error('Error getting all cajas:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Obtener todas las cajas abiertas de todos los restaurantes (solo administradores)
-  async getAllCajasAbiertas(req: Request, res: Response) {
+  async getAllCajasAbiertas(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { page = 1, limit = 10, restaurante_id } = req.query;
+      const { page = 1, limit = 10, restaurante_id } = request.query as { page?: number; limit?: number; restaurante_id?: string };
 
       const client = supabaseAdmin || supabase;
       let query = client
@@ -179,7 +178,7 @@ export const cajaController = {
       const { data, error } = await query.range(from, to);
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
       let countQuery = client
@@ -201,7 +200,7 @@ export const cajaController = {
         restaurante_nombre: caja.restaurantes?.nombre_restaurante || 'Restaurante desconocido'
       }));
 
-      res.json({
+      reply.send({
         data: dataWithRestaurant,
         pagination: {
           page: Number(page),
@@ -212,15 +211,15 @@ export const cajaController = {
       });
     } catch (error) {
       console.error('Error getting all open cajas:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Obtener todas las cajas de un restaurante
-  async getCajas(req: Request, res: Response) {
+  async getCajas(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { restaurante_id } = req.params;
-      const { page = 1, limit = 10, estado, fecha_desde, fecha_hasta } = req.query;
+      const { restaurante_id } = request.params as { restaurante_id: string };
+      const { page = 1, limit = 10, estado, fecha_desde, fecha_hasta } = request.query as { page?: number; limit?: number; estado?: string; fecha_desde?: string; fecha_hasta?: string };
 
       const client = supabaseAdmin || supabase;
       let query = client
@@ -256,7 +255,7 @@ export const cajaController = {
       const { data, error } = await query.range(from, to);
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
       let countQuery = client
@@ -288,7 +287,7 @@ export const cajaController = {
         restaurante_nombre: (caja as any).restaurantes?.nombre_restaurante || null
       }));
 
-      res.json({
+      reply.send({
         data: dataWithRestaurant,
         pagination: {
           page: Number(page),
@@ -299,14 +298,14 @@ export const cajaController = {
       });
     } catch (error) {
       console.error('Error getting cajas:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Obtener caja actual (abierta) de un restaurante específico
-  async getCajaActual(req: Request, res: Response) {
+  async getCajaActual(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { restaurante_id } = req.params;
+      const { restaurante_id } = request.params as { restaurante_id: string };
 
       console.log('🔍 [GET CAJA ACTUAL] Restaurante ID solicitado:', restaurante_id);
 
@@ -331,7 +330,7 @@ export const cajaController = {
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error al obtener caja actual:', error);
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
       const cajaActual = error && error.code === 'PGRST116' ? null : data;
@@ -343,18 +342,18 @@ export const cajaController = {
         restaurante_nombre: (cajaActual as any)?.restaurantes?.nombre_restaurante || 'Restaurante desconocido'
       } : null;
 
-      res.json({ data: cajaWithRestaurant });
+      reply.send({ data: cajaWithRestaurant });
     } catch (error) {
       console.error('Error getting caja actual:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Obtener resumen de caja del día de un restaurante específico
-  async getResumenCaja(req: Request, res: Response) {
+  async getResumenCaja(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { restaurante_id } = req.params;
-      const { fecha } = req.query;
+      const { restaurante_id } = request.params as { restaurante_id: string };
+      const { fecha } = request.query as { fecha?: string };
 
       const client = supabaseAdmin || supabase;
       // Obtener caja actual del restaurante específico
@@ -374,7 +373,7 @@ export const cajaController = {
         .maybeSingle();
 
       if (cajaError && cajaError.code !== 'PGRST116') {
-        return res.status(400).json({ error: cajaError.message });
+        return reply.code(400).send({ error: cajaError.message });
       }
 
       const [cajaActualWithNombre] = await enrichCajasWithUsuarioNombre(
@@ -389,7 +388,7 @@ export const cajaController = {
 
       // Si no hay caja abierta, devolver resumen vacío
       if (!cajaActualWithRestaurant) {
-        return res.json({ 
+        return reply.send({ 
           data: {
             caja_actual: null,
             total_ventas_dia: 0,
@@ -428,7 +427,7 @@ export const cajaController = {
         .lte('created_at', hastaISO);
 
       if (ventasError) {
-        return res.status(400).json({ error: ventasError.message });
+        return reply.code(400).send({ error: ventasError.message });
       }
 
       // Calcular ventas por método de pago
@@ -446,7 +445,7 @@ export const cajaController = {
         .lte('fecha_gasto', toISOStringHonduras(diaGastosHasta));
 
       if (gastosError) {
-        return res.status(400).json({ error: gastosError.message });
+        return reply.code(400).send({ error: gastosError.message });
       }
 
       const totalGastosDia = gastos?.reduce((sum, gasto) => sum + Number(gasto.monto), 0) || 0;
@@ -489,45 +488,45 @@ export const cajaController = {
           : 0
       };
 
-      res.json({ data: resumen });
+      reply.send({ data: resumen });
     } catch (error) {
       console.error('Error getting resumen caja:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Abrir caja
-  async abrirCaja(req: Request, res: Response) {
+  async abrirCaja(request: FastifyRequest, reply: FastifyReply) {
     try {
-      if (!req.user_info) {
-        return res.status(403).json({ 
+      if (!request.user_info) {
+        return reply.code(403).send({ 
           error: 'No se encontró información del usuario autenticado' 
         });
       }
 
-      const { restaurante_id, usuario_id, monto_inicial, observaciones } = req.body;
+      const { restaurante_id, usuario_id, monto_inicial, observaciones } = request.body as { restaurante_id: string; usuario_id: string; monto_inicial: number; observaciones?: string };
 
       // Validar campos requeridos
       if (!restaurante_id) {
-        return res.status(400).json({ 
+        return reply.code(400).send({ 
           error: 'El campo restaurante_id es requerido' 
         });
       }
 
       if (!usuario_id) {
-        return res.status(400).json({ 
+        return reply.code(400).send({ 
           error: 'El campo usuario_id es requerido' 
         });
       }
 
       if (monto_inicial === undefined || monto_inicial === null) {
-        return res.status(400).json({ 
+        return reply.code(400).send({ 
           error: 'El campo monto_inicial es requerido' 
         });
       }
 
       // Verificar permisos según rol
-      const id_rol = req.user_info?.rol_id ?? 3;
+      const id_rol = request.user_info?.rol_id ?? 3;
       if (id_rol === 1) {
         // Super Admin puede abrir caja en cualquier restaurante
       } else if (id_rol === 2) {
@@ -536,12 +535,12 @@ export const cajaController = {
         const { data: userRestaurants } = await client
           .from('usuarios_restaurantes')
           .select('restaurante_id')
-          .eq('usuario_id', req.user_info.id);
+          .eq('usuario_id', request.user_info.id);
 
         const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
         
         if (!restaurantIds.includes(restaurante_id)) {
-          return res.status(403).json({ 
+          return reply.code(403).send({ 
             error: 'No tienes acceso a este restaurante' 
           });
         }
@@ -551,16 +550,16 @@ export const cajaController = {
         const { data: userRestaurants } = await client
           .from('usuarios_restaurantes')
           .select('restaurante_id')
-          .eq('usuario_id', req.user_info.id);
+          .eq('usuario_id', request.user_info.id);
 
         const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
         
         // Si tiene acceso via usuarios_restaurantes O por restaurante_id directo, permitir
         const tieneAcceso = restaurantIds.includes(restaurante_id) || 
-                           req.user_info.restaurante_id === restaurante_id;
+                           request.user_info.restaurante_id === restaurante_id;
         
         if (!tieneAcceso) {
-          return res.status(403).json({ 
+          return reply.code(403).send({ 
             error: 'No puedes abrir caja para este restaurante' 
           });
         }
@@ -578,12 +577,12 @@ export const cajaController = {
 
       if (checkError && checkError.code !== 'PGRST116') {
         console.error('Error al verificar caja existente:', checkError);
-        return res.status(400).json({ error: checkError.message });
+        return reply.code(400).send({ error: checkError.message });
       }
 
       if (cajaExistente) {
         // Hay una caja abierta en este restaurante - no permitir abrir otra
-        return res.status(400).json({ 
+        return reply.code(400).send({ 
           error: 'Ya existe una caja abierta en este restaurante. Debe cerrarla antes de abrir una nueva.',
           caja_existente: cajaExistente
         });
@@ -636,7 +635,7 @@ export const cajaController = {
 
       if (error) {
         console.error('Error al crear caja:', error);
-        return res.status(400).json({ 
+        return reply.code(400).send({ 
           error: error.message,
           details: error.details,
           hint: error.hint
@@ -647,23 +646,23 @@ export const cajaController = {
 
       console.log(`Caja abierta exitosamente con saldo inicial de $${Number(monto_inicial).toFixed(2)}`);
 
-      res.status(201).json({ data: dataWithNombre || null });
+      return reply.code(201).send({ data: dataWithNombre || null });
     } catch (error) {
       console.error('Error opening caja:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Cerrar caja
-  async cerrarCaja(req: Request, res: Response) {
+  async cerrarCaja(request: FastifyRequest, reply: FastifyReply) {
     try {
-      if (!req.user_info) {
-        return res.status(403).json({ 
+      if (!request.user_info) {
+        return reply.code(403).send({ 
           error: 'No se encontró información del usuario autenticado' 
         });
       }
 
-      const { id } = req.params;
+      const { id } = request.params as { id: string };
       const {
         monto_final,
         observaciones,
@@ -672,7 +671,7 @@ export const cajaController = {
         gastos_reportados,
         ventas_efectivo_reportadas,
         denominacion_conteo
-      } = req.body;
+      } = request.body as { monto_final?: number; observaciones?: string; ventas_pos_reportadas?: unknown; ventas_transferencia_reportadas?: unknown; gastos_reportados?: unknown; ventas_efectivo_reportadas?: unknown; denominacion_conteo?: unknown };
 
       const client = supabaseAdmin || supabase;
       // Obtener caja actual
@@ -684,11 +683,11 @@ export const cajaController = {
         .single();
 
       if (cajaError) {
-        return res.status(400).json({ error: 'Caja no encontrada o ya cerrada' });
+        return reply.code(400).send({ error: 'Caja no encontrada o ya cerrada' });
       }
 
       // Verificar permisos según rol
-      const id_rol = req.user_info?.rol_id ?? 3;
+      const id_rol = request.user_info?.rol_id ?? 3;
       if (id_rol === 1) {
         // Super Admin puede cerrar cualquier caja
       } else if (id_rol === 2) {
@@ -696,12 +695,12 @@ export const cajaController = {
         const { data: userRestaurants } = await client
           .from('usuarios_restaurantes')
           .select('restaurante_id')
-          .eq('usuario_id', req.user_info.id);
+          .eq('usuario_id', request.user_info.id);
 
         const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
         
         if (!restaurantIds.includes(cajaActual.restaurante_id)) {
-          return res.status(403).json({ 
+          return reply.code(403).send({ 
             error: 'No tienes acceso a esta caja' 
           });
         }
@@ -710,17 +709,17 @@ export const cajaController = {
         const { data: userRestaurants } = await client
           .from('usuarios_restaurantes')
           .select('restaurante_id')
-          .eq('usuario_id', req.user_info.id);
+          .eq('usuario_id', request.user_info.id);
 
         const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
         
         // Si tiene acceso via usuarios_restaurantes, permitir
         // Si no, verificar por restaurante_id directo en usuarios_info
         const tieneAcceso = restaurantIds.includes(cajaActual.restaurante_id) || 
-                           req.user_info.restaurante_id === cajaActual.restaurante_id;
+                           request.user_info.restaurante_id === cajaActual.restaurante_id;
         
         if (!tieneAcceso) {
-          return res.status(403).json({ 
+          return reply.code(403).send({ 
             error: 'No tienes acceso a esta caja' 
           });
         }
@@ -742,7 +741,7 @@ export const cajaController = {
         .lte('created_at', sesionHasta);
 
       if (ventasError) {
-        return res.status(400).json({ error: ventasError.message });
+        return reply.code(400).send({ error: ventasError.message });
       }
 
       // Calcular ventas por método de pago
@@ -760,7 +759,7 @@ export const cajaController = {
         .lte('fecha_gasto', toISOStringHonduras(diaGastosHasta));
 
       if (gastosError) {
-        return res.status(400).json({ error: gastosError.message });
+        return reply.code(400).send({ error: gastosError.message });
       }
 
       const totalGastos = gastos?.reduce((sum, gasto) => sum + Number(gasto.monto), 0) || 0;
@@ -885,12 +884,12 @@ export const cajaController = {
         .single();
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
       const [dataWithNombre] = await enrichCajasWithUsuarioNombre(data ? [data] : []);
 
-      res.json({ 
+      reply.send({ 
         data: dataWithNombre || null,
         validacion: {
           cuadra,
@@ -931,21 +930,21 @@ export const cajaController = {
       });
     } catch (error) {
       console.error('Error closing caja:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Actualizar caja (para ingresos/egresos adicionales)
-  async actualizarCaja(req: Request, res: Response) {
+  async actualizarCaja(request: FastifyRequest, reply: FastifyReply) {
     try {
-      if (!req.user_info) {
-        return res.status(403).json({ 
+      if (!request.user_info) {
+        return reply.code(403).send({ 
           error: 'No se encontró información del usuario autenticado' 
         });
       }
 
-      const { id } = req.params;
-      const { total_ingresos, total_egresos, observaciones } = req.body;
+      const { id } = request.params as { id: string };
+      const { total_ingresos, total_egresos, observaciones } = request.body as { total_ingresos?: number; total_egresos?: number; observaciones?: string };
 
       const client = supabaseAdmin || supabase;
 
@@ -957,19 +956,19 @@ export const cajaController = {
         .single();
 
       if (errorBuscar || !cajaExistente) {
-        return res.status(404).json({ 
+        return reply.code(404).send({ 
           error: 'Caja no encontrada' 
         });
       }
 
       if (cajaExistente.estado !== 'abierta') {
-        return res.status(400).json({ 
+        return reply.code(400).send({ 
           error: 'Solo se pueden actualizar cajas abiertas' 
         });
       }
 
       // Verificar permisos según rol
-      const id_rol = req.user_info?.rol_id ?? 3;
+      const id_rol = request.user_info?.rol_id ?? 3;
       if (id_rol === 1) {
         // Super Admin puede actualizar cualquier caja
       } else if (id_rol === 2) {
@@ -977,19 +976,19 @@ export const cajaController = {
         const { data: userRestaurants } = await client
           .from('usuarios_restaurantes')
           .select('restaurante_id')
-          .eq('usuario_id', req.user_info.id);
+          .eq('usuario_id', request.user_info.id);
 
         const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
         
         if (!restaurantIds.includes(cajaExistente.restaurante_id)) {
-          return res.status(403).json({ 
+          return reply.code(403).send({ 
             error: 'No tienes acceso a esta caja' 
           });
         }
       } else {
         // Usuarios normales solo pueden actualizar cajas de su restaurante
-        if (req.user_info.restaurante_id !== cajaExistente.restaurante_id) {
-          return res.status(403).json({ 
+        if (request.user_info.restaurante_id !== cajaExistente.restaurante_id) {
+          return reply.code(403).send({ 
             error: 'No tienes acceso a esta caja' 
           });
         }
@@ -1008,34 +1007,34 @@ export const cajaController = {
         .single();
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
       const [dataWithNombre] = await enrichCajasWithUsuarioNombre(data ? [data] : []);
 
-      res.json({ data: dataWithNombre || null });
+      reply.send({ data: dataWithNombre || null });
     } catch (error) {
       console.error('Error updating caja:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Registrar un retiro de caja
-  async registrarRetiro(req: Request, res: Response) {
+  async registrarRetiro(request: FastifyRequest, reply: FastifyReply) {
     try {
-      if (!req.user_info) {
-        return res.status(403).json({ error: 'No se encontró información del usuario autenticado' });
+      if (!request.user_info) {
+        return reply.code(403).send({ error: 'No se encontró información del usuario autenticado' });
       }
 
-      const { id } = req.params;
-      const { nombre_responsable, monto, observaciones } = req.body;
+      const { id } = request.params as { id: string };
+      const { nombre_responsable, monto, observaciones } = request.body as { nombre_responsable: string; monto: number; observaciones?: string };
 
       if (!nombre_responsable || !monto) {
-        return res.status(400).json({ error: 'nombre_responsable y monto son requeridos' });
+        return reply.code(400).send({ error: 'nombre_responsable y monto son requeridos' });
       }
 
       if (Number(monto) <= 0) {
-        return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+        return reply.code(400).send({ error: 'El monto debe ser mayor a 0' });
       }
 
       const client = supabaseAdmin || supabase;
@@ -1048,11 +1047,11 @@ export const cajaController = {
         .single();
 
       if (cajaError || !caja) {
-        return res.status(404).json({ error: 'Caja no encontrada' });
+        return reply.code(404).send({ error: 'Caja no encontrada' });
       }
 
       if (caja.estado !== 'abierta') {
-        return res.status(400).json({ error: 'Solo se pueden registrar retiros en cajas abiertas' });
+        return reply.code(400).send({ error: 'Solo se pueden registrar retiros en cajas abiertas' });
       }
 
       // Insertar el retiro
@@ -1069,7 +1068,7 @@ export const cajaController = {
         .single();
 
       if (retiroError) {
-        return res.status(400).json({ error: retiroError.message });
+        return reply.code(400).send({ error: retiroError.message });
       }
 
       // Actualizar total_retiros en la caja
@@ -1079,17 +1078,17 @@ export const cajaController = {
         .update({ total_retiros: nuevoTotal })
         .eq('id', id);
 
-      res.status(201).json({ data: retiro });
+      return reply.code(201).send({ data: retiro });
     } catch (error) {
       console.error('Error registering retiro:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Listar retiros de una caja
-  async getRetirosCaja(req: Request, res: Response) {
+  async getRetirosCaja(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { id } = req.params;
+      const { id } = request.params as { id: string };
       const client = supabaseAdmin || supabase;
 
       const { data, error } = await client
@@ -1099,24 +1098,24 @@ export const cajaController = {
         .order('hora_retiro', { ascending: true });
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
-      res.json({ data: data || [] });
+      reply.send({ data: data || [] });
     } catch (error) {
       console.error('Error getting retiros:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Eliminar un retiro
-  async eliminarRetiro(req: Request, res: Response) {
+  async eliminarRetiro(request: FastifyRequest, reply: FastifyReply) {
     try {
-      if (!req.user_info) {
-        return res.status(403).json({ error: 'No se encontró información del usuario autenticado' });
+      if (!request.user_info) {
+        return reply.code(403).send({ error: 'No se encontró información del usuario autenticado' });
       }
 
-      const { retiro_id } = req.params;
+      const { retiro_id } = request.params as { retiro_id: string };
       const client = supabaseAdmin || supabase;
 
       // Obtener el retiro para saber el monto y la caja
@@ -1127,7 +1126,7 @@ export const cajaController = {
         .single();
 
       if (fetchError || !retiro) {
-        return res.status(404).json({ error: 'Retiro no encontrado' });
+        return reply.code(404).send({ error: 'Retiro no encontrado' });
       }
 
       // Verificar que la caja esté abierta
@@ -1138,7 +1137,7 @@ export const cajaController = {
         .single();
 
       if (!caja || caja.estado !== 'abierta') {
-        return res.status(400).json({ error: 'No se pueden eliminar retiros de cajas cerradas' });
+        return reply.code(400).send({ error: 'No se pueden eliminar retiros de cajas cerradas' });
       }
 
       // Eliminar el retiro
@@ -1148,7 +1147,7 @@ export const cajaController = {
         .eq('id', retiro_id);
 
       if (deleteError) {
-        return res.status(400).json({ error: deleteError.message });
+        return reply.code(400).send({ error: deleteError.message });
       }
 
       // Actualizar total_retiros en la caja
@@ -1158,23 +1157,23 @@ export const cajaController = {
         .update({ total_retiros: nuevoTotal })
         .eq('id', retiro.caja_id);
 
-      res.json({ message: 'Retiro eliminado correctamente' });
+      reply.send({ message: 'Retiro eliminado correctamente' });
     } catch (error) {
       console.error('Error deleting retiro:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Obtener una caja específica
-  async getCajaById(req: Request, res: Response) {
+  async getCajaById(request: FastifyRequest, reply: FastifyReply) {
     try {
-      if (!req.user_info) {
-        return res.status(403).json({
+      if (!request.user_info) {
+        return reply.code(403).send({
           error: 'No se encontró información del usuario autenticado'
         });
       }
 
-      const { id } = req.params;
+      const { id } = request.params as { id: string };
       const client = supabaseAdmin || supabase;
 
       // Obtener la caja
@@ -1186,13 +1185,13 @@ export const cajaController = {
 
       if (error) {
         if (error.code === 'PGRST116') {
-          return res.status(404).json({ error: 'Caja no encontrada' });
+          return reply.code(404).send({ error: 'Caja no encontrada' });
         }
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
       // Verificar permisos según rol
-      const id_rol = req.user_info?.rol_id ?? 3;
+      const id_rol = request.user_info?.rol_id ?? 3;
       if (id_rol === 1) {
         // Super Admin puede ver cualquier caja
       } else if (id_rol === 2) {
@@ -1200,24 +1199,24 @@ export const cajaController = {
         const { data: userRestaurants } = await client
           .from('usuarios_restaurantes')
           .select('restaurante_id')
-          .eq('usuario_id', req.user_info.id);
+          .eq('usuario_id', request.user_info.id);
 
         const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
 
         if (!restaurantIds.includes(caja.restaurante_id)) {
-          return res.status(403).json({
+          return reply.code(403).send({
             error: 'No tienes acceso a esta caja'
           });
         }
       } else {
         // Usuarios normales solo pueden ver cajas de su restaurante
-          if (!req.user_info.restaurante_id) {
-            return res.status(403).json({
+          if (!request.user_info.restaurante_id) {
+            return reply.code(403).send({
               error: 'No tienes un restaurante asignado'
             });
           }
-        if (req.user_info.restaurante_id !== caja.restaurante_id) {
-          return res.status(403).json({
+        if (request.user_info.restaurante_id !== caja.restaurante_id) {
+          return reply.code(403).send({
             error: 'No tienes acceso a esta caja'
           });
         }
@@ -1225,10 +1224,10 @@ export const cajaController = {
 
       const [dataWithNombre] = await enrichCajasWithUsuarioNombre([caja]);
 
-      res.json({ data: dataWithNombre || null });
+      reply.send({ data: dataWithNombre || null });
     } catch (error) {
       console.error('Error getting caja by id:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   }
 };

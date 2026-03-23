@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
 
 type TipoReporte =
@@ -33,10 +33,10 @@ const buildDateRange = (fechaInicio: string, fechaFin: string) => ({
   to: `${fechaFin}T23:59:59.999Z`,
 });
 
-const getAccessibleRestaurantIds = async (req: Request): Promise<string[]> => {
-  if (!req.user_info) return [];
+const getAccessibleRestaurantIds = async (request: FastifyRequest): Promise<string[]> => {
+  if (!request.user_info) return [];
 
-  const rolId = req.user_info.rol_id ?? 3;
+  const rolId = request.user_info.rol_id ?? 3;
   if (rolId === 1) {
     const { data, error } = await client.from("restaurantes").select("id");
     if (error) throw error;
@@ -47,12 +47,12 @@ const getAccessibleRestaurantIds = async (req: Request): Promise<string[]> => {
     const { data, error } = await client
       .from("usuarios_restaurantes")
       .select("restaurante_id")
-      .eq("usuario_id", req.user_info.id);
+      .eq("usuario_id", request.user_info.id);
     if (error) throw error;
     return (data || []).map((r: { restaurante_id: string }) => r.restaurante_id);
   }
 
-  return req.user_info.restaurante_id ? [req.user_info.restaurante_id] : [];
+  return request.user_info.restaurante_id ? [request.user_info.restaurante_id] : [];
 };
 
 const normalizeScopedRestaurants = (
@@ -187,10 +187,10 @@ const buildDailyResumen = (
     .sort((a, b) => a.fecha.localeCompare(b.fecha));
 };
 
-export const previewReporte = async (req: Request, res: Response) => {
+export const previewReporte = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      return res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
@@ -202,7 +202,7 @@ export const previewReporte = async (req: Request, res: Response) => {
       fechaFin,
       restauranteId = null,
       consolidado = false,
-    } = req.body as PreviewRequestBody;
+    } = request.body as PreviewRequestBody;
 
     if (
       ![
@@ -216,7 +216,7 @@ export const previewReporte = async (req: Request, res: Response) => {
         "rendimiento_cocina",
       ].includes(tipo)
     ) {
-      return res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: "Tipo de reporte no soportado",
       });
@@ -226,22 +226,22 @@ export const previewReporte = async (req: Request, res: Response) => {
     const fechaFinOk = parseDate(fechaFin);
 
     if (!fechaInicioOk || !fechaFinOk) {
-      return res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: "Debes enviar fechaInicio y fechaFin válidas (YYYY-MM-DD)",
       });
     }
 
     if (fechaInicioOk > fechaFinOk) {
-      return res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: "La fecha de inicio no puede ser mayor que la fecha fin",
       });
     }
 
-    const accesibles = await getAccessibleRestaurantIds(req);
+    const accesibles = await getAccessibleRestaurantIds(request);
     if (!accesibles.length) {
-      return res.status(403).json({
+      return reply.code(403).send({
         success: false,
         message: "No tienes restaurantes asignados para generar reportes",
       });
@@ -249,7 +249,7 @@ export const previewReporte = async (req: Request, res: Response) => {
 
     const restaurantesScope = normalizeScopedRestaurants(accesibles, restauranteId, consolidado);
     if (!restaurantesScope.length) {
-      return res.status(403).json({
+      return reply.code(403).send({
         success: false,
         message: "No tienes acceso al restaurante seleccionado",
       });
@@ -390,7 +390,7 @@ export const previewReporte = async (req: Request, res: Response) => {
         tipo_gasto: (g.tipo_gasto || "variable") as "variable" | "fijo",
       }));
 
-      return res.status(200).json({
+      return reply.send({
         success: true,
         data: {
           tipo,
@@ -427,7 +427,7 @@ export const previewReporte = async (req: Request, res: Response) => {
         diario.length ? { fecha: diario[0].fecha, ventas: diario[0].ventas } : { fecha: "", ventas: 0 }
       );
 
-      return res.status(200).json({
+      return reply.send({
         success: true,
         data: {
           tipo,
@@ -510,7 +510,7 @@ export const previewReporte = async (req: Request, res: Response) => {
         };
       });
 
-      return res.status(200).json({
+      return reply.send({
         success: true,
         data: {
           tipo,
@@ -535,7 +535,7 @@ export const previewReporte = async (req: Request, res: Response) => {
         .map(([categoria, monto]) => ({ categoria, monto }))
         .sort((a, b) => b.monto - a.monto);
 
-      return res.status(200).json({
+      return reply.send({
         success: true,
         data: {
           tipo,
@@ -674,7 +674,7 @@ export const previewReporte = async (req: Request, res: Response) => {
         .sort((a, b) => Math.abs(b.neto) - Math.abs(a.neto))
         .slice(0, 50);
 
-      return res.status(200).json({
+      return reply.send({
         success: true,
         data: {
           tipo,
@@ -730,7 +730,7 @@ export const previewReporte = async (req: Request, res: Response) => {
         }
       );
 
-      return res.status(200).json({
+      return reply.send({
         success: true,
         data: {
           tipo,
@@ -802,7 +802,7 @@ export const previewReporte = async (req: Request, res: Response) => {
       const lentos = tiempos.filter((t: number) => t > 20).length;
       const totalConTiempo = tiempos.length || 1;
 
-      return res.status(200).json({
+      return reply.send({
         success: true,
         data: {
           tipo,
@@ -893,7 +893,7 @@ export const previewReporte = async (req: Request, res: Response) => {
       (gastosData || []) as Array<{ fecha_gasto?: string | null; monto: number | null }>
     );
 
-    return res.status(200).json({
+    return reply.send({
       success: true,
       data: {
         tipo,
@@ -911,13 +911,8 @@ export const previewReporte = async (req: Request, res: Response) => {
         },
       },
     });
-  } catch (error: any) {
-    console.error("Error al generar reporte:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Error al generar reporte",
-      error: error.message,
-    });
+  } catch (error) {
+    throw error;
   }
 };
 

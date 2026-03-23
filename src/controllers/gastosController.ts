@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import type { FastifyRequest, FastifyReply } from 'fastify';
 import { supabase, supabaseAdmin } from '../supabase/supabase';
 
 type GastoRecord = {
@@ -101,10 +101,10 @@ const enrichGastosWithRelatedData = async <T extends GastoRecord>(
 
 export const gastosController = {
   // Obtener todos los gastos de un restaurante
-  async getGastos(req: Request, res: Response) {
+  async getGastos(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { restaurante_id } = req.params;
-      const { page = 1, limit = 10, categoria, fecha_inicio, fecha_fin } = req.query;
+      const { restaurante_id } = request.params as { restaurante_id: string };
+      const { page = 1, limit = 10, categoria, fecha_inicio, fecha_fin } = request.query as { page?: number; limit?: number; categoria?: string; fecha_inicio?: string; fecha_fin?: string };
 
       const client = supabaseAdmin || supabase;
       let query = client
@@ -131,7 +131,7 @@ export const gastosController = {
       const { data, error } = await query.range(from, to);
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
       // Obtener conteo total
@@ -156,7 +156,7 @@ export const gastosController = {
 
       const dataWithRelations = await enrichGastosWithRelatedData(data || []);
 
-      res.json({
+      reply.send({
         data: dataWithRelations,
         pagination: {
           page: Number(page),
@@ -167,20 +167,20 @@ export const gastosController = {
       });
     } catch (error) {
       console.error('Error getting gastos:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Obtener un gasto específico
-  async getGastoById(req: Request, res: Response) {
+  async getGastoById(request: FastifyRequest, reply: FastifyReply) {
     try {
-      if (!req.user_info) {
-        return res.status(403).json({ 
+      if (!request.user_info) {
+        return reply.code(403).send({ 
           error: 'No se encontró información del usuario autenticado' 
         });
       }
 
-      const { id } = req.params;
+      const { id } = request.params as { id: string };
       const client = supabaseAdmin || supabase;
 
       const { data, error } = await client
@@ -190,11 +190,11 @@ export const gastosController = {
         .single();
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
       // Verificar permisos según rol
-      const id_rol = req.user_info?.rol_id ?? 3;
+      const id_rol = request.user_info?.rol_id ?? 3;
       if (id_rol === 1) {
         // Super Admin puede ver cualquier gasto
       } else if (id_rol === 2) {
@@ -202,19 +202,19 @@ export const gastosController = {
         const { data: userRestaurants } = await client
           .from('usuarios_restaurantes')
           .select('restaurante_id')
-          .eq('usuario_id', req.user_info.id);
+          .eq('usuario_id', request.user_info.id);
 
         const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
         
         if (!restaurantIds.includes(data.restaurante_id)) {
-          return res.status(403).json({ 
+          return reply.code(403).send({ 
             error: 'No tienes acceso a este gasto' 
           });
         }
       } else {
         // Usuarios normales solo pueden ver gastos de su restaurante
-        if (req.user_info.restaurante_id !== data.restaurante_id) {
-          return res.status(403).json({ 
+        if (request.user_info.restaurante_id !== data.restaurante_id) {
+          return reply.code(403).send({ 
             error: 'No tienes acceso a este gasto' 
           });
         }
@@ -222,18 +222,18 @@ export const gastosController = {
 
       const [dataWithRelations] = await enrichGastosWithRelatedData(data ? [data] : []);
 
-      res.json({ data: dataWithRelations || null });
+      reply.send({ data: dataWithRelations || null });
     } catch (error) {
       console.error('Error getting gasto by id:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Crear un nuevo gasto
-  async createGasto(req: Request, res: Response) {
+  async createGasto(request: FastifyRequest, reply: FastifyReply) {
     try {
-      if (!req.user_info) {
-        return res.status(403).json({ 
+      if (!request.user_info) {
+        return reply.code(403).send({ 
           error: 'No se encontró información del usuario autenticado' 
         });
       }
@@ -251,22 +251,22 @@ export const gastosController = {
         cantidad,
         unidad_medida,
         inventario_id
-      } = req.body;
+      } = request.body as { restaurante_id: string; usuario_id: string; fecha_gasto?: string; categoria: string; descripcion: string; monto: number; metodo_pago_id?: number; proveedor?: string; tipo_gasto?: string; cantidad?: number; unidad_medida?: string; inventario_id?: string };
 
       // Validaciones básicas
       if (!restaurante_id || !usuario_id || !categoria || !descripcion || !monto) {
-        return res.status(400).json({
+        return reply.code(400).send({
           error: 'Faltan campos obligatorios: restaurante_id, usuario_id, categoria, descripcion, monto'
         });
       }
 
       if (Number(monto) <= 0) {
-        return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+        return reply.code(400).send({ error: 'El monto debe ser mayor a 0' });
       }
 
       // Si se vincula a inventario, la cantidad es obligatoria y > 0
       if (inventario_id && (!cantidad || Number(cantidad) <= 0)) {
-        return res.status(400).json({
+        return reply.code(400).send({
           error: 'Cuando se vincula a un producto de inventario, la cantidad debe ser mayor a 0'
         });
       }
@@ -274,7 +274,7 @@ export const gastosController = {
       const client = supabaseAdmin || supabase;
 
       // Verificar permisos según rol
-      const id_rol = req.user_info?.rol_id ?? 3;
+      const id_rol = request.user_info?.rol_id ?? 3;
       if (id_rol === 1) {
         // Super Admin puede crear gastos en cualquier restaurante
       } else if (id_rol === 2) {
@@ -282,19 +282,19 @@ export const gastosController = {
         const { data: userRestaurants } = await client
           .from('usuarios_restaurantes')
           .select('restaurante_id')
-          .eq('usuario_id', req.user_info.id);
+          .eq('usuario_id', request.user_info.id);
 
         const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
 
         if (!restaurantIds.includes(restaurante_id)) {
-          return res.status(403).json({
+          return reply.code(403).send({
             error: 'No tienes acceso a este restaurante'
           });
         }
       } else {
         // Usuarios normales solo pueden crear gastos en su restaurante
-        if (req.user_info.restaurante_id !== restaurante_id) {
-          return res.status(403).json({
+        if (request.user_info.restaurante_id !== restaurante_id) {
+          return reply.code(403).send({
             error: 'No puedes crear gastos para este restaurante'
           });
         }
@@ -320,7 +320,7 @@ export const gastosController = {
         .single();
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
       // Crear movimiento automático de inventario si se vinculó a un producto
@@ -344,7 +344,7 @@ export const gastosController = {
                 cantidad: cantidadNum,
                 motivo: `Compra de proveedor - Gasto${proveedor ? ` (${proveedor})` : ''}`,
                 referencia: data.id,
-                usuario_id: req.user_info!.id,
+                usuario_id: request.user_info!.id,
               });
 
             // Desglose automático si el producto tiene reglas
@@ -363,7 +363,7 @@ export const gastosController = {
                     cantidad: cantidadNum * regla.cantidad,
                     motivo: `Desglose automático de ${invItem.nombre} (×${cantidadNum}) - Gasto`,
                     referencia: data.id,
-                    usuario_id: req.user_info!.id,
+                    usuario_id: request.user_info!.id,
                   });
               }
             }
@@ -375,23 +375,23 @@ export const gastosController = {
 
       const [dataWithRelations] = await enrichGastosWithRelatedData(data ? [data] : []);
 
-      res.status(201).json({ data: dataWithRelations || null });
+      return reply.code(201).send({ data: dataWithRelations || null });
     } catch (error) {
       console.error('Error creating gasto:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Actualizar un gasto
-  async updateGasto(req: Request, res: Response) {
+  async updateGasto(request: FastifyRequest, reply: FastifyReply) {
     try {
-      if (!req.user_info) {
-        return res.status(403).json({ 
+      if (!request.user_info) {
+        return reply.code(403).send({ 
           error: 'No se encontró información del usuario autenticado' 
         });
       }
 
-      const { id } = req.params;
+      const { id } = request.params as { id: string };
       const {
         fecha_gasto,
         categoria,
@@ -403,10 +403,10 @@ export const gastosController = {
         cantidad,
         unidad_medida,
         inventario_id
-      } = req.body;
+      } = request.body as { fecha_gasto?: string; categoria?: string; descripcion?: string; monto?: number; metodo_pago_id?: number; proveedor?: string; tipo_gasto?: string; cantidad?: number; unidad_medida?: string; inventario_id?: string };
 
       if (monto !== undefined && Number(monto) <= 0) {
-        return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+        return reply.code(400).send({ error: 'El monto debe ser mayor a 0' });
       }
 
       const client = supabaseAdmin || supabase;
@@ -419,13 +419,13 @@ export const gastosController = {
         .single();
 
       if (errorBuscar || !gastoExistente) {
-        return res.status(404).json({ 
+        return reply.code(404).send({ 
           error: 'Gasto no encontrado' 
         });
       }
 
       // Verificar permisos según rol
-      const id_rol = req.user_info?.rol_id ?? 3;
+      const id_rol = request.user_info?.rol_id ?? 3;
       if (id_rol === 1) {
         // Super Admin puede actualizar cualquier gasto
       } else if (id_rol === 2) {
@@ -433,19 +433,19 @@ export const gastosController = {
         const { data: userRestaurants } = await client
           .from('usuarios_restaurantes')
           .select('restaurante_id')
-          .eq('usuario_id', req.user_info.id);
+          .eq('usuario_id', request.user_info.id);
 
         const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
         
         if (!restaurantIds.includes(gastoExistente.restaurante_id)) {
-          return res.status(403).json({ 
+          return reply.code(403).send({ 
             error: 'No tienes acceso a este gasto' 
           });
         }
       } else {
         // Usuarios normales solo pueden actualizar gastos de su restaurante
-        if (req.user_info.restaurante_id !== gastoExistente.restaurante_id) {
-          return res.status(403).json({ 
+        if (request.user_info.restaurante_id !== gastoExistente.restaurante_id) {
+          return reply.code(403).send({ 
             error: 'No tienes acceso a este gasto' 
           });
         }
@@ -453,7 +453,7 @@ export const gastosController = {
 
       // No permitir cambiar inventario_id si ya tiene uno vinculado (evita movimientos huérfanos)
       if (inventario_id !== undefined && gastoExistente.inventario_id && inventario_id !== gastoExistente.inventario_id) {
-        return res.status(400).json({
+        return reply.code(400).send({
           error: 'No se puede cambiar el producto de inventario vinculado. Elimine el gasto y cree uno nuevo.'
         });
       }
@@ -478,28 +478,28 @@ export const gastosController = {
         .single();
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
       const [dataWithRelations] = await enrichGastosWithRelatedData(data ? [data] : []);
 
-      res.json({ data: dataWithRelations || null });
+      reply.send({ data: dataWithRelations || null });
     } catch (error) {
       console.error('Error updating gasto:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Eliminar un gasto
-  async deleteGasto(req: Request, res: Response) {
+  async deleteGasto(request: FastifyRequest, reply: FastifyReply) {
     try {
-      if (!req.user_info) {
-        return res.status(403).json({ 
+      if (!request.user_info) {
+        return reply.code(403).send({ 
           error: 'No se encontró información del usuario autenticado' 
         });
       }
 
-      const { id } = req.params;
+      const { id } = request.params as { id: string };
 
       const client = supabaseAdmin || supabase;
 
@@ -511,13 +511,13 @@ export const gastosController = {
         .single();
 
       if (errorBuscar || !gastoExistente) {
-        return res.status(404).json({
+        return reply.code(404).send({
           error: 'Gasto no encontrado'
         });
       }
 
       // Verificar permisos según rol
-      const id_rol = req.user_info?.rol_id ?? 3;
+      const id_rol = request.user_info?.rol_id ?? 3;
       if (id_rol === 1) {
         // Super Admin puede eliminar cualquier gasto
       } else if (id_rol === 2) {
@@ -525,19 +525,19 @@ export const gastosController = {
         const { data: userRestaurants } = await client
           .from('usuarios_restaurantes')
           .select('restaurante_id')
-          .eq('usuario_id', req.user_info.id);
+          .eq('usuario_id', request.user_info.id);
 
         const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
 
         if (!restaurantIds.includes(gastoExistente.restaurante_id)) {
-          return res.status(403).json({
+          return reply.code(403).send({
             error: 'No tienes acceso a este gasto'
           });
         }
       } else {
         // Usuarios normales solo pueden eliminar gastos de su restaurante
-        if (req.user_info.restaurante_id !== gastoExistente.restaurante_id) {
-          return res.status(403).json({
+        if (request.user_info.restaurante_id !== gastoExistente.restaurante_id) {
+          return reply.code(403).send({
             error: 'No tienes acceso a este gasto'
           });
         }
@@ -557,7 +557,7 @@ export const gastosController = {
               cantidad: cantidadNum,
               motivo: `Reversión por eliminación de gasto`,
               referencia: gastoExistente.id,
-              usuario_id: req.user_info!.id,
+              usuario_id: request.user_info!.id,
             });
 
           // Revertir desglose automático si existía
@@ -576,7 +576,7 @@ export const gastosController = {
                   cantidad: cantidadNum * regla.cantidad,
                   motivo: `Reversión desglose por eliminación de gasto`,
                   referencia: gastoExistente.id,
-                  usuario_id: req.user_info!.id,
+                  usuario_id: request.user_info!.id,
                 });
             }
           }
@@ -591,21 +591,21 @@ export const gastosController = {
         .eq('id', id);
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
-      res.json({ message: 'Gasto eliminado exitosamente' });
+      reply.send({ message: 'Gasto eliminado exitosamente' });
     } catch (error) {
       console.error('Error deleting gasto:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Obtener resumen de gastos por categoría
-  async getResumenPorCategoria(req: Request, res: Response) {
+  async getResumenPorCategoria(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { restaurante_id } = req.params;
-      const { fecha_inicio, fecha_fin } = req.query;
+      const { restaurante_id } = request.params as { restaurante_id: string };
+      const { fecha_inicio, fecha_fin } = request.query as { fecha_inicio?: string; fecha_fin?: string };
 
       const client = supabaseAdmin || supabase;
       let query = client
@@ -624,7 +624,7 @@ export const gastosController = {
       const { data, error } = await query;
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
       // Agrupar por categoría y sumar montos
@@ -643,18 +643,18 @@ export const gastosController = {
         total
       }));
 
-      res.json({ data: resumenArray });
+      reply.send({ data: resumenArray });
     } catch (error) {
       console.error('Error getting resumen por categoria:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   },
 
   // Obtener total de gastos
-  async getTotalGastos(req: Request, res: Response) {
+  async getTotalGastos(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { restaurante_id } = req.params;
-      const { fecha_inicio, fecha_fin } = req.query;
+      const { restaurante_id } = request.params as { restaurante_id: string };
+      const { fecha_inicio, fecha_fin } = request.query as { fecha_inicio?: string; fecha_fin?: string };
 
       const client = supabaseAdmin || supabase;
       let query = client
@@ -673,12 +673,12 @@ export const gastosController = {
       const { data, error } = await query;
 
       if (error) {
-        return res.status(400).json({ error: error.message });
+        return reply.code(400).send({ error: error.message });
       }
 
       const total = (data || []).reduce((sum, gasto) => sum + Number(gasto.monto), 0);
 
-      res.json({ 
+      reply.send({ 
         data: {
           total_gastos: total,
           cantidad_gastos: data?.length || 0
@@ -686,7 +686,7 @@ export const gastosController = {
       });
     } catch (error) {
       console.error('Error getting total gastos:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+      throw error;
     }
   }
 };
