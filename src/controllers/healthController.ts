@@ -1,8 +1,8 @@
-import { Request, Response } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase } from "../supabase/supabase";
 
 // Separate function to handle the database check
-async function checkDatabaseConnection(req: Request, res: Response) {
+async function checkDatabaseConnection(_request: FastifyRequest, reply: FastifyReply) {
   try {
     // Simple query to verify database connection
     const { data, error } = await supabase
@@ -11,10 +11,10 @@ async function checkDatabaseConnection(req: Request, res: Response) {
       .limit(1);
 
     if (error) {
-      return res.status(500).json({ error: error.message });
+      return reply.code(500).send({ error: error.message });
     }
 
-    return res.status(200).json({
+    return reply.code(200).send({
       status: "ok",
       message: "API and database connection functioning correctly",
       timestamp: new Date().toISOString(),
@@ -22,7 +22,7 @@ async function checkDatabaseConnection(req: Request, res: Response) {
   } catch (err: unknown) {
     const errorMessage =
       err instanceof Error ? err.message : "Unknown error occurred";
-    return res.status(500).json({
+    return reply.code(500).send({
       status: "error",
       message: "Failed to connect to database",
       error: errorMessage,

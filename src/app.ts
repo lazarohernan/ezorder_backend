@@ -70,11 +70,7 @@ export const buildApp = async () => {
     status: "ok",
   }));
 
-  app.get("/api/health", async (request, reply) => {
-    const { createCompatibilityContext, runExpressHandlers } = await import("./http/compat");
-    const context = createCompatibilityContext(request, reply);
-    await runExpressHandlers([checkDatabaseConnection as any], context);
-  });
+  app.get("/api/health", checkDatabaseConnection);
 
   await registerRoutes(app);
 

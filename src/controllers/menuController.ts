@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
 
 type MenuConsumoInput = {
@@ -6,8 +6,8 @@ type MenuConsumoInput = {
   cantidad: number;
 };
 
-const getMenuWithAccess = async (req: Request, menuId: string) => {
-  if (!req.user_info) {
+const getMenuWithAccess = async (request: FastifyRequest, menuId: string) => {
+  if (!request.user_info) {
     return {
       ok: false,
       status: 403,
@@ -26,7 +26,7 @@ const getMenuWithAccess = async (req: Request, menuId: string) => {
     return { ok: false, status: 404, message: "Menú no encontrado" } as const;
   }
 
-  const id_rol = req.user_info?.rol_id ?? 3;
+  const id_rol = request.user_info?.rol_id ?? 3;
   if (id_rol === 1) {
     return { ok: true, menu: menuData, client } as const;
   }
@@ -35,7 +35,7 @@ const getMenuWithAccess = async (req: Request, menuId: string) => {
     const { data: userRestaurants } = await client
       .from("usuarios_restaurantes")
       .select("restaurante_id")
-      .eq("usuario_id", req.user_info.id);
+      .eq("usuario_id", request.user_info.id);
 
     const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
     if (!restaurantIds.includes(menuData.restaurante_id)) {
@@ -44,7 +44,7 @@ const getMenuWithAccess = async (req: Request, menuId: string) => {
     return { ok: true, menu: menuData, client } as const;
   }
 
-  if (req.user_info.restaurante_id !== menuData.restaurante_id) {
+  if (request.user_info.restaurante_id !== menuData.restaurante_id) {
     return { ok: false, status: 403, message: "No tienes acceso a este menú" } as const;
   }
 
@@ -52,18 +52,17 @@ const getMenuWithAccess = async (req: Request, menuId: string) => {
 };
 
 // Obtener todos los menús
-export const getMenus = async (req: Request, res: Response) => {
+export const getMenus = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     const client = supabaseAdmin || supabase;
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     let query = client
       .from("menu")
       .select("*, restaurantes(id, nombre_restaurante), menu_categorias(id, nombre)")
@@ -77,28 +76,27 @@ export const getMenus = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (restaurantIds.length > 0) {
         query = query.in("restaurante_id", restaurantIds);
       } else {
         // Si no tiene restaurantes, devolver vacío
-        return res.status(200).json({
+        return reply.code(200).send({
           success: true,
           data: [],
         });
       }
     } else {
       // Usuarios normales solo ven menús de su restaurante
-      const restaurante_id = req.user_info?.restaurante_id;
+      const restaurante_id = request.user_info?.restaurante_id;
       if (!restaurante_id) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "El usuario no tiene un restaurante asignado",
         });
-        return;
       }
       query = query.eq("restaurante_id", restaurante_id);
     }
@@ -109,27 +107,25 @@ export const getMenus = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener menús",
     });
-    return;
   }
 };
 
 // Obtener menús por ID de restaurante
-export const getMenusByRestauranteId = async (req: Request, res: Response) => {
-  const { restaurante_id } = req.params;
+export const getMenusByRestauranteId = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { restaurante_id } = (request.params as any);
 
   try {
     console.log(
-      `Usuario ${req.user?.id} solicitó los menús del restaurante ${restaurante_id}`
+      `Usuario ${(request.user_info as any)?.id} solicitó los menús del restaurante ${restaurante_id}`
     );
 
     const client = supabaseAdmin || supabase;
@@ -142,34 +138,31 @@ export const getMenusByRestauranteId = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener menús del restaurante",
     });
-    return;
   }
 };
 
 // Obtener un menú por ID
-export const getMenuById = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const getMenuById = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    console.log(`Usuario ${req.user_info.id} solicitó el menú ${id}`);
+    console.log(`Usuario ${request.user_info.id} solicitó el menú ${id}`);
 
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
@@ -180,17 +173,16 @@ export const getMenuById = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return reply.code(404).send({
           success: false,
           message: "Menú no encontrado",
         });
-        return;
       }
       throw error;
     }
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede ver cualquier menú
     } else if (id_rol === 2) {
@@ -198,44 +190,40 @@ export const getMenuById = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(data.restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este menú",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden ver menús de su restaurante
-      if (req.user_info.restaurante_id !== data.restaurante_id) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== data.restaurante_id) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este menú",
         });
-        return;
       }
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener menú",
     });
-    return;
   }
 };
 
 // Crear un nuevo menú
-export const createMenu = async (req: Request, res: Response) => {
+export const createMenu = async (request: FastifyRequest, reply: FastifyReply) => {
   const {
     restaurante_id,
     categoria_id,
@@ -250,28 +238,26 @@ export const createMenu = async (req: Request, res: Response) => {
     activo,
     es_exento,
     es_exonerado,
-  } = req.body;
+  } = (request.body as any);
 
   // Verificar campos obligatorios
   if (!restaurante_id || !nombre) {
-    res.status(400).json({
+    return reply.code(400).send({
       success: false,
       message: "El restaurante_id y nombre son obligatorios",
     });
-    return;
   }
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     // Validar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede crear menús en cualquier restaurante
     } else if (id_rol === 2) {
@@ -280,33 +266,30 @@ export const createMenu = async (req: Request, res: Response) => {
       const { data: userRestaurants, error: restaurantsError } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       if (restaurantsError) {
-        res.status(500).json({
+        return reply.code(500).send({
           success: false,
           message: "Error al verificar permisos",
         });
-        return;
       }
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este restaurante",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden crear menús en su restaurante
-      if (req.user_info.restaurante_id !== restaurante_id) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== restaurante_id) {
+        return reply.code(403).send({
           success: false,
           message: "No puedes crear menús para este restaurante",
         });
-        return;
       }
     }
 
@@ -335,25 +318,23 @@ export const createMenu = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    res.status(201).json({
+    return reply.code(201).send({
       success: true,
       message: "Menú creado exitosamente",
       data,
     });
-    return;
   } catch (error: any) {
     console.error("Error al crear menú:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al crear menú",
     });
-    return;
   }
 };
 
 // Actualizar un menú
-export const updateMenu = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const updateMenu = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
   const {
     restaurante_id,
     categoria_id,
@@ -368,7 +349,7 @@ export const updateMenu = async (req: Request, res: Response) => {
     activo,
     es_exento,
     es_exonerado,
-  } = req.body;
+  } = (request.body as any);
 
   // Verificar que se proporcione al menos un campo para actualizar
   if (
@@ -384,20 +365,18 @@ export const updateMenu = async (req: Request, res: Response) => {
     es_para_cocina === undefined &&
     activo === undefined
   ) {
-    res.status(400).json({
+    return reply.code(400).send({
       success: false,
       message: "Se debe proporcionar al menos un campo para actualizar",
     });
-    return;
   }
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     const client = supabaseAdmin || supabase;
@@ -410,15 +389,14 @@ export const updateMenu = async (req: Request, res: Response) => {
       .single();
 
     if (errorBuscar || !menuExistente) {
-      res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: "Menú no encontrado",
       });
-      return;
     }
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede actualizar cualquier menú
     } else if (id_rol === 2) {
@@ -426,35 +404,32 @@ export const updateMenu = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(menuExistente.restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este menú",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden actualizar menús de su restaurante
-      if (req.user_info.restaurante_id !== menuExistente.restaurante_id) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== menuExistente.restaurante_id) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este menú",
         });
-        return;
       }
     }
 
     // Prevenir cambio de restaurante_id si se intenta modificar
     if (restaurante_id && restaurante_id !== menuExistente.restaurante_id) {
-      res.status(403).json({
+      return reply.code(403).send({
         success: false,
         message: "No puedes cambiar el restaurante de un menú",
       });
-      return;
     }
 
     // Crear objeto con solo los campos proporcionados
@@ -483,41 +458,37 @@ export const updateMenu = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return reply.code(404).send({
           success: false,
           message: "Menú no encontrado",
         });
-        return;
       }
       throw error;
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       message: "Menú actualizado exitosamente",
       data,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al actualizar menú",
     });
-    return;
   }
 };
 
 // Eliminar un menú
-export const deleteMenu = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const deleteMenu = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     const client = supabaseAdmin || supabase;
@@ -530,15 +501,14 @@ export const deleteMenu = async (req: Request, res: Response) => {
       .single();
 
     if (errorBuscar || !menuExistente) {
-      res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: "Menú no encontrado",
       });
-      return;
     }
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede eliminar cualquier menú
     } else if (id_rol === 2) {
@@ -546,25 +516,23 @@ export const deleteMenu = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(menuExistente.restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este menú",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden eliminar menús de su restaurante
-      if (req.user_info.restaurante_id !== menuExistente.restaurante_id) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== menuExistente.restaurante_id) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este menú",
         });
-        return;
       }
     }
 
@@ -576,37 +544,34 @@ export const deleteMenu = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "23503") {
-        res.status(400).json({
+        return reply.code(400).send({
           success: false,
           message:
             "No se puede eliminar este menú porque tiene registros relacionados",
         });
-        return;
       }
       throw error;
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       message: "Menú eliminado exitosamente",
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al eliminar menú",
     });
-    return;
   }
 };
 
-export const getMenuConsumos = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const getMenuConsumos = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
 
   try {
-    const menuAccess = await getMenuWithAccess(req, id);
+    const menuAccess = await getMenuWithAccess(request, id);
     if (!menuAccess.ok) {
-      return res.status(menuAccess.status).json({
+      return reply.code(menuAccess.status).send({
         success: false,
         message: menuAccess.message,
       });
@@ -622,33 +587,33 @@ export const getMenuConsumos = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    return res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data: data || [],
     });
   } catch (error: any) {
-    return res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener consumos del menú",
     });
   }
 };
 
-export const updateMenuConsumos = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { consumos } = req.body as { consumos?: MenuConsumoInput[] };
+export const updateMenuConsumos = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
+  const { consumos } = (request.body as any) as { consumos?: MenuConsumoInput[] };
 
   try {
-    const menuAccess = await getMenuWithAccess(req, id);
+    const menuAccess = await getMenuWithAccess(request, id);
     if (!menuAccess.ok) {
-      return res.status(menuAccess.status).json({
+      return reply.code(menuAccess.status).send({
         success: false,
         message: menuAccess.message,
       });
     }
 
     if (!Array.isArray(consumos)) {
-      return res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: "Debes enviar consumos como un array",
       });
@@ -661,7 +626,7 @@ export const updateMenuConsumos = async (req: Request, res: Response) => {
         Number(c.cantidad) <= 0
     );
     if (invalid) {
-      return res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: "Cada consumo requiere inventario_id y cantidad > 0",
       });
@@ -676,7 +641,7 @@ export const updateMenuConsumos = async (req: Request, res: Response) => {
 
       if (inventarioError) throw inventarioError;
       if ((inventarioRows || []).length !== inventarioIds.length) {
-        return res.status(400).json({
+        return reply.code(400).send({
           success: false,
           message: "Uno o más productos de inventario no existen",
         });
@@ -686,7 +651,7 @@ export const updateMenuConsumos = async (req: Request, res: Response) => {
         (row: any) => row.restaurante_id !== menuAccess.menu.restaurante_id
       );
       if (fueraDeRestaurante) {
-        return res.status(400).json({
+        return reply.code(400).send({
           success: false,
           message: "Todos los productos deben pertenecer al mismo restaurante del menú",
         });
@@ -712,12 +677,12 @@ export const updateMenuConsumos = async (req: Request, res: Response) => {
       if (insertError) throw insertError;
     }
 
-    return res.status(200).json({
+    return reply.code(200).send({
       success: true,
       message: "Consumos de inventario actualizados",
     });
   } catch (error: any) {
-    return res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al actualizar consumos del menú",
     });

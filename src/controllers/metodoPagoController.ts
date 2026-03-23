@@ -1,7 +1,7 @@
-import { Request, Response } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
 
-export const getMetodosPago = async (req: Request, res: Response) => {
+export const getMetodosPago = async (_request: FastifyRequest, reply: FastifyReply) => {
   try {
     if (!supabaseAdmin) {
       throw new Error("supabaseAdmin no está configurado");
@@ -14,21 +14,21 @@ export const getMetodosPago = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
     });
   } catch (error: any) {
     console.error("Error al obtener métodos de pago:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener los métodos de pago",
     });
   }
 };
 
-export const getMetodoPagoById = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const getMetodoPagoById = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
 
   try {
     if (!supabaseAdmin) {
@@ -43,54 +43,50 @@ export const getMetodoPagoById = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return reply.code(404).send({
           success: false,
           message: "Método de pago no encontrado",
         });
-        return;
       }
       throw error;
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
     });
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener el método de pago",
     });
   }
 };
 
-export const createMetodoPago = async (req: Request, res: Response) => {
-  const { metodo, descripcion } = req.body;
+export const createMetodoPago = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { metodo, descripcion } = (request.body as any);
 
   if (!metodo) {
-    res.status(400).json({
+    return reply.code(400).send({
       success: false,
       message: "El campo 'metodo' es requerido",
     });
-    return;
   }
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol !== 1) {
-      res.status(403).json({
+      return reply.code(403).send({
         success: false,
         message: "Solo el Super Admin puede crear métodos de pago",
       });
-      return;
     }
 
     const client = supabaseAdmin || supabase;
@@ -107,47 +103,44 @@ export const createMetodoPago = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    res.status(201).json({
+    return reply.code(201).send({
       success: true,
       data,
       message: "Método de pago creado exitosamente",
     });
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al crear el método de pago",
     });
   }
 };
 
-export const updateMetodoPago = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { metodo, descripcion } = req.body;
+export const updateMetodoPago = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
+  const { metodo, descripcion } = (request.body as any);
 
   if (!metodo) {
-    res.status(400).json({
+    return reply.code(400).send({
       success: false,
       message: "El campo 'metodo' es requerido",
     });
-    return;
   }
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol !== 1) {
-      res.status(403).json({
+      return reply.code(403).send({
         success: false,
         message: "Solo el Super Admin puede actualizar métodos de pago",
       });
-      return;
     }
 
     const client = supabaseAdmin || supabase;
@@ -163,47 +156,44 @@ export const updateMetodoPago = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return reply.code(404).send({
           success: false,
           message: "Método de pago no encontrado",
         });
-        return;
       }
       throw error;
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
       message: "Método de pago actualizado exitosamente",
     });
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al actualizar el método de pago",
     });
   }
 };
 
-export const deleteMetodoPago = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const deleteMetodoPago = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol !== 1) {
-      res.status(403).json({
+      return reply.code(403).send({
         success: false,
         message: "Solo el Super Admin puede eliminar métodos de pago",
       });
-      return;
     }
 
     const client = supabaseAdmin || supabase;
@@ -216,12 +206,11 @@ export const deleteMetodoPago = async (req: Request, res: Response) => {
     if (errorVerificacion) throw errorVerificacion;
 
     if (pedidosConMetodo && pedidosConMetodo.length > 0) {
-      res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message:
           "No se puede eliminar el método de pago porque está siendo usado en pedidos existentes",
       });
-      return;
     }
 
     const { error } = await client
@@ -231,21 +220,20 @@ export const deleteMetodoPago = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return reply.code(404).send({
           success: false,
           message: "Método de pago no encontrado",
         });
-        return;
       }
       throw error;
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       message: "Método de pago eliminado exitosamente",
     });
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al eliminar el método de pago",
     });

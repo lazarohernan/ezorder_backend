@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from '../supabase/supabase';
 
 const client = supabaseAdmin || supabase;
@@ -136,7 +136,7 @@ const descuentoEstaVigente = (descuento: DescuentoConProgramacion & { activo?: b
 };
 
 // Obtener todos los descuentos
-export const getDescuentos = async (req: Request, res: Response) => {
+export const getDescuentos = async (_request: FastifyRequest, reply: FastifyReply) => {
   try {
     const { data, error } = await client
       .from('descuentos')
@@ -145,13 +145,13 @@ export const getDescuentos = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data: data || []
     });
   } catch (error: any) {
     console.error('Error al obtener descuentos:', error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: 'Error al obtener descuentos',
       error: error.message
@@ -160,9 +160,9 @@ export const getDescuentos = async (req: Request, res: Response) => {
 };
 
 // Obtener descuento por ID
-export const getDescuentoById = async (req: Request, res: Response) => {
+export const getDescuentoById = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const { id } = req.params;
+    const { id } = (request.params as any);
 
     const { data, error } = await client
       .from('descuentos')
@@ -173,19 +173,19 @@ export const getDescuentoById = async (req: Request, res: Response) => {
     if (error) throw error;
 
     if (!data) {
-      return res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: 'Descuento no encontrado'
       });
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data: data
     });
   } catch (error: any) {
     console.error('Error al obtener descuento:', error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: 'Error al obtener descuento',
       error: error.message
@@ -194,7 +194,7 @@ export const getDescuentoById = async (req: Request, res: Response) => {
 };
 
 // Obtener solo descuentos activos
-export const getDescuentosActivos = async (req: Request, res: Response) => {
+export const getDescuentosActivos = async (_request: FastifyRequest, reply: FastifyReply) => {
   try {
     const { data, error } = await client
       .from('descuentos')
@@ -206,13 +206,13 @@ export const getDescuentosActivos = async (req: Request, res: Response) => {
 
     const descuentosVigentes = (data || []).filter(descuentoEstaVigente);
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data: descuentosVigentes
     });
   } catch (error: any) {
     console.error('Error al obtener descuentos activos:', error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: 'Error al obtener descuentos activos',
       error: error.message
@@ -221,7 +221,7 @@ export const getDescuentosActivos = async (req: Request, res: Response) => {
 };
 
 // Crear nuevo descuento
-export const createDescuento = async (req: Request, res: Response) => {
+export const createDescuento = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     const {
       nombre,
@@ -233,18 +233,18 @@ export const createDescuento = async (req: Request, res: Response) => {
       hora_inicio = null,
       hora_fin = null,
       dias_semana = null,
-    } = req.body;
+    } = (request.body as any);
 
     // Validaciones
     if (!nombre || nombre.trim() === '') {
-      return res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: 'El nombre del descuento es requerido'
       });
     }
 
     if (porcentaje === undefined || porcentaje === null || porcentaje <= 0 || porcentaje > 100) {
-      return res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: 'El porcentaje debe ser un número entre 1 y 100'
       });
@@ -261,7 +261,7 @@ export const createDescuento = async (req: Request, res: Response) => {
 
     const errorProgramacion = validarProgramacion(programacionNormalizada);
     if (errorProgramacion) {
-      return res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: errorProgramacion,
       });
@@ -285,14 +285,14 @@ export const createDescuento = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    res.status(201).json({
+    return reply.code(201).send({
       success: true,
       data: data,
       message: 'Descuento creado exitosamente'
     });
   } catch (error: any) {
     console.error('Error al crear descuento:', error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: 'Error al crear descuento',
       error: error.message
@@ -301,9 +301,9 @@ export const createDescuento = async (req: Request, res: Response) => {
 };
 
 // Actualizar descuento existente
-export const updateDescuento = async (req: Request, res: Response) => {
+export const updateDescuento = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const { id } = req.params;
+    const { id } = (request.params as any);
     const {
       nombre,
       porcentaje,
@@ -314,18 +314,18 @@ export const updateDescuento = async (req: Request, res: Response) => {
       hora_inicio,
       hora_fin,
       dias_semana,
-    } = req.body;
+    } = (request.body as any);
 
     // Validaciones
     if (nombre !== undefined && nombre.trim() === '') {
-      return res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: 'El nombre del descuento no puede estar vacío'
       });
     }
 
     if (porcentaje !== undefined && (porcentaje <= 0 || porcentaje > 100)) {
-      return res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: 'El porcentaje debe ser un número entre 1 y 100'
       });
@@ -338,7 +338,7 @@ export const updateDescuento = async (req: Request, res: Response) => {
       .single();
 
     if (errorActual || !descuentoActual) {
-      return res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: 'Descuento no encontrado'
       });
@@ -379,7 +379,7 @@ export const updateDescuento = async (req: Request, res: Response) => {
 
     const errorProgramacion = validarProgramacion(mergedProgramacion);
     if (errorProgramacion) {
-      return res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: errorProgramacion,
       });
@@ -403,20 +403,20 @@ export const updateDescuento = async (req: Request, res: Response) => {
     if (error) throw error;
 
     if (!data) {
-      return res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: 'Descuento no encontrado'
       });
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data: data,
       message: 'Descuento actualizado exitosamente'
     });
   } catch (error: any) {
     console.error('Error al actualizar descuento:', error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: 'Error al actualizar descuento',
       error: error.message
@@ -425,9 +425,9 @@ export const updateDescuento = async (req: Request, res: Response) => {
 };
 
 // Eliminar descuento
-export const deleteDescuento = async (req: Request, res: Response) => {
+export const deleteDescuento = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const { id } = req.params;
+    const { id } = (request.params as any);
 
     const { error } = await client
       .from('descuentos')
@@ -436,13 +436,13 @@ export const deleteDescuento = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       message: 'Descuento eliminado exitosamente'
     });
   } catch (error: any) {
     console.error('Error al eliminar descuento:', error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: 'Error al eliminar descuento',
       error: error.message
