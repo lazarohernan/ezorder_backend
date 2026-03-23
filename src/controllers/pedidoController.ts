@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
 
 // Lock por restaurante para evitar race conditions al generar tickets
@@ -50,25 +50,23 @@ const generarSiguienteTicket = async (restaurante_id: string): Promise<number> =
 };
 
 // Obtener todos los pedidos
-export const getPedidos = async (req: Request, res: Response) => {
+export const getPedidos = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Error de configuración del servidor",
       });
-      return;
     }
 
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     let query = supabaseAdmin
       .from("pedidos")
       .select(
@@ -87,28 +85,27 @@ export const getPedidos = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await supabaseAdmin
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (restaurantIds.length > 0) {
         query = query.in("restaurante_id", restaurantIds);
       } else {
         // Si no tiene restaurantes, devolver vacío
-        return res.status(200).json({
+        return reply.code(200).send({
           success: true,
           data: [],
         });
       }
     } else {
       // Usuarios normales solo ven pedidos de su restaurante
-      const restaurante_id = req.user_info?.restaurante_id;
+      const restaurante_id = request.user_info?.restaurante_id;
       if (!restaurante_id) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "El usuario no tiene un restaurante asignado",
         });
-        return;
       }
       query = query.eq("restaurante_id", restaurante_id);
     }
@@ -119,12 +116,12 @@ export const getPedidos = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
     });
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener los pedidos",
     });
@@ -132,24 +129,22 @@ export const getPedidos = async (req: Request, res: Response) => {
 };
 
 // Obtener un pedido por ID
-export const getPedidoById = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const getPedidoById = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Error de configuración del servidor",
       });
-      return;
     }
 
     const { data, error } = await supabaseAdmin
@@ -166,17 +161,16 @@ export const getPedidoById = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return reply.code(404).send({
           success: false,
           message: "Pedido no encontrado",
         });
-        return;
       }
       throw error;
     }
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede ver cualquier pedido
     } else if (id_rol === 2) {
@@ -184,34 +178,32 @@ export const getPedidoById = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await supabaseAdmin
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(data.restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este pedido",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden ver pedidos de su restaurante
-      if (req.user_info.restaurante_id !== data.restaurante_id) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== data.restaurante_id) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este pedido",
         });
-        return;
       }
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
     });
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener el pedido",
     });
@@ -220,32 +212,30 @@ export const getPedidoById = async (req: Request, res: Response) => {
 
 // Obtener pedidos por restaurante
 export const getPedidosByRestauranteId = async (
-  req: Request,
-  res: Response
+  request: FastifyRequest,
+  reply: FastifyReply
 ) => {
-  const { restaurante_id } = req.params;
+  const { restaurante_id } = (request.params as any);
 
   console.log("restaurante_id", restaurante_id);
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Error de configuración del servidor",
       });
-      return;
     }
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede ver pedidos de cualquier restaurante
     } else if (id_rol === 2) {
@@ -253,25 +243,23 @@ export const getPedidosByRestauranteId = async (
       const { data: userRestaurants } = await supabaseAdmin
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este restaurante",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden ver pedidos de su restaurante
-      if (req.user_info.restaurante_id !== restaurante_id) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== restaurante_id) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este restaurante",
         });
-        return;
       }
     }
 
@@ -290,13 +278,13 @@ export const getPedidosByRestauranteId = async (
 
     if (error) throw error;
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
     });
   } catch (error: any) {
     console.error("Error al obtener pedidos por restaurante:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener los pedidos del restaurante",
     });
@@ -304,9 +292,9 @@ export const getPedidosByRestauranteId = async (
 };
 
 // Crear un nuevo pedido
-export const createPedido = async (req: Request, res: Response) => {
-  console.log("🛒 Creando pedido - Datos recibidos:", JSON.stringify(req.body, null, 2));
-  
+export const createPedido = async (request: FastifyRequest, reply: FastifyReply) => {
+  console.log("🛒 Creando pedido - Datos recibidos:", JSON.stringify((request.body as any), null, 2));
+
   const {
     restaurante_id,
     cliente_id,
@@ -327,82 +315,75 @@ export const createPedido = async (req: Request, res: Response) => {
     importe_exento,
     importe_exonerado,
     numero_ticket,
-  } = req.body;
+  } = (request.body as any);
 
   console.log("🎫 Número de ticket recibido:", numero_ticket);
 
   if (!metodo_pago_id) {
     console.log("❌ Error: método de pago no proporcionado");
-    res.status(400).json({
+    return reply.code(400).send({
       success: false,
       message: "El método de pago es requerido",
     });
-    return;
   }
 
   if (!restaurante_id) {
-    res.status(400).json({
+    return reply.code(400).send({
       success: false,
       message: "El restaurante_id es requerido",
     });
-    return;
   }
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     // Validar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede crear pedidos en cualquier restaurante
     } else if (id_rol === 2) {
       // Admin debe tener acceso al restaurante
       if (!supabaseAdmin) {
-        res.status(500).json({
+        return reply.code(500).send({
           success: false,
           message: "Error de configuración del servidor",
         });
-        return;
       }
       const { data: userRestaurants } = await supabaseAdmin
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este restaurante",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden crear pedidos en su restaurante
-      if (req.user_info.restaurante_id !== restaurante_id) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== restaurante_id) {
+        return reply.code(403).send({
           success: false,
           message: "No puedes crear pedidos para este restaurante",
         });
-        return;
       }
     }
 
     // Validar que la caja esté abierta antes de crear el pedido
     if (!supabaseAdmin) {
       console.error("❌ Error: supabaseAdmin no configurado");
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Error de configuración del servidor",
       });
-      return;
     }
 
     console.log("🔍 Verificando estado de caja para restaurante:", restaurante_id);
@@ -417,20 +398,18 @@ export const createPedido = async (req: Request, res: Response) => {
 
     if (cajaError) {
       console.error("❌ Error al verificar estado de caja:", cajaError);
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Error al verificar el estado de la caja",
       });
-      return;
     }
 
     if (!cajasAbiertas || cajasAbiertas.length === 0) {
       console.log("❌ Error: No hay caja abierta para el restaurante:", restaurante_id);
-      res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: "No se puede crear el pedido. La caja debe estar abierta para realizar pedidos.",
       });
-      return;
     }
 
     const cajaActual = cajasAbiertas[0];
@@ -493,42 +472,38 @@ export const createPedido = async (req: Request, res: Response) => {
 
     console.log("✅ Pedido creado exitosamente:", data);
 
-    res.status(201).json({
+    return reply.code(201).send({
       success: true,
       data,
       message: "Pedido creado exitosamente",
     });
-    return;
   } catch (error: any) {
     console.error("❌ Error general al crear el pedido:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al crear el pedido",
     });
-    return;
   }
 };
 
 // Actualizar un pedido
-export const updatePedido = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const updates = req.body;
+export const updatePedido = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
+  const updates = (request.body as any);
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Error de configuración del servidor",
       });
-      return;
     }
 
     // Primero obtener el pedido para verificar permisos
@@ -539,15 +514,14 @@ export const updatePedido = async (req: Request, res: Response) => {
       .single();
 
     if (errorBuscar || !pedidoExistente) {
-      res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: "Pedido no encontrado",
       });
-      return;
     }
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede actualizar cualquier pedido
     } else if (id_rol === 2) {
@@ -555,35 +529,32 @@ export const updatePedido = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await supabaseAdmin
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(pedidoExistente.restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este pedido",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden actualizar pedidos de su restaurante
-      if (req.user_info.restaurante_id !== pedidoExistente.restaurante_id) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== pedidoExistente.restaurante_id) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este pedido",
         });
-        return;
       }
     }
 
     // Prevenir cambio de restaurante_id si se intenta modificar
     if (updates.restaurante_id && updates.restaurante_id !== pedidoExistente.restaurante_id) {
-      res.status(403).json({
+      return reply.code(403).send({
         success: false,
         message: "No puedes cambiar el restaurante de un pedido",
       });
-      return;
     }
 
     // Registrar timestamps automáticos en cambios de estado
@@ -610,52 +581,47 @@ export const updatePedido = async (req: Request, res: Response) => {
     if (error) {
       if (error.code === "PGRST116") {
         console.log(`❌ Pedido no encontrado: ${id}`);
-        res.status(404).json({
+        return reply.code(404).send({
           success: false,
           message: "Pedido no encontrado",
         });
-        return;
       }
       console.error("❌ Error al actualizar pedido:", error);
       throw error;
     }
 
     console.log(`✅ Pedido actualizado exitosamente: ${id}`);
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
       message: "Pedido actualizado exitosamente",
     });
-    return;
   } catch (error: any) {
     console.error("❌ Error general al actualizar el pedido:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al actualizar el pedido",
     });
-    return;
   }
 };
 
 // Eliminar un pedido
-export const deletePedido = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const deletePedido = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     if (!supabaseAdmin) {
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: "Error de configuración del servidor",
       });
-      return;
     }
 
     // Primero verificar que el pedido existe y obtener su restaurante_id
@@ -666,15 +632,14 @@ export const deletePedido = async (req: Request, res: Response) => {
       .single();
 
     if (errorBuscar || !pedidoExistente) {
-      res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: "Pedido no encontrado",
       });
-      return;
     }
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede eliminar cualquier pedido
     } else if (id_rol === 2) {
@@ -682,36 +647,33 @@ export const deletePedido = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await supabaseAdmin
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(pedidoExistente.restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este pedido",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden eliminar pedidos de su restaurante
-      if (req.user_info.restaurante_id !== pedidoExistente.restaurante_id) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== pedidoExistente.restaurante_id) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este pedido",
         });
-        return;
       }
     }
 
     // Opcional: Validar reglas de negocio (por ejemplo, no permitir eliminar pedidos entregados)
     // Descomentar si es necesario:
     // if (pedidoExistente.estado_pedido === 'entregado') {
-    //   res.status(400).json({
+    //   return reply.code(400).send({
     //     success: false,
     //     message: "No se puede eliminar un pedido que ya fue entregado",
     //   });
-    //   return;
     // }
 
     // Eliminar el pedido (los items del pedido se eliminan en cascada por la BD)
@@ -719,25 +681,22 @@ export const deletePedido = async (req: Request, res: Response) => {
 
     if (error) {
       console.error('Error al eliminar pedido:', error);
-      res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: error.message || "Error al eliminar el pedido",
       });
-      return;
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       message: "Pedido eliminado exitosamente",
       data: null,
     });
-    return;
   } catch (error: any) {
     console.error('Error en deletePedido:', error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al eliminar el pedido",
     });
-    return;
   }
 };

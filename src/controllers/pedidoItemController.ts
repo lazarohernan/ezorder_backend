@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
 
 const aplicarConsumosInventarioPorItems = async (
@@ -55,18 +55,17 @@ const aplicarConsumosInventarioPorItems = async (
 };
 
 // Obtener todos los ítems de pedido
-export const getPedidoItems = async (req: Request, res: Response) => {
+export const getPedidoItems = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     const client = supabaseAdmin || supabase;
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
 
     let query = client
       .from("pedido_items")
@@ -91,10 +90,10 @@ export const getPedidoItems = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (restaurantIds.length > 0) {
         // Filtrar items cuyos pedidos pertenezcan a los restaurantes del admin
         const { data: pedidosAdmin } = await client
@@ -103,28 +102,28 @@ export const getPedidoItems = async (req: Request, res: Response) => {
           .in("restaurante_id", restaurantIds);
 
         const pedidoIds = pedidosAdmin?.map((p: any) => p.id) || [];
-        
+
         if (pedidoIds.length > 0) {
           query = query.in("pedido_id", pedidoIds);
         } else {
           // Si no tiene pedidos, devolver vacío
-          return res.status(200).json({
+          return reply.code(200).send({
             success: true,
             data: [],
           });
         }
       } else {
         // Si no tiene restaurantes, devolver vacío
-        return res.status(200).json({
+        return reply.code(200).send({
           success: true,
           data: [],
         });
       }
     } else {
       // Usuarios normales solo ven items de pedidos de su restaurante
-      const restaurante_id = req.user_info?.restaurante_id;
+      const restaurante_id = request.user_info?.restaurante_id;
       if (!restaurante_id) {
-        return res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "El usuario no tiene un restaurante asignado",
         });
@@ -136,11 +135,11 @@ export const getPedidoItems = async (req: Request, res: Response) => {
         .eq("restaurante_id", restaurante_id);
 
       const pedidoIds = pedidosUsuario?.map((p: any) => p.id) || [];
-      
+
       if (pedidoIds.length > 0) {
         query = query.in("pedido_id", pedidoIds);
       } else {
-        return res.status(200).json({
+        return reply.code(200).send({
           success: true,
           data: [],
         });
@@ -151,31 +150,28 @@ export const getPedidoItems = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener los ítems de pedido",
     });
-    return;
   }
 };
 
 // Obtener un ítem de pedido por ID
-export const getPedidoItemById = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const getPedidoItemById = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     const client = supabaseAdmin || supabase;
@@ -198,17 +194,16 @@ export const getPedidoItemById = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return reply.code(404).send({
           success: false,
           message: "Ítem de pedido no encontrado",
         });
-        return;
       }
       throw error;
     }
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     const pedidoRestauranteId = (data.pedidos as any)?.restaurante_id;
 
     if (id_rol === 1) {
@@ -218,55 +213,50 @@ export const getPedidoItemById = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(pedidoRestauranteId)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este ítem de pedido",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden ver items de pedidos de su restaurante
-      if (req.user_info.restaurante_id !== pedidoRestauranteId) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== pedidoRestauranteId) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este ítem de pedido",
         });
-        return;
       }
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener el ítem de pedido",
     });
-    return;
   }
 };
 
 // Obtener ítems por pedido
-export const getItemsByPedidoId = async (req: Request, res: Response) => {
-  const { pedido_id } = req.params;
+export const getItemsByPedidoId = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { pedido_id } = (request.params as any);
 
   console.log("Buscando items para pedido_id:", pedido_id);
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     const client = supabaseAdmin || supabase;
@@ -279,15 +269,14 @@ export const getItemsByPedidoId = async (req: Request, res: Response) => {
       .single();
 
     if (pedidoError || !pedido) {
-      res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: "Pedido no encontrado",
       });
-      return;
     }
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede ver items de cualquier pedido
     } else if (id_rol === 2) {
@@ -295,25 +284,23 @@ export const getItemsByPedidoId = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(pedido.restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este pedido",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden ver items de pedidos de su restaurante
-      if (req.user_info.restaurante_id !== pedido.restaurante_id) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== pedido.restaurante_id) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este pedido",
         });
-        return;
       }
     }
 
@@ -331,24 +318,22 @@ export const getItemsByPedidoId = async (req: Request, res: Response) => {
 
     console.log("Items encontrados:", data?.length || 0);
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data: data || [],
     });
-    return;
   } catch (error: any) {
     console.error("Error completo:", error);
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al obtener los ítems del pedido",
       error: process.env.NODE_ENV === "development" ? error : undefined,
     });
-    return;
   }
 };
 
 // Crear un nuevo ítem de pedido
-export const createPedidoItem = async (req: Request, res: Response) => {
+export const createPedidoItem = async (request: FastifyRequest, reply: FastifyReply) => {
   const {
     pedido_id,
     menu_id,
@@ -359,23 +344,21 @@ export const createPedidoItem = async (req: Request, res: Response) => {
     total_item,
     notas,
     enviado_a_cocina = false,
-  } = req.body;
+  } = (request.body as any);
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     if (!pedido_id) {
-      res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: "El pedido_id es requerido",
       });
-      return;
     }
 
     const client = supabaseAdmin || supabase;
@@ -388,15 +371,14 @@ export const createPedidoItem = async (req: Request, res: Response) => {
       .single();
 
     if (pedidoError || !pedido) {
-      res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: "Pedido no encontrado",
       });
-      return;
     }
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede crear items en cualquier pedido
     } else if (id_rol === 2) {
@@ -404,25 +386,23 @@ export const createPedidoItem = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(pedido.restaurante_id)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este pedido",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden crear items en pedidos de su restaurante
-      if (req.user_info.restaurante_id !== pedido.restaurante_id) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== pedido.restaurante_id) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este pedido",
         });
-        return;
       }
     }
 
@@ -446,7 +426,7 @@ export const createPedidoItem = async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    await aplicarConsumosInventarioPorItems(client, req.user_info.id, [
+    await aplicarConsumosInventarioPorItems(client, request.user_info.id, [
       {
         pedido_id,
         menu_id: menu_id || null,
@@ -455,40 +435,37 @@ export const createPedidoItem = async (req: Request, res: Response) => {
       },
     ]);
 
-    res.status(201).json({
+    return reply.code(201).send({
       success: true,
       data,
       message: "Ítem de pedido creado exitosamente",
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al crear el ítem de pedido",
     });
-    return;
   }
 };
 
 // Actualizar un ítem de pedido
-export const updatePedidoItem = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const updates = req.body;
+export const updatePedidoItem = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
+  const updates = (request.body as any);
 
   // Si se actualiza la cantidad o el precio, recalcular el total
   if (updates.cantidad || updates.precio_unitario) {
-    const cantidad = updates.cantidad || req.body.cantidad_actual;
-    const precio = updates.precio_unitario || req.body.precio_actual;
+    const cantidad = updates.cantidad || updates.cantidad_actual;
+    const precio = updates.precio_unitario || updates.precio_actual;
     updates.total_item = cantidad * precio;
   }
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     const client = supabaseAdmin || supabase;
@@ -508,17 +485,16 @@ export const updatePedidoItem = async (req: Request, res: Response) => {
       .single();
 
     if (itemError || !itemExistente) {
-      res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: "Ítem de pedido no encontrado",
       });
-      return;
     }
 
     const pedidoRestauranteId = (itemExistente.pedidos as any)?.restaurante_id;
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede actualizar cualquier item
     } else if (id_rol === 2) {
@@ -526,25 +502,23 @@ export const updatePedidoItem = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(pedidoRestauranteId)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este ítem de pedido",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden actualizar items de pedidos de su restaurante
-      if (req.user_info.restaurante_id !== pedidoRestauranteId) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== pedidoRestauranteId) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este ítem de pedido",
         });
-        return;
       }
     }
 
@@ -557,41 +531,37 @@ export const updatePedidoItem = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return reply.code(404).send({
           success: false,
           message: "Ítem de pedido no encontrado",
         });
-        return;
       }
       throw error;
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
       message: "Ítem de pedido actualizado exitosamente",
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al actualizar el ítem de pedido",
     });
-    return;
   }
 };
 
 // Eliminar un ítem de pedido
-export const deletePedidoItem = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const deletePedidoItem = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     const client = supabaseAdmin || supabase;
@@ -611,17 +581,16 @@ export const deletePedidoItem = async (req: Request, res: Response) => {
       .single();
 
     if (itemError || !itemExistente) {
-      res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: "Ítem de pedido no encontrado",
       });
-      return;
     }
 
     const pedidoRestauranteId = (itemExistente.pedidos as any)?.restaurante_id;
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede eliminar cualquier item
     } else if (id_rol === 2) {
@@ -629,25 +598,23 @@ export const deletePedidoItem = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(pedidoRestauranteId)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este ítem de pedido",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden eliminar items de pedidos de su restaurante
-      if (req.user_info.restaurante_id !== pedidoRestauranteId) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== pedidoRestauranteId) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este ítem de pedido",
         });
-        return;
       }
     }
 
@@ -655,40 +622,36 @@ export const deletePedidoItem = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return reply.code(404).send({
           success: false,
           message: "Ítem de pedido no encontrado",
         });
-        return;
       }
       throw error;
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       message: "Ítem de pedido eliminado exitosamente",
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al eliminar el ítem de pedido",
     });
-    return;
   }
 };
 
 // Marcar ítem como enviado a cocina
-export const marcarEnviadoACocina = async (req: Request, res: Response) => {
-  const { id } = req.params;
+export const marcarEnviadoACocina = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = (request.params as any);
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     const client = supabaseAdmin || supabase;
@@ -708,17 +671,16 @@ export const marcarEnviadoACocina = async (req: Request, res: Response) => {
       .single();
 
     if (itemError || !itemExistente) {
-      res.status(404).json({
+      return reply.code(404).send({
         success: false,
         message: "Ítem de pedido no encontrado",
       });
-      return;
     }
 
     const pedidoRestauranteId = (itemExistente.pedidos as any)?.restaurante_id;
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede marcar cualquier item
     } else if (id_rol === 2) {
@@ -726,25 +688,23 @@ export const marcarEnviadoACocina = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       if (!restaurantIds.includes(pedidoRestauranteId)) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este ítem de pedido",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden marcar items de pedidos de su restaurante
-      if (req.user_info.restaurante_id !== pedidoRestauranteId) {
-        res.status(403).json({
+      if (request.user_info.restaurante_id !== pedidoRestauranteId) {
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este ítem de pedido",
         });
-        return;
       }
     }
 
@@ -757,49 +717,44 @@ export const marcarEnviadoACocina = async (req: Request, res: Response) => {
 
     if (error) {
       if (error.code === "PGRST116") {
-        res.status(404).json({
+        return reply.code(404).send({
           success: false,
           message: "Ítem de pedido no encontrado",
         });
-        return;
       }
       throw error;
     }
 
-    res.status(200).json({
+    return reply.code(200).send({
       success: true,
       data,
       message: "Ítem marcado como enviado a cocina",
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al actualizar el estado del ítem",
     });
-    return;
   }
 };
 
 // Crear múltiples ítems de pedido en batch
-export const createPedidoItemsBatch = async (req: Request, res: Response) => {
-  const { items } = req.body;
+export const createPedidoItemsBatch = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { items } = (request.body as any);
 
   if (!items || !Array.isArray(items) || items.length === 0) {
-    res.status(400).json({
+    return reply.code(400).send({
       success: false,
       message: "Se requiere un array de items no vacío",
     });
-    return;
   }
 
   try {
-    if (!req.user_info) {
-      res.status(403).json({
+    if (!request.user_info) {
+      return reply.code(403).send({
         success: false,
         message: "No se encontró información del usuario autenticado",
       });
-      return;
     }
 
     const client = supabaseAdmin || supabase;
@@ -808,11 +763,10 @@ export const createPedidoItemsBatch = async (req: Request, res: Response) => {
     const pedidoIds = [...new Set(items.map((item: any) => item.pedido_id))];
 
     if (pedidoIds.length === 0) {
-      res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: "Todos los items deben tener un pedido_id válido",
       });
-      return;
     }
 
     // Verificar que todos los pedidos pertenezcan al restaurante del usuario
@@ -822,15 +776,14 @@ export const createPedidoItemsBatch = async (req: Request, res: Response) => {
       .in("id", pedidoIds);
 
     if (pedidosError || !pedidos || pedidos.length !== pedidoIds.length) {
-      res.status(400).json({
+      return reply.code(400).send({
         success: false,
         message: "Uno o más pedidos no fueron encontrados",
       });
-      return;
     }
 
     // Verificar permisos según rol
-    const id_rol = req.user_info?.rol_id ?? 3;
+    const id_rol = request.user_info?.rol_id ?? 3;
     if (id_rol === 1) {
       // Super Admin puede crear items en cualquier pedido
     } else if (id_rol === 2) {
@@ -838,36 +791,34 @@ export const createPedidoItemsBatch = async (req: Request, res: Response) => {
       const { data: userRestaurants } = await client
         .from("usuarios_restaurantes")
         .select("restaurante_id")
-        .eq("usuario_id", req.user_info.id);
+        .eq("usuario_id", request.user_info.id);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-      
+
       const pedidosRestaurantes = pedidos.map((p: any) => p.restaurante_id);
       const todosPermitidos = pedidosRestaurantes.every((rid: string) => restaurantIds.includes(rid));
-      
+
       if (!todosPermitidos) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a uno o más de los pedidos especificados",
         });
-        return;
       }
     } else {
       // Usuarios normales solo pueden crear items en pedidos de su restaurante
       const pedidosRestaurantes = pedidos.map((p: any) => p.restaurante_id);
       const todosDelMismoRestaurante = pedidosRestaurantes.every(
-        (rid: string) => rid === req.user_info.restaurante_id
+        (rid: string) => rid === request.user_info!.restaurante_id
       );
-      
+
       if (!todosDelMismoRestaurante) {
-        res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: "No tienes acceso a uno o más de los pedidos especificados",
         });
-        return;
       }
     }
-    
+
     // Preparar los items para inserción, calculando totales si no se proporcionan
     const itemsToInsert = items.map((item: any) => {
       const {
@@ -904,19 +855,17 @@ export const createPedidoItemsBatch = async (req: Request, res: Response) => {
       .select();
 
     if (error) throw error;
-    await aplicarConsumosInventarioPorItems(client, req.user_info.id, itemsToInsert);
+    await aplicarConsumosInventarioPorItems(client, request.user_info.id, itemsToInsert);
 
-    res.status(201).json({
+    return reply.code(201).send({
       success: true,
       data,
       message: `${data.length} ítems de pedido creados exitosamente`,
     });
-    return;
   } catch (error: any) {
-    res.status(500).json({
+    return reply.code(500).send({
       success: false,
       message: error.message || "Error al crear los ítems de pedido",
     });
-    return;
   }
 };
