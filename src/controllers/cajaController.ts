@@ -411,11 +411,6 @@ export const cajaController = {
       // Ventas: desde la apertura de esta caja hasta ahora (sesión real), no solo el calendario “hoy”
       const aperturaISO = cajaActualWithRestaurant.fecha_apertura;
       const hastaISO = toISOStringHonduras(getHondurasDate());
-      // Gastos por fecha calendario: del día de apertura al día actual (HN), por si la sesión cruza medianoche
-      const diaGastosDesde = fecha
-        ? getStartOfDayHonduras(fecha as string)
-        : getStartOfDayHonduras(aperturaISO);
-      const diaGastosHasta = getEndOfDayHonduras(getHondurasDate());
 
       // Obtener ventas de la sesión con método de pago (del restaurante de la caja abierta)
       const { data: todasVentas, error: ventasError } = await client
@@ -436,13 +431,13 @@ export const cajaController = {
       const ventasTransferencia = todasVentas?.filter(v => v.metodo_pago_id === 3).reduce((sum, v) => sum + Number(v.total), 0) || 0;
       const totalVentasDia = todasVentas?.reduce((sum, venta) => sum + Number(venta.total), 0) || 0;
 
-      // Obtener gastos del rango de días de la sesión (del restaurante de la caja abierta)
+      // Obtener gastos de la sesión real de caja (desde apertura hasta ahora)
       const { data: gastos, error: gastosError } = await client
         .from('gastos')
         .select('*')
         .eq('restaurante_id', restauranteIdCaja)
-        .gte('fecha_gasto', toISOStringHonduras(diaGastosDesde))
-        .lte('fecha_gasto', toISOStringHonduras(diaGastosHasta));
+        .gte('fecha_gasto', aperturaISO)
+        .lte('fecha_gasto', hastaISO);
 
       if (gastosError) {
         return reply.code(400).send({ error: gastosError.message });
@@ -451,7 +446,7 @@ export const cajaController = {
       const totalGastosDia = gastos?.reduce((sum, gasto) => sum + Number(gasto.monto), 0) || 0;
       const gastosEfectivoDia = sumarMontoGastosEfectivo(gastos || []);
 
-      // Obtener retiros del día (de la caja abierta)
+      // Obtener retiros de la sesión abierta
       let retirosDia: Array<{ id: string; nombre_responsable: string; hora_retiro: string; monto: number; observaciones?: string | null }> = [];
       let totalRetirosDia = 0;
 
@@ -728,8 +723,6 @@ export const cajaController = {
       // Ventas de la sesión: desde apertura de caja hasta el cierre (ahora)
       const sesionDesde = cajaActual.fecha_apertura;
       const sesionHasta = toISOStringHonduras(getHondurasDate());
-      const diaGastosDesde = getStartOfDayHonduras(cajaActual.fecha_apertura);
-      const diaGastosHasta = getEndOfDayHonduras(getHondurasDate());
 
       // Obtener ventas de la sesión por método de pago (mismo criterio que reportes de ventas)
       const { data: todasVentas, error: ventasError } = await client
@@ -750,13 +743,13 @@ export const cajaController = {
       const ventasTransferencia = todasVentas?.filter(v => v.metodo_pago_id === 3).reduce((sum, v) => sum + Number(v.total), 0) || 0;
       const totalVentasDia = todasVentas?.reduce((sum, venta) => sum + Number(venta.total), 0) || 0;
 
-      // Gastos del rango de calendario que cubre la sesión (con método de pago para efectivo en caja)
+      // Gastos de la sesión real de caja (con método de pago para efectivo en caja)
       const { data: gastos, error: gastosError } = await client
         .from('gastos')
         .select('monto, metodo_pago_id')
         .eq('restaurante_id', cajaActual.restaurante_id)
-        .gte('fecha_gasto', toISOStringHonduras(diaGastosDesde))
-        .lte('fecha_gasto', toISOStringHonduras(diaGastosHasta));
+        .gte('fecha_gasto', sesionDesde)
+        .lte('fecha_gasto', sesionHasta);
 
       if (gastosError) {
         return reply.code(400).send({ error: gastosError.message });
@@ -833,10 +826,12 @@ export const cajaController = {
       }
 
       // Calcular diferencias totales para estado_cuadre
+      // La diferencia total debe corresponder a la suma visible de la tabla
+      // "Declarado vs sistema" para evitar discrepancias entre filas y footer.
       const diferenciaTotalCalculada = 
         diferenciaEfectivo + 
         (diferenciaPOS || 0) + 
-        (diferenciaTransferencia || 0) - 
+        (diferenciaTransferencia || 0) + 
         (diferenciaGastos || 0);
       
       const estadoCuadre = Math.abs(diferenciaTotalCalculada) < tolerancia ? 'cuadrada' : 'descuadrada';

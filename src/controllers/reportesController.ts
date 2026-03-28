@@ -21,6 +21,13 @@ type PreviewRequestBody = {
 };
 
 const client = supabaseAdmin || supabase;
+const TEGUCIGALPA_TIME_ZONE = "America/Tegucigalpa";
+const DATE_KEY_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: TEGUCIGALPA_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 
 const parseDate = (value?: string) => {
   if (!value) return null;
@@ -28,10 +35,27 @@ const parseDate = (value?: string) => {
   return Number.isNaN(parsed.getTime()) ? null : value;
 };
 
+const toTegucigalpaBoundary = (value: string, boundary: "start" | "end") => {
+  const [year, month, day] = value.split("-").map(Number);
+  const utcDate =
+    boundary === "start"
+      ? new Date(Date.UTC(year, month - 1, day, 6, 0, 0, 0))
+      : new Date(Date.UTC(year, month - 1, day + 1, 5, 59, 59, 999));
+
+  return utcDate.toISOString();
+};
+
 const buildDateRange = (fechaInicio: string, fechaFin: string) => ({
-  from: `${fechaInicio}T00:00:00.000Z`,
-  to: `${fechaFin}T23:59:59.999Z`,
+  from: toTegucigalpaBoundary(fechaInicio, "start"),
+  to: toTegucigalpaBoundary(fechaFin, "end"),
 });
+
+const isRestrictedGastosUser = (request: FastifyRequest) => {
+  const rolId = request.user_info?.rol_id ?? 3;
+  const esSuperAdmin = Boolean(request.user_info?.es_super_admin);
+
+  return !esSuperAdmin && ![1, 2].includes(rolId);
+};
 
 const getAccessibleRestaurantIds = async (request: FastifyRequest): Promise<string[]> => {
   if (!request.user_info) return [];
@@ -70,7 +94,23 @@ const normalizeScopedRestaurants = (
   return [accesibles[0]];
 };
 
-const toDateOnly = (value: string | null | undefined) => (value || "").split("T")[0];
+const formatDateKeyInTegucigalpa = (value: string | Date | null | undefined) => {
+  if (!value) return "";
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const parts = DATE_KEY_FORMATTER.formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+
+  if (!year || !month || !day) return "";
+  return `${year}-${month}-${day}`;
+};
+
+const getClasificacionContable = (tipoGasto?: string | null) =>
+  ["gastos_admin", "mod"].includes(tipoGasto || "") ? "fijo" : "variable";
 
 const buildVentasPorMetodo = (
   pedidos: Array<{ metodo_pago_id?: number | null; total: number | null }>
@@ -165,7 +205,7 @@ const buildDailyResumen = (
   };
 
   for (const p of pedidos) {
-    const fecha = toDateOnly(p.created_at);
+    const fecha = formatDateKeyInTegucigalpa(p.created_at);
     const row = ensure(fecha);
     const total = Number(p.total || 0);
     row.pedidos += 1;
@@ -177,7 +217,7 @@ const buildDailyResumen = (
   }
 
   for (const g of gastos) {
-    const fecha = toDateOnly(g.fecha_gasto || "");
+    const fecha = formatDateKeyInTegucigalpa(g.fecha_gasto || "");
     const row = ensure(fecha);
     row.gastos += Number(g.monto || 0);
   }
@@ -265,12 +305,20 @@ export const previewReporte = async (request: FastifyRequest, reply: FastifyRepl
       .lte("created_at", to);
     if (pedidosError) throw pedidosError;
 
-    const { data: gastosData, error: gastosError } = await client
+    let gastosQuery = client
       .from("gastos")
       .select("id, restaurante_id, categoria, descripcion, monto, fecha_gasto, tipo_gasto")
       .in("restaurante_id", restaurantesScope)
-      .gte("fecha_gasto", fechaInicioOk)
-      .lte("fecha_gasto", fechaFinOk);
+      .gte("fecha_gasto", from)
+      .lte("fecha_gasto", to);
+
+    if (isRestrictedGastosUser(request)) {
+      gastosQuery = gastosQuery
+        .eq("usuario_id", request.user_info!.id)
+        .neq("tipo_gasto", "gastos_admin");
+    }
+
+    const { data: gastosData, error: gastosError } = await gastosQuery;
     if (gastosError) throw gastosError;
 
     const { data: restaurantesData, error: restaurantesError } = await client
@@ -288,7 +336,7 @@ export const previewReporte = async (request: FastifyRequest, reply: FastifyRepl
 
     const pedidosValidos = (pedidosData || []).filter(
       (p: { pagado?: boolean; estado_pedido?: string }) =>
-        p.pagado === true || ["en_preparacion", "entregado"].includes(p.estado_pedido || "")
+        p.pagado === true || ["en_preparacion", "listo", "entregado"].includes(p.estado_pedido || "")
     );
 
     const ventasTotal = pedidosValidos.reduce(
@@ -372,7 +420,7 @@ export const previewReporte = async (request: FastifyRequest, reply: FastifyRepl
       // Construir mapa diario de caja
       const cajaDiaria: Record<string, { apertura: number; cambio: number; retiros: number; egresos: number }> = {};
       for (const caja of (cajasData || [])) {
-        const fecha = toDateOnly(caja.fecha_apertura);
+        const fecha = formatDateKeyInTegucigalpa(caja.fecha_apertura);
         const existing = cajaDiaria[fecha] || { apertura: 0, cambio: 0, retiros: 0, egresos: 0 };
         existing.apertura += Number(caja.monto_inicial || 0);
         existing.cambio += Number(caja.total_ingresos || 0);
@@ -383,11 +431,12 @@ export const previewReporte = async (request: FastifyRequest, reply: FastifyRepl
 
       // Construir desglose de gastos por item (fecha + descripcion + monto)
       const gastosDesglose = (gastosData || []).map((g: any) => ({
-        fecha: toDateOnly(g.fecha_gasto || ""),
+        fecha: formatDateKeyInTegucigalpa(g.fecha_gasto || ""),
         descripcion: (g.descripcion || "Sin descripción").trim(),
         categoria: (g.categoria || "Sin categoría").trim(),
         monto: Number(g.monto || 0),
-        tipo_gasto: (g.tipo_gasto || "variable") as "variable" | "fijo",
+        tipo_gasto: g.tipo_gasto || null,
+        clasificacion_contable: getClasificacionContable(g.tipo_gasto),
       }));
 
       return reply.send({
@@ -915,4 +964,3 @@ export const previewReporte = async (request: FastifyRequest, reply: FastifyRepl
     throw error;
   }
 };
-

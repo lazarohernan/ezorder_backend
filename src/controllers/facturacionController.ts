@@ -1,6 +1,65 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { supabase, supabaseAdmin } from '../supabase/supabase';
 
+const TEGUCIGALPA_TIME_ZONE = 'America/Tegucigalpa';
+
+const DATE_KEY_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: TEGUCIGALPA_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+const formatDateKeyInTegucigalpa = (value: Date | string) => {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = DATE_KEY_FORMATTER.formatToParts(date);
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+
+  if (!year || !month || !day) {
+    throw new Error('No se pudo formatear la fecha para America/Tegucigalpa');
+  }
+
+  return `${year}-${month}-${day}`;
+};
+
+const parseDateKeyStartUtc = (dateKey: string) => {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 6, 0, 0, 0));
+};
+
+const parseDateKeyNextStartUtc = (dateKey: string) => {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 1, 6, 0, 0, 0));
+};
+
+const applyFacturaDateFilters = <T extends { gte: Function; lt: Function }>(
+  query: T,
+  fechaInicio?: string,
+  fechaFin?: string,
+) => {
+  let nextQuery = query;
+
+  if (fechaInicio) {
+    nextQuery = nextQuery.gte('fecha_factura', parseDateKeyStartUtc(fechaInicio).toISOString());
+  }
+
+  if (fechaFin) {
+    nextQuery = nextQuery.lt('fecha_factura', parseDateKeyNextStartUtc(fechaFin).toISOString());
+  }
+
+  return nextQuery;
+};
+
+const buildTodayFacturaRange = () => {
+  const todayKey = formatDateKeyInTegucigalpa(new Date());
+  return {
+    fechaInicio: todayKey,
+    fechaFin: todayKey,
+  };
+};
+
 /**
  * Extrae el número correlativo de un string de rango autorizado.
  * Ej: "000-001-01-00000251" -> 251
@@ -22,6 +81,56 @@ const construirNumeroFactura = (rangoInicial: string, numero: number): string =>
   return `${prefijo}-${padded}`;
 };
 
+const getClient = () => supabaseAdmin || supabase;
+
+const resolveRestaurantePrincipalId = async (restauranteId: string): Promise<string> => {
+  const client = getClient();
+
+  const { data: restaurante, error: restauranteError } = await client
+    .from('restaurantes')
+    .select('id, propietario_id')
+    .eq('id', restauranteId)
+    .single();
+
+  if (restauranteError || !restaurante) {
+    return restauranteId;
+  }
+
+  if (!restaurante.propietario_id) {
+    return restauranteId;
+  }
+
+  const { data: propietarioInfo, error: propietarioError } = await client
+    .from('usuarios_info')
+    .select('restaurante_id')
+    .eq('id', restaurante.propietario_id)
+    .single();
+
+  if (propietarioError || !propietarioInfo?.restaurante_id) {
+    return restauranteId;
+  }
+
+  return propietarioInfo.restaurante_id;
+};
+
+const getDatosFiscalesActivos = async (restauranteId: string) => {
+  const client = getClient();
+  const restaurantePrincipalId = await resolveRestaurantePrincipalId(restauranteId);
+
+  const { data, error } = await client
+    .from('datos_fiscales')
+    .select('*')
+    .eq('restaurante_id', restaurantePrincipalId)
+    .eq('activo', true)
+    .single();
+
+  return {
+    data,
+    error,
+    restaurantePrincipalId,
+  };
+};
+
 export const facturacionController = {
   // ==================== DATOS FISCALES ====================
 
@@ -29,14 +138,7 @@ export const facturacionController = {
   async getDatosFiscales(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { restaurante_id } = request.params as { restaurante_id: string };
-      const client = supabaseAdmin || supabase;
-
-      const { data, error } = await client
-        .from('datos_fiscales')
-        .select('*')
-        .eq('restaurante_id', restaurante_id)
-        .eq('activo', true)
-        .single();
+      const { data, error } = await getDatosFiscalesActivos(restaurante_id);
 
       if (error && error.code !== 'PGRST116') {
         return reply.code(400).send({ error: error.message });
@@ -90,6 +192,13 @@ export const facturacionController = {
       }
 
       const client = supabaseAdmin || supabase;
+      const restaurantePrincipalId = await resolveRestaurantePrincipalId(restaurante_id);
+
+      if (restaurante_id !== restaurantePrincipalId) {
+        return reply.code(400).send({
+          error: 'Los datos fiscales se administran únicamente desde el restaurante principal.'
+        });
+      }
 
       // Verificar permisos según rol
       const id_rol = request.user_info?.rol_id ?? 3;
@@ -186,6 +295,13 @@ export const facturacionController = {
         return reply.code(404).send({ error: 'Datos fiscales no encontrados' });
       }
 
+      const restaurantePrincipalId = await resolveRestaurantePrincipalId(existing.restaurante_id);
+      if (existing.restaurante_id !== restaurantePrincipalId) {
+        return reply.code(400).send({
+          error: 'Los datos fiscales se administran únicamente desde el restaurante principal.'
+        });
+      }
+
       // Verificar permisos
       const id_rol = request.user_info?.rol_id ?? 3;
       if (id_rol !== 1 && id_rol !== 2) {
@@ -246,15 +362,7 @@ export const facturacionController = {
         .eq('restaurante_id', restaurante_id)
         .order('fecha_factura', { ascending: false });
 
-      if (fecha_inicio) {
-        query = query.gte('fecha_factura', fecha_inicio);
-      }
-      if (fecha_fin) {
-        // Agregar un día para incluir todo el día final
-        const fechaFinDate = new Date(fecha_fin as string);
-        fechaFinDate.setDate(fechaFinDate.getDate() + 1);
-        query = query.lt('fecha_factura', fechaFinDate.toISOString());
-      }
+      query = applyFacturaDateFilters(query, fecha_inicio, fecha_fin);
       if (estado) {
         query = query.eq('estado', estado);
       }
@@ -274,14 +382,7 @@ export const facturacionController = {
         .select('*', { count: 'exact', head: true })
         .eq('restaurante_id', restaurante_id);
 
-      if (fecha_inicio) {
-        countQuery = countQuery.gte('fecha_factura', fecha_inicio);
-      }
-      if (fecha_fin) {
-        const fechaFinDate = new Date(fecha_fin as string);
-        fechaFinDate.setDate(fechaFinDate.getDate() + 1);
-        countQuery = countQuery.lt('fecha_factura', fechaFinDate.toISOString());
-      }
+      countQuery = applyFacturaDateFilters(countQuery, fecha_inicio, fecha_fin);
       if (estado) {
         countQuery = countQuery.eq('estado', estado);
       }
@@ -308,20 +409,17 @@ export const facturacionController = {
     try {
       const { restaurante_id } = request.params as { restaurante_id: string };
       const client = supabaseAdmin || supabase;
+      const { fechaInicio, fechaFin } = buildTodayFacturaRange();
 
-      // Inicio del día actual (UTC-6 Honduras)
-      const hoy = new Date();
-      hoy.setHours(0, 0, 0, 0);
-      const manana = new Date(hoy);
-      manana.setDate(manana.getDate() + 1);
-
-      const { data, error } = await client
+      const { data, error } = await applyFacturaDateFilters(
+        client
         .from('facturas')
         .select('*, pedidos(id, numero_ticket, tipo_pedido, estado_pedido, created_at)')
         .eq('restaurante_id', restaurante_id)
-        .gte('fecha_factura', hoy.toISOString())
-        .lt('fecha_factura', manana.toISOString())
-        .order('fecha_factura', { ascending: false });
+        .order('fecha_factura', { ascending: false }),
+        fechaInicio,
+        fechaFin,
+      );
 
       if (error) {
         return reply.code(400).send({ error: error.message });
@@ -365,19 +463,36 @@ export const facturacionController = {
   async getResumenDia(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { restaurante_id } = request.params as { restaurante_id: string };
+      const {
+        fecha_inicio,
+        fecha_fin,
+        estado,
+        scope,
+      } = request.query as {
+        fecha_inicio?: string;
+        fecha_fin?: string;
+        estado?: string;
+        scope?: 'today' | 'historial';
+      };
       const client = supabaseAdmin || supabase;
 
-      const hoy = new Date();
-      hoy.setHours(0, 0, 0, 0);
-      const manana = new Date(hoy);
-      manana.setDate(manana.getDate() + 1);
+      const shouldUseTodayByDefault = scope !== 'historial' && !fecha_inicio && !fecha_fin;
+      const range = shouldUseTodayByDefault
+        ? buildTodayFacturaRange()
+        : { fechaInicio: fecha_inicio, fechaFin: fecha_fin };
 
-      const { data, error } = await client
+      let query = client
         .from('facturas')
         .select('total, isv, estado')
-        .eq('restaurante_id', restaurante_id)
-        .gte('fecha_factura', hoy.toISOString())
-        .lt('fecha_factura', manana.toISOString());
+        .eq('restaurante_id', restaurante_id);
+
+      query = applyFacturaDateFilters(query, range.fechaInicio, range.fechaFin);
+
+      if (estado) {
+        query = query.eq('estado', estado);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         return reply.code(400).send({ error: error.message });
@@ -504,16 +619,14 @@ export const facturacionController = {
       }
 
       // 1. Obtener datos fiscales activos
-      const { data: datosFiscales, error: dfError } = await client
-        .from('datos_fiscales')
-        .select('*')
-        .eq('restaurante_id', restaurante_id)
-        .eq('activo', true)
-        .single();
+      const {
+        data: datosFiscales,
+        error: dfError,
+      } = await getDatosFiscalesActivos(restaurante_id);
 
       if (dfError || !datosFiscales) {
         return reply.code(400).send({
-          error: 'No se encontraron datos fiscales activos para este restaurante. Configure los datos de facturación primero.'
+          error: 'No se encontraron datos fiscales activos para este restaurante ni para su restaurante principal. Configure los datos de facturación en el principal.'
         });
       }
 

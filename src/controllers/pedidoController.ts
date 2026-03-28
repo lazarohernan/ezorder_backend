@@ -1,6 +1,21 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
 
+const toDateBoundary = (
+  value: string | undefined,
+  boundary: "start" | "end",
+): string | undefined => {
+  if (!value) return undefined;
+  if (value.includes("T")) return value;
+  const [year, month, day] = value.split("-").map(Number);
+  const utcDate =
+    boundary === "start"
+      ? new Date(Date.UTC(year, month - 1, day, 6, 0, 0, 0))
+      : new Date(Date.UTC(year, month - 1, day + 1, 5, 59, 59, 999));
+
+  return utcDate.toISOString();
+};
+
 // Lock por restaurante para evitar race conditions al generar tickets
 const ticketLocks = new Map<string, Promise<number>>();
 
@@ -67,6 +82,13 @@ export const getPedidos = async (request: FastifyRequest, reply: FastifyReply) =
     }
 
     const id_rol = request.user_info?.rol_id ?? 3;
+    const { restaurante_id, fecha_inicio, fecha_fin } = (request.query as {
+      restaurante_id?: string;
+      fecha_inicio?: string;
+      fecha_fin?: string;
+    }) || {};
+    const fechaInicioFiltro = toDateBoundary(fecha_inicio, "start");
+    const fechaFinFiltro = toDateBoundary(fecha_fin, "end");
     let query = supabaseAdmin
       .from("pedidos")
       .select(
@@ -80,6 +102,9 @@ export const getPedidos = async (request: FastifyRequest, reply: FastifyReply) =
     // Filtrar por restaurante según rol
     if (id_rol === 1) {
       // Super Admin ve todos los pedidos
+      if (restaurante_id) {
+        query = query.eq("restaurante_id", restaurante_id);
+      }
     } else if (id_rol === 2) {
       // Admin ve pedidos de sus restaurantes
       const { data: userRestaurants } = await supabaseAdmin
@@ -90,7 +115,18 @@ export const getPedidos = async (request: FastifyRequest, reply: FastifyReply) =
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
 
       if (restaurantIds.length > 0) {
-        query = query.in("restaurante_id", restaurantIds);
+        if (restaurante_id) {
+          if (!restaurantIds.includes(restaurante_id)) {
+            return reply.code(403).send({
+              success: false,
+              message: "No tienes acceso al restaurante seleccionado",
+            });
+          }
+
+          query = query.eq("restaurante_id", restaurante_id);
+        } else {
+          query = query.in("restaurante_id", restaurantIds);
+        }
       } else {
         // Si no tiene restaurantes, devolver vacío
         return reply.code(200).send({
@@ -100,14 +136,30 @@ export const getPedidos = async (request: FastifyRequest, reply: FastifyReply) =
       }
     } else {
       // Usuarios normales solo ven pedidos de su restaurante
-      const restaurante_id = request.user_info?.restaurante_id;
-      if (!restaurante_id) {
+      const restauranteAsignadoId = request.user_info?.restaurante_id;
+      if (!restauranteAsignadoId) {
         return reply.code(403).send({
           success: false,
           message: "El usuario no tiene un restaurante asignado",
         });
       }
-      query = query.eq("restaurante_id", restaurante_id);
+
+      if (restaurante_id && restaurante_id !== restauranteAsignadoId) {
+        return reply.code(403).send({
+          success: false,
+          message: "No tienes acceso al restaurante seleccionado",
+        });
+      }
+
+      query = query.eq("restaurante_id", restauranteAsignadoId);
+    }
+
+    if (fechaInicioFiltro) {
+      query = query.gte("created_at", fechaInicioFiltro);
+    }
+
+    if (fechaFinFiltro) {
+      query = query.lte("created_at", fechaFinFiltro);
     }
 
     query = query.order("created_at", { ascending: false });

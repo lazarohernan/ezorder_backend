@@ -9,6 +9,132 @@ type GastoRecord = {
   inventario_id?: string | null;
 };
 
+const TIPOS_GASTO_VALIDOS = ['materia_prima', 'mod', 'cif', 'gastos_admin'] as const;
+type TipoGasto = (typeof TIPOS_GASTO_VALIDOS)[number];
+
+const normalizeTipoGasto = (tipoGasto?: string | null): TipoGasto => {
+  if (tipoGasto && TIPOS_GASTO_VALIDOS.includes(tipoGasto as TipoGasto)) {
+    return tipoGasto as TipoGasto;
+  }
+
+  return 'materia_prima';
+};
+
+const toDateBoundary = (
+  value: string | undefined,
+  boundary: 'start' | 'end',
+): string | undefined => {
+  if (!value) return undefined;
+  if (value.includes('T')) return value;
+  const [year, month, day] = value.split('-').map(Number);
+  const utcDate =
+    boundary === 'start'
+      ? new Date(Date.UTC(year, month - 1, day, 6, 0, 0, 0))
+      : new Date(Date.UTC(year, month - 1, day + 1, 5, 59, 59, 999));
+
+  return utcDate.toISOString();
+};
+
+const sanitizeGastoFieldsByTipo = (params: {
+  tipo_gasto?: string | null;
+  cantidad?: number | null;
+  unidad_medida?: string | null;
+  inventario_id?: string | null;
+}) => {
+  const tipoGasto = normalizeTipoGasto(params.tipo_gasto);
+  const allowsInventory = tipoGasto === 'materia_prima' || tipoGasto === 'cif';
+
+  return {
+    tipo_gasto: tipoGasto,
+    inventario_id: allowsInventory ? params.inventario_id || null : null,
+    cantidad: allowsInventory && params.cantidad != null ? Number(params.cantidad) : null,
+    unidad_medida: allowsInventory ? params.unidad_medida || null : null,
+  };
+};
+
+const getAccessibleRestaurantIds = async (
+  request: FastifyRequest,
+  client: typeof supabase,
+): Promise<string[]> => {
+  if (!request.user_info) {
+    return [];
+  }
+
+  const isSuperAdmin =
+    request.user_info?.rol_id === 1 || request.user_info?.es_super_admin === true;
+
+  if (isSuperAdmin) {
+    const { data: restaurantes, error } = await client.from('restaurantes').select('id');
+    if (error) {
+      console.error('Error fetching restaurantes for super admin gastos access:', error);
+      return [];
+    }
+
+    return (restaurantes || [])
+      .map((restaurante: { id: string | null }) => restaurante.id)
+      .filter((id): id is string => Boolean(id));
+  }
+
+  if (request.user_info?.rol_id === 2) {
+    const { data: userRestaurants, error } = await client
+      .from('usuarios_restaurantes')
+      .select('restaurante_id')
+      .eq('usuario_id', request.user_info.id);
+
+    if (error) {
+      console.error('Error fetching user restaurantes for gastos access:', error);
+      return request.user_info.restaurante_id ? [request.user_info.restaurante_id] : [];
+    }
+
+    const restaurantIds =
+      userRestaurants
+        ?.map((restaurant: { restaurante_id: string | null }) => restaurant.restaurante_id)
+        .filter((id): id is string => Boolean(id)) || [];
+
+    if (restaurantIds.length > 0) {
+      return restaurantIds;
+    }
+  }
+
+  return request.user_info.restaurante_id ? [request.user_info.restaurante_id] : [];
+};
+
+const ensureRestaurantAccess = async (
+  request: FastifyRequest,
+  reply: FastifyReply,
+  client: typeof supabase,
+  restauranteId: string,
+): Promise<boolean> => {
+  if (!request.user_info) {
+    reply.code(403).send({
+      error: 'No se encontró información del usuario autenticado',
+    });
+    return false;
+  }
+
+  const allowedRestaurantIds = await getAccessibleRestaurantIds(request, client);
+
+  if (!allowedRestaurantIds.includes(restauranteId)) {
+    reply.code(403).send({
+      error: 'No tienes acceso a este restaurante',
+    });
+    return false;
+  }
+
+  return true;
+};
+
+const isAdminLevelUser = (request: FastifyRequest): boolean =>
+  Boolean(
+    request.user_info &&
+      (request.user_info.rol_id === 1 ||
+        request.user_info.rol_id === 2 ||
+        request.user_info.es_super_admin === true),
+  );
+
+const isRestrictedGastosUser = (request: FastifyRequest): boolean =>
+  Boolean(request.user_info) && !isAdminLevelUser(request);
+
 const enrichGastosWithRelatedData = async <T extends GastoRecord>(
   gastos: T[]
 ): Promise<(T & { usuario_nombre: string | null; metodo_pago: string | null; inventario_nombre: string | null })[]> => {
@@ -103,26 +229,43 @@ export const gastosController = {
   // Obtener todos los gastos de un restaurante
   async getGastos(request: FastifyRequest, reply: FastifyReply) {
     try {
+      if (!request.user_info) {
+        return reply.code(403).send({
+          error: 'No se encontró información del usuario autenticado',
+        });
+      }
+
       const { restaurante_id } = request.params as { restaurante_id: string };
-      const { page = 1, limit = 10, categoria, fecha_inicio, fecha_fin } = request.query as { page?: number; limit?: number; categoria?: string; fecha_inicio?: string; fecha_fin?: string };
+      const { page = 1, limit = 10, tipo_gasto, fecha_inicio, fecha_fin } = request.query as { page?: number; limit?: number; tipo_gasto?: string; fecha_inicio?: string; fecha_fin?: string };
+      const fechaInicioFiltro = toDateBoundary(fecha_inicio, 'start');
+      const fechaFinFiltro = toDateBoundary(fecha_fin, 'end');
 
       const client = supabaseAdmin || supabase;
+      const hasAccess = await ensureRestaurantAccess(request, reply, client, restaurante_id);
+      if (!hasAccess) return;
+
       let query = client
         .from('gastos')
         .select('*')
         .eq('restaurante_id', restaurante_id)
         .order('fecha_gasto', { ascending: false });
 
-      if (categoria) {
-        query = query.eq('categoria', categoria);
+      if (isRestrictedGastosUser(request)) {
+        query = query
+          .eq('usuario_id', request.user_info!.id)
+          .neq('tipo_gasto', 'gastos_admin');
       }
 
-      if (fecha_inicio) {
-        query = query.gte('fecha_gasto', fecha_inicio);
+      if (tipo_gasto) {
+        query = query.eq('tipo_gasto', tipo_gasto);
       }
 
-      if (fecha_fin) {
-        query = query.lte('fecha_gasto', fecha_fin);
+      if (fechaInicioFiltro) {
+        query = query.gte('fecha_gasto', fechaInicioFiltro);
+      }
+
+      if (fechaFinFiltro) {
+        query = query.lte('fecha_gasto', fechaFinFiltro);
       }
 
       const from = (Number(page) - 1) * Number(limit);
@@ -140,16 +283,22 @@ export const gastosController = {
         .select('*', { count: 'exact', head: true })
         .eq('restaurante_id', restaurante_id);
 
-      if (categoria) {
-        countQuery = countQuery.eq('categoria', categoria);
+      if (isRestrictedGastosUser(request)) {
+        countQuery = countQuery
+          .eq('usuario_id', request.user_info!.id)
+          .neq('tipo_gasto', 'gastos_admin');
       }
 
-      if (fecha_inicio) {
-        countQuery = countQuery.gte('fecha_gasto', fecha_inicio);
+      if (tipo_gasto) {
+        countQuery = countQuery.eq('tipo_gasto', tipo_gasto);
       }
 
-      if (fecha_fin) {
-        countQuery = countQuery.lte('fecha_gasto', fecha_fin);
+      if (fechaInicioFiltro) {
+        countQuery = countQuery.gte('fecha_gasto', fechaInicioFiltro);
+      }
+
+      if (fechaFinFiltro) {
+        countQuery = countQuery.lte('fecha_gasto', fechaFinFiltro);
       }
 
       const { count } = await countQuery;
@@ -212,8 +361,12 @@ export const gastosController = {
           });
         }
       } else {
-        // Usuarios normales solo pueden ver gastos de su restaurante
-        if (request.user_info.restaurante_id !== data.restaurante_id) {
+        // Usuarios operativos solo pueden ver sus propios gastos no administrativos
+        if (
+          request.user_info.restaurante_id !== data.restaurante_id ||
+          request.user_info.id !== data.usuario_id ||
+          data.tipo_gasto === 'gastos_admin'
+        ) {
           return reply.code(403).send({ 
             error: 'No tienes acceso a este gasto' 
           });
@@ -240,7 +393,6 @@ export const gastosController = {
 
       const {
         restaurante_id,
-        usuario_id,
         fecha_gasto,
         categoria,
         descripcion,
@@ -251,12 +403,25 @@ export const gastosController = {
         cantidad,
         unidad_medida,
         inventario_id
-      } = request.body as { restaurante_id: string; usuario_id: string; fecha_gasto?: string; categoria: string; descripcion: string; monto: number; metodo_pago_id?: number; proveedor?: string; tipo_gasto?: string; cantidad?: number; unidad_medida?: string; inventario_id?: string };
+      } = request.body as { restaurante_id: string; fecha_gasto?: string; categoria: string; descripcion: string; monto: number; metodo_pago_id?: number; proveedor?: string; tipo_gasto?: string; cantidad?: number; unidad_medida?: string; inventario_id?: string };
+
+      const sanitizedFields = sanitizeGastoFieldsByTipo({
+        tipo_gasto,
+        cantidad,
+        unidad_medida,
+        inventario_id,
+      });
+
+      if (isRestrictedGastosUser(request) && sanitizedFields.tipo_gasto === 'gastos_admin') {
+        return reply.code(403).send({
+          error: 'No puedes registrar gastos administrativos',
+        });
+      }
 
       // Validaciones básicas
-      if (!restaurante_id || !usuario_id || !categoria || !descripcion || !monto) {
+      if (!restaurante_id || !categoria || !descripcion || !monto) {
         return reply.code(400).send({
-          error: 'Faltan campos obligatorios: restaurante_id, usuario_id, categoria, descripcion, monto'
+          error: 'Faltan campos obligatorios: restaurante_id, categoria, descripcion, monto'
         });
       }
 
@@ -265,56 +430,31 @@ export const gastosController = {
       }
 
       // Si se vincula a inventario, la cantidad es obligatoria y > 0
-      if (inventario_id && (!cantidad || Number(cantidad) <= 0)) {
+      if (sanitizedFields.inventario_id && (!sanitizedFields.cantidad || Number(sanitizedFields.cantidad) <= 0)) {
         return reply.code(400).send({
           error: 'Cuando se vincula a un producto de inventario, la cantidad debe ser mayor a 0'
         });
       }
 
       const client = supabaseAdmin || supabase;
-
-      // Verificar permisos según rol
-      const id_rol = request.user_info?.rol_id ?? 3;
-      if (id_rol === 1) {
-        // Super Admin puede crear gastos en cualquier restaurante
-      } else if (id_rol === 2) {
-        // Admin debe tener acceso al restaurante
-        const { data: userRestaurants } = await client
-          .from('usuarios_restaurantes')
-          .select('restaurante_id')
-          .eq('usuario_id', request.user_info.id);
-
-        const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
-
-        if (!restaurantIds.includes(restaurante_id)) {
-          return reply.code(403).send({
-            error: 'No tienes acceso a este restaurante'
-          });
-        }
-      } else {
-        // Usuarios normales solo pueden crear gastos en su restaurante
-        if (request.user_info.restaurante_id !== restaurante_id) {
-          return reply.code(403).send({
-            error: 'No puedes crear gastos para este restaurante'
-          });
-        }
-      }
+      const hasAccess = await ensureRestaurantAccess(request, reply, client, restaurante_id);
+      if (!hasAccess) return;
 
       const { data, error } = await client
         .from('gastos')
         .insert({
           restaurante_id,
-          usuario_id,
+          usuario_id: request.user_info.id,
           fecha_gasto: fecha_gasto || new Date().toISOString(),
           categoria,
           descripcion,
           monto: Number(monto),
           metodo_pago_id: metodo_pago_id || null,
           proveedor: proveedor || null,
-          tipo_gasto: tipo_gasto || 'variable',
-          cantidad: cantidad != null ? Number(cantidad) : null,
-          unidad_medida: unidad_medida || null,
-          inventario_id: inventario_id || null
+          tipo_gasto: sanitizedFields.tipo_gasto,
+          cantidad: sanitizedFields.cantidad,
+          unidad_medida: sanitizedFields.unidad_medida,
+          inventario_id: sanitizedFields.inventario_id
         })
         .select('*')
         .single();
@@ -324,22 +464,22 @@ export const gastosController = {
       }
 
       // Crear movimiento automático de inventario si se vinculó a un producto
-      if (data && inventario_id && cantidad && Number(cantidad) > 0) {
+      if (data && sanitizedFields.inventario_id && sanitizedFields.cantidad && Number(sanitizedFields.cantidad) > 0) {
         try {
           const { data: invItem, error: invError } = await client
             .from('inventario')
             .select('id, nombre, restaurante_id')
-            .eq('id', inventario_id)
+            .eq('id', sanitizedFields.inventario_id)
             .single();
 
           if (invItem && !invError && invItem.restaurante_id === restaurante_id) {
-            const cantidadNum = Number(cantidad);
+            const cantidadNum = Number(sanitizedFields.cantidad);
 
             // Crear movimiento de entrada
             await client
               .from('movimientos_inventario')
               .insert({
-                inventario_id,
+                inventario_id: sanitizedFields.inventario_id,
                 tipo_movimiento: 'entrada',
                 cantidad: cantidadNum,
                 motivo: `Compra de proveedor - Gasto${proveedor ? ` (${proveedor})` : ''}`,
@@ -351,7 +491,7 @@ export const gastosController = {
             const { data: reglas } = await client
               .from('inventario_desglose')
               .select('componente_id, cantidad')
-              .eq('producto_id', inventario_id);
+              .eq('producto_id', sanitizedFields.inventario_id);
 
             if (reglas && reglas.length > 0) {
               for (const regla of reglas) {
@@ -405,6 +545,13 @@ export const gastosController = {
         inventario_id
       } = request.body as { fecha_gasto?: string; categoria?: string; descripcion?: string; monto?: number; metodo_pago_id?: number; proveedor?: string; tipo_gasto?: string; cantidad?: number; unidad_medida?: string; inventario_id?: string };
 
+      const sanitizedFields = sanitizeGastoFieldsByTipo({
+        tipo_gasto,
+        cantidad,
+        unidad_medida,
+        inventario_id,
+      });
+
       if (monto !== undefined && Number(monto) <= 0) {
         return reply.code(400).send({ error: 'El monto debe ser mayor a 0' });
       }
@@ -414,7 +561,7 @@ export const gastosController = {
       // Primero obtener el gasto para verificar permisos
       const { data: gastoExistente, error: errorBuscar } = await client
         .from('gastos')
-        .select('id, restaurante_id, inventario_id')
+        .select('id, restaurante_id, inventario_id, usuario_id, tipo_gasto')
         .eq('id', id)
         .single();
 
@@ -443,16 +590,32 @@ export const gastosController = {
           });
         }
       } else {
-        // Usuarios normales solo pueden actualizar gastos de su restaurante
-        if (request.user_info.restaurante_id !== gastoExistente.restaurante_id) {
+        // Usuarios operativos solo pueden actualizar sus propios gastos no administrativos
+        if (
+          request.user_info.restaurante_id !== gastoExistente.restaurante_id ||
+          request.user_info.id !== gastoExistente.usuario_id ||
+          gastoExistente.tipo_gasto === 'gastos_admin'
+        ) {
           return reply.code(403).send({ 
             error: 'No tienes acceso a este gasto' 
           });
         }
       }
 
+      if (isRestrictedGastosUser(request) && sanitizedFields.tipo_gasto === 'gastos_admin') {
+        return reply.code(403).send({
+          error: 'No puedes asignar gastos administrativos',
+        });
+      }
+
       // No permitir cambiar inventario_id si ya tiene uno vinculado (evita movimientos huérfanos)
-      if (inventario_id !== undefined && gastoExistente.inventario_id && inventario_id !== gastoExistente.inventario_id) {
+      const isInventoryMutationRequested = inventario_id !== undefined || tipo_gasto !== undefined;
+
+      if (
+        isInventoryMutationRequested &&
+        gastoExistente.inventario_id &&
+        sanitizedFields.inventario_id !== gastoExistente.inventario_id
+      ) {
         return reply.code(400).send({
           error: 'No se puede cambiar el producto de inventario vinculado. Elimine el gasto y cree uno nuevo.'
         });
@@ -465,10 +628,10 @@ export const gastosController = {
       if (monto !== undefined) updateData.monto = Number(monto);
       if (metodo_pago_id !== undefined) updateData.metodo_pago_id = metodo_pago_id;
       if (proveedor !== undefined) updateData.proveedor = proveedor;
-      if (tipo_gasto !== undefined) updateData.tipo_gasto = tipo_gasto;
-      if (cantidad !== undefined) updateData.cantidad = cantidad != null ? Number(cantidad) : null;
-      if (unidad_medida !== undefined) updateData.unidad_medida = unidad_medida || null;
-      if (inventario_id !== undefined) updateData.inventario_id = inventario_id || null;
+      if (tipo_gasto !== undefined) updateData.tipo_gasto = sanitizedFields.tipo_gasto;
+      if (cantidad !== undefined || tipo_gasto !== undefined) updateData.cantidad = sanitizedFields.cantidad;
+      if (unidad_medida !== undefined || tipo_gasto !== undefined) updateData.unidad_medida = sanitizedFields.unidad_medida;
+      if (inventario_id !== undefined || tipo_gasto !== undefined) updateData.inventario_id = sanitizedFields.inventario_id;
 
       const { data, error } = await client
         .from('gastos')
@@ -506,7 +669,7 @@ export const gastosController = {
       // Primero obtener el gasto para verificar permisos y datos de inventario
       const { data: gastoExistente, error: errorBuscar } = await client
         .from('gastos')
-        .select('id, restaurante_id, inventario_id, cantidad')
+        .select('id, restaurante_id, inventario_id, cantidad, usuario_id, tipo_gasto')
         .eq('id', id)
         .single();
 
@@ -535,8 +698,12 @@ export const gastosController = {
           });
         }
       } else {
-        // Usuarios normales solo pueden eliminar gastos de su restaurante
-        if (request.user_info.restaurante_id !== gastoExistente.restaurante_id) {
+        // Usuarios operativos solo pueden eliminar sus propios gastos no administrativos
+        if (
+          request.user_info.restaurante_id !== gastoExistente.restaurante_id ||
+          request.user_info.id !== gastoExistente.usuario_id ||
+          gastoExistente.tipo_gasto === 'gastos_admin'
+        ) {
           return reply.code(403).send({
             error: 'No tienes acceso a este gasto'
           });
@@ -604,21 +771,46 @@ export const gastosController = {
   // Obtener resumen de gastos por categoría
   async getResumenPorCategoria(request: FastifyRequest, reply: FastifyReply) {
     try {
+      if (!request.user_info) {
+        return reply.code(403).send({
+          error: 'No se encontró información del usuario autenticado',
+        });
+      }
+
       const { restaurante_id } = request.params as { restaurante_id: string };
-      const { fecha_inicio, fecha_fin } = request.query as { fecha_inicio?: string; fecha_fin?: string };
+      const { fecha_inicio, fecha_fin, tipo_gasto } = request.query as {
+        fecha_inicio?: string;
+        fecha_fin?: string;
+        tipo_gasto?: string;
+      };
+      const fechaInicioFiltro = toDateBoundary(fecha_inicio, 'start');
+      const fechaFinFiltro = toDateBoundary(fecha_fin, 'end');
 
       const client = supabaseAdmin || supabase;
+      const hasAccess = await ensureRestaurantAccess(request, reply, client, restaurante_id);
+      if (!hasAccess) return;
+
       let query = client
         .from('gastos')
         .select('categoria, monto')
         .eq('restaurante_id', restaurante_id);
 
-      if (fecha_inicio) {
-        query = query.gte('fecha_gasto', fecha_inicio);
+      if (isRestrictedGastosUser(request)) {
+        query = query
+          .eq('usuario_id', request.user_info!.id)
+          .neq('tipo_gasto', 'gastos_admin');
       }
 
-      if (fecha_fin) {
-        query = query.lte('fecha_gasto', fecha_fin);
+      if (fechaInicioFiltro) {
+        query = query.gte('fecha_gasto', fechaInicioFiltro);
+      }
+
+      if (fechaFinFiltro) {
+        query = query.lte('fecha_gasto', fechaFinFiltro);
+      }
+
+      if (tipo_gasto) {
+        query = query.eq('tipo_gasto', tipo_gasto);
       }
 
       const { data, error } = await query;
@@ -653,21 +845,46 @@ export const gastosController = {
   // Obtener total de gastos
   async getTotalGastos(request: FastifyRequest, reply: FastifyReply) {
     try {
+      if (!request.user_info) {
+        return reply.code(403).send({
+          error: 'No se encontró información del usuario autenticado',
+        });
+      }
+
       const { restaurante_id } = request.params as { restaurante_id: string };
-      const { fecha_inicio, fecha_fin } = request.query as { fecha_inicio?: string; fecha_fin?: string };
+      const { fecha_inicio, fecha_fin, tipo_gasto } = request.query as {
+        fecha_inicio?: string;
+        fecha_fin?: string;
+        tipo_gasto?: string;
+      };
+      const fechaInicioFiltro = toDateBoundary(fecha_inicio, 'start');
+      const fechaFinFiltro = toDateBoundary(fecha_fin, 'end');
 
       const client = supabaseAdmin || supabase;
+      const hasAccess = await ensureRestaurantAccess(request, reply, client, restaurante_id);
+      if (!hasAccess) return;
+
       let query = client
         .from('gastos')
         .select('monto')
         .eq('restaurante_id', restaurante_id);
 
-      if (fecha_inicio) {
-        query = query.gte('fecha_gasto', fecha_inicio);
+      if (isRestrictedGastosUser(request)) {
+        query = query
+          .eq('usuario_id', request.user_info!.id)
+          .neq('tipo_gasto', 'gastos_admin');
       }
 
-      if (fecha_fin) {
-        query = query.lte('fecha_gasto', fecha_fin);
+      if (fechaInicioFiltro) {
+        query = query.gte('fecha_gasto', fechaInicioFiltro);
+      }
+
+      if (fechaFinFiltro) {
+        query = query.lte('fecha_gasto', fechaFinFiltro);
+      }
+
+      if (tipo_gasto) {
+        query = query.eq('tipo_gasto', tipo_gasto);
       }
 
       const { data, error } = await query;
@@ -690,5 +907,3 @@ export const gastosController = {
     }
   }
 };
-
-
