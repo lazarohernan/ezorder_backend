@@ -62,24 +62,43 @@ export const getRestaurantes = async (request: FastifyRequest, reply: FastifyRep
         data = userRestaurants?.map((ur: any) => ur.restaurantes) || [];
       }
     }
-    // Usuarios normales solo ven su restaurante asignado
+    // Staff (roles personalizados, cajero, etc.): restaurante en usuarios_info y/o usuarios_restaurantes
     else {
-      const restaurante_id = request.user_info?.restaurante_id;
+      const ids = new Set<string>();
+      const restauranteDirecto = request.user_info?.restaurante_id;
+      if (restauranteDirecto) {
+        ids.add(restauranteDirecto);
+      }
 
-      if (!restaurante_id) {
+      const { data: userRestaurantRows, error: urError } = await supabaseAdmin
+        .from("usuarios_restaurantes")
+        .select("restaurante_id")
+        .eq("usuario_id", request.user_info.id);
+
+      if (urError) {
+        console.error("getRestaurantes usuarios_restaurantes:", urError);
+      } else {
+        for (const row of userRestaurantRows || []) {
+          if (row.restaurante_id) {
+            ids.add(row.restaurante_id);
+          }
+        }
+      }
+
+      if (ids.size === 0) {
         return reply.code(403).send({
           success: false,
           message: "El usuario no tiene un restaurante asignado",
         });
       }
 
-      const { data: userRestaurant, error: userError } = await supabaseAdmin
+      const { data: userRestaurantsData, error: listError } = await supabaseAdmin
         .from("restaurantes")
         .select("*")
-        .eq("id", restaurante_id)
+        .in("id", [...ids])
         .order("nombre_restaurante", { ascending: true });
-      data = userRestaurant;
-      error = userError;
+      data = userRestaurantsData;
+      error = listError;
     }
 
     if (error) {
@@ -111,7 +130,17 @@ export const getRestauranteById = async (request: FastifyRequest, reply: Fastify
     // Permitir acceso a su propio restaurante sin permiso especial
     const esSuperAdmin = request.user_info?.rol_id === 1 || request.user_info?.es_super_admin;
     const esAdmin = request.user_info?.rol_id === 2;
-    const esPropio = request.user_info?.restaurante_id === id;
+    let esPropio = request.user_info?.restaurante_id === id;
+
+    if (!esPropio && !esSuperAdmin && !esAdmin && request.user_info?.id) {
+      const { data: urRow } = await supabaseAdmin
+        .from("usuarios_restaurantes")
+        .select("restaurante_id")
+        .eq("usuario_id", request.user_info.id)
+        .eq("restaurante_id", id)
+        .maybeSingle();
+      esPropio = Boolean(urRow);
+    }
 
     if (!esPropio && !esSuperAdmin && !esAdmin) {
       return reply.code(403).send({

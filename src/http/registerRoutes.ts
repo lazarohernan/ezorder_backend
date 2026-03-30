@@ -197,7 +197,7 @@ export const registerRoutes = async (app: FastifyInstance) => {
     { method: "POST", url: "/api/auth/recover", handler: sendPasswordReset },
     { method: "POST", url: "/api/auth/update-password", handler: updatePassword },
 
-    { method: "GET", url: "/api/restaurantes", preHandler: [requireAuth, requirePermissions(["restaurantes.ver"])], handler: getRestaurantes },
+    { method: "GET", url: "/api/restaurantes", preHandler: [requireAuth], handler: getRestaurantes },
     { method: "GET", url: "/api/restaurantes/:id", preHandler: [requireAuth], handler: getRestauranteById },
     { method: "POST", url: "/api/restaurantes", preHandler: [requireAuth, requirePermissions(["restaurantes.crear"])], handler: createRestaurante },
     { method: "PUT", url: "/api/restaurantes/:id", preHandler: [requireAuth, requirePermissions(["restaurantes.editar"])], handler: updateRestaurante },
