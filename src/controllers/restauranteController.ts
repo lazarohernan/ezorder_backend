@@ -24,16 +24,23 @@ export const getRestaurantes = async (request: FastifyRequest, reply: FastifyRep
     // Verificar si es Admin/Propietario (rol_id=2)
     const esAdmin = request.user_info?.rol_id === 2;
 
+    // Parámetro opcional para incluir restaurantes administrativos (ej. vista de caja)
+    const { incluir_administrativo } = request.query as { incluir_administrativo?: string };
+    const incluirAdministrativo = incluir_administrativo === "true";
+
     let data: any;
     let error: any;
 
-    // Si el usuario es Super Admin, obtener todos los restaurantes (excepto administrativos)
+    // Si el usuario es Super Admin, obtener todos los restaurantes
     if (esSuperAdmin) {
-      const { data: adminData, error: adminError } = await supabaseAdmin
+      let query = supabaseAdmin
         .from("restaurantes")
         .select("*")
-        .eq("es_administrativo", false)
         .order("nombre_restaurante", { ascending: true });
+      if (!incluirAdministrativo) {
+        query = query.eq("es_administrativo", false);
+      }
+      const { data: adminData, error: adminError } = await query;
       data = adminData;
       error = adminError;
     }
@@ -60,10 +67,9 @@ export const getRestaurantes = async (request: FastifyRequest, reply: FastifyRep
         error = userError;
         data = null;
       } else {
-        // Extraer solo los datos de restaurantes (excluir administrativos)
         data = userRestaurants
           ?.map((ur: any) => ur.restaurantes)
-          .filter((r: any) => r && !r.es_administrativo) || [];
+          .filter((r: any) => r && (incluirAdministrativo || !r.es_administrativo)) || [];
       }
     }
     // Staff (roles personalizados, cajero, etc.): restaurante en usuarios_info y/o usuarios_restaurantes
@@ -96,12 +102,15 @@ export const getRestaurantes = async (request: FastifyRequest, reply: FastifyRep
         });
       }
 
-      const { data: userRestaurantsData, error: listError } = await supabaseAdmin
+      let staffQuery = supabaseAdmin
         .from("restaurantes")
         .select("*")
         .in("id", [...ids])
-        .eq("es_administrativo", false)
         .order("nombre_restaurante", { ascending: true });
+      if (!incluirAdministrativo) {
+        staffQuery = staffQuery.eq("es_administrativo", false);
+      }
+      const { data: userRestaurantsData, error: listError } = await staffQuery;
       data = userRestaurantsData;
       error = listError;
     }
