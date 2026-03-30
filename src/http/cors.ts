@@ -8,13 +8,10 @@ const allowedOrigins: Array<string | RegExp> = [
   "http://localhost:5177",
   "http://localhost:5178",
   "http://localhost:5179",
-  "https://ezorder-frontal.vercel.app",
-  "https://ezorder.vercel.app",
   "https://d3239g075g7j2i.cloudfront.net",
   "https://chickfryend.com",
   "https://www.chickfryend.com",
-  /\.vercel\.app$/,
-  /^https:\/\/ezorder-frontal-.+\.vercel\.app$/,
+
 ];
 
 export const corsOptions: FastifyCorsOptions = {
