@@ -722,7 +722,7 @@ export const cajaController = {
 
       // Ventas de la sesión: desde apertura de caja hasta el cierre (ahora)
       const sesionDesde = cajaActual.fecha_apertura;
-      const sesionHasta = toISOStringHonduras(getHondurasDate());
+      const sesionHasta = new Date().toISOString();
 
       // Obtener ventas de la sesión por método de pago (mismo criterio que reportes de ventas)
       const { data: todasVentas, error: ventasError } = await client
@@ -840,7 +840,7 @@ export const cajaController = {
       const { data, error } = await client
         .from('caja')
         .update({
-          fecha_cierre: toISOStringHonduras(getHondurasDate()),
+          fecha_cierre: new Date().toISOString(),
           monto_final: efectivoReal,
           total_ventas: totalVentasDia,
           total_ingresos: Number(cajaActual.total_ingresos || 0),
