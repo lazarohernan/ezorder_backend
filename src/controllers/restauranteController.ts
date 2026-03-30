@@ -27,11 +27,12 @@ export const getRestaurantes = async (request: FastifyRequest, reply: FastifyRep
     let data: any;
     let error: any;
 
-    // Si el usuario es Super Admin, obtener todos los restaurantes
+    // Si el usuario es Super Admin, obtener todos los restaurantes (excepto administrativos)
     if (esSuperAdmin) {
       const { data: adminData, error: adminError } = await supabaseAdmin
         .from("restaurantes")
         .select("*")
+        .eq("es_administrativo", false)
         .order("nombre_restaurante", { ascending: true });
       data = adminData;
       error = adminError;
@@ -48,7 +49,8 @@ export const getRestaurantes = async (request: FastifyRequest, reply: FastifyRep
             direccion_restaurante,
             logo_restaurante,
             propietario_id,
-            created_at
+            created_at,
+            es_administrativo
           )
         `)
         .eq("usuario_id", request.user_info.id)
@@ -58,8 +60,10 @@ export const getRestaurantes = async (request: FastifyRequest, reply: FastifyRep
         error = userError;
         data = null;
       } else {
-        // Extraer solo los datos de restaurantes
-        data = userRestaurants?.map((ur: any) => ur.restaurantes) || [];
+        // Extraer solo los datos de restaurantes (excluir administrativos)
+        data = userRestaurants
+          ?.map((ur: any) => ur.restaurantes)
+          .filter((r: any) => r && !r.es_administrativo) || [];
       }
     }
     // Staff (roles personalizados, cajero, etc.): restaurante en usuarios_info y/o usuarios_restaurantes
@@ -96,6 +100,7 @@ export const getRestaurantes = async (request: FastifyRequest, reply: FastifyRep
         .from("restaurantes")
         .select("*")
         .in("id", [...ids])
+        .eq("es_administrativo", false)
         .order("nombre_restaurante", { ascending: true });
       data = userRestaurantsData;
       error = listError;
