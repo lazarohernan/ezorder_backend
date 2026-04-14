@@ -1,6 +1,27 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
 
+const esListaOpcionesValida = (v: unknown): v is unknown[] =>
+  Array.isArray(v) && v.length > 0;
+
+/** Prioridad: opciones de la categoría; si no hay, respaldo en columna legacy `menu.opciones`. */
+const flattenMenuOpciones = (menu: Record<string, unknown> | null) => {
+  if (!menu || typeof menu !== "object") return menu;
+  const cat = menu.menu_categorias as Record<string, unknown> | null | undefined;
+  const catOps = cat?.opciones;
+  const legacy = menu.opciones;
+  const fromCat = esListaOpcionesValida(catOps) ? catOps : null;
+  const fromLegacy = esListaOpcionesValida(legacy) ? legacy : null;
+  return { ...menu, opciones: fromCat ?? fromLegacy ?? null };
+};
+
+const mapMenuPayload = (data: unknown) => {
+  if (Array.isArray(data)) {
+    return data.map((row) => flattenMenuOpciones(row as Record<string, unknown>));
+  }
+  return flattenMenuOpciones(data as Record<string, unknown>);
+};
+
 type MenuConsumoInput = {
   inventario_id: string;
   cantidad: number;
@@ -51,6 +72,16 @@ const getMenuWithAccess = async (request: FastifyRequest, menuId: string) => {
   return { ok: true, menu: menuData, client } as const;
 };
 
+// Obtener el restaurante_id del restaurante administrativo global
+const getAdminRestauranteId = async (client: any): Promise<string | null> => {
+  const { data } = await client
+    .from("restaurantes")
+    .select("id")
+    .eq("es_administrativo", true)
+    .single();
+  return data?.id ?? null;
+};
+
 // Obtener todos los menús
 export const getMenus = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
@@ -65,32 +96,29 @@ export const getMenus = async (request: FastifyRequest, reply: FastifyReply) => 
     const id_rol = request.user_info?.rol_id ?? 3;
     let query = client
       .from("menu")
-      .select("*, restaurantes(id, nombre_restaurante), menu_categorias(id, nombre)")
+      .select("*, restaurantes(id, nombre_restaurante), menu_categorias(id, nombre, opciones)")
       .eq("activo", true);
 
-    // Filtrar por restaurante según rol
+    // Filtrar por restaurante según rol (siempre incluye el menú global del restaurante admin)
     if (id_rol === 1) {
       // Super Admin ve todos los menús
     } else if (id_rol === 2) {
-      // Admin ve menús de sus restaurantes
-      const { data: userRestaurants } = await client
-        .from("usuarios_restaurantes")
-        .select("restaurante_id")
-        .eq("usuario_id", request.user_info.id);
+      // Admin ve menús de sus restaurantes + menú global
+      const [{ data: userRestaurants }, adminId] = await Promise.all([
+        client.from("usuarios_restaurantes").select("restaurante_id").eq("usuario_id", request.user_info.id),
+        getAdminRestauranteId(client),
+      ]);
 
       const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+      if (adminId && !restaurantIds.includes(adminId)) restaurantIds.push(adminId);
 
       if (restaurantIds.length > 0) {
         query = query.in("restaurante_id", restaurantIds);
       } else {
-        // Si no tiene restaurantes, devolver vacío
-        return reply.code(200).send({
-          success: true,
-          data: [],
-        });
+        return reply.code(200).send({ success: true, data: [] });
       }
     } else {
-      // Usuarios normales solo ven menús de su restaurante
+      // Usuarios normales ven menús de su restaurante + menú global
       const restaurante_id = request.user_info?.restaurante_id;
       if (!restaurante_id) {
         return reply.code(403).send({
@@ -98,7 +126,10 @@ export const getMenus = async (request: FastifyRequest, reply: FastifyReply) => 
           message: "El usuario no tiene un restaurante asignado",
         });
       }
-      query = query.eq("restaurante_id", restaurante_id);
+      const adminId = await getAdminRestauranteId(client);
+      const ids = [restaurante_id];
+      if (adminId && adminId !== restaurante_id) ids.push(adminId);
+      query = query.in("restaurante_id", ids);
     }
 
     query = query.order("nombre", { ascending: true });
@@ -109,7 +140,7 @@ export const getMenus = async (request: FastifyRequest, reply: FastifyReply) => 
 
     return reply.code(200).send({
       success: true,
-      data,
+      data: mapMenuPayload(data),
     });
   } catch (error: any) {
     return reply.code(500).send({
@@ -129,10 +160,14 @@ export const getMenusByRestauranteId = async (request: FastifyRequest, reply: Fa
     );
 
     const client = supabaseAdmin || supabase;
+    const adminId = await getAdminRestauranteId(client);
+    const ids = [restaurante_id];
+    if (adminId && adminId !== restaurante_id) ids.push(adminId);
+
     const { data, error } = await client
       .from("menu")
-      .select("*, restaurantes(id, nombre_restaurante), menu_categorias(id, nombre)")
-      .eq("restaurante_id", restaurante_id)
+      .select("*, restaurantes(id, nombre_restaurante), menu_categorias(id, nombre, opciones)")
+      .in("restaurante_id", ids)
       .eq("activo", true)
       .order("nombre", { ascending: true });
 
@@ -140,7 +175,7 @@ export const getMenusByRestauranteId = async (request: FastifyRequest, reply: Fa
 
     return reply.code(200).send({
       success: true,
-      data,
+      data: mapMenuPayload(data),
     });
   } catch (error: any) {
     return reply.code(500).send({
@@ -167,7 +202,7 @@ export const getMenuById = async (request: FastifyRequest, reply: FastifyReply) 
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
       .from("menu")
-      .select("*, restaurantes(id, nombre_restaurante), menu_categorias(id, nombre)")
+      .select("*, restaurantes(id, nombre_restaurante), menu_categorias(id, nombre, opciones)")
       .eq("id", id)
       .single();
 
@@ -212,7 +247,7 @@ export const getMenuById = async (request: FastifyRequest, reply: FastifyReply) 
 
     return reply.code(200).send({
       success: true,
-      data,
+      data: mapMenuPayload(data),
     });
   } catch (error: any) {
     return reply.code(500).send({
@@ -318,10 +353,18 @@ export const createMenu = async (request: FastifyRequest, reply: FastifyReply) =
 
     if (error) throw error;
 
+    const { data: enriched, error: joinError } = await client
+      .from("menu")
+      .select("*, restaurantes(id, nombre_restaurante), menu_categorias(id, nombre, opciones)")
+      .eq("id", data.id)
+      .single();
+
+    if (joinError) throw joinError;
+
     return reply.code(201).send({
       success: true,
       message: "Menú creado exitosamente",
-      data,
+      data: mapMenuPayload(enriched),
     });
   } catch (error: any) {
     console.error("Error al crear menú:", error);
@@ -363,7 +406,9 @@ export const updateMenu = async (request: FastifyRequest, reply: FastifyReply) =
     !imagen &&
     porcentaje_impuesto === undefined &&
     es_para_cocina === undefined &&
-    activo === undefined
+    activo === undefined &&
+    es_exento === undefined &&
+    es_exonerado === undefined
   ) {
     return reply.code(400).send({
       success: false,
@@ -466,10 +511,18 @@ export const updateMenu = async (request: FastifyRequest, reply: FastifyReply) =
       throw error;
     }
 
+    const { data: enriched, error: joinError } = await client
+      .from("menu")
+      .select("*, restaurantes(id, nombre_restaurante), menu_categorias(id, nombre, opciones)")
+      .eq("id", id)
+      .single();
+
+    if (joinError) throw joinError;
+
     return reply.code(200).send({
       success: true,
       message: "Menú actualizado exitosamente",
-      data,
+      data: mapMenuPayload(enriched),
     });
   } catch (error: any) {
     return reply.code(500).send({

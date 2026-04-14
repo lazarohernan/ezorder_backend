@@ -75,7 +75,7 @@ export const getMenuCategories = async (_request: FastifyRequest, reply: Fastify
 };
 
 export const createMenuCategory = async (request: FastifyRequest, reply: FastifyReply) => {
-  const { nombre, descripcion } = (request.body as any);
+  const { nombre, descripcion, opciones } = (request.body as any);
 
   if (!nombre) {
     return reply.code(400).send({
@@ -120,7 +120,14 @@ export const createMenuCategory = async (request: FastifyRequest, reply: Fastify
 
     const { data, error } = await client
       .from("menu_categorias")
-      .insert([{ nombre, descripcion, restaurante_id: restauranteId }])
+      .insert([
+        {
+          nombre,
+          descripcion,
+          restaurante_id: restauranteId,
+          opciones: opciones ?? null,
+        },
+      ])
       .select()
       .single();
 
@@ -142,9 +149,13 @@ export const createMenuCategory = async (request: FastifyRequest, reply: Fastify
 
 export const updateMenuCategory = async (request: FastifyRequest, reply: FastifyReply) => {
   const { id } = (request.params as any);
-  const { nombre, descripcion } = (request.body as any);
+  const { nombre, descripcion, opciones } = (request.body as any);
 
-  if (!nombre && descripcion === undefined) {
+  if (
+    nombre === undefined &&
+    descripcion === undefined &&
+    opciones === undefined
+  ) {
     return reply.code(400).send({
       success: false,
       message: "Debes proporcionar al menos un campo para actualizar",
@@ -183,6 +194,7 @@ export const updateMenuCategory = async (request: FastifyRequest, reply: Fastify
     const updateFields: Record<string, unknown> = {};
     if (nombre !== undefined) updateFields.nombre = nombre;
     if (descripcion !== undefined) updateFields.descripcion = descripcion;
+    if (opciones !== undefined) updateFields.opciones = opciones;
 
     const client = supabaseAdmin || supabase;
 

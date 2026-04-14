@@ -344,6 +344,7 @@ export const createPedidoItem = async (request: FastifyRequest, reply: FastifyRe
     total_item,
     notas,
     enviado_a_cocina = false,
+    opciones_seleccionadas,
   } = (request.body as any);
 
   try {
@@ -419,6 +420,7 @@ export const createPedidoItem = async (request: FastifyRequest, reply: FastifyRe
           total_item: total_item || precio_unitario * cantidad,
           notas,
           enviado_a_cocina,
+          opciones_seleccionadas: opciones_seleccionadas || null,
         },
       ])
       .select()
@@ -831,6 +833,7 @@ export const createPedidoItemsBatch = async (request: FastifyRequest, reply: Fas
         total_item,
         notas,
         enviado_a_cocina = false,
+        opciones_seleccionadas,
       } = item;
 
       return {
@@ -845,6 +848,7 @@ export const createPedidoItemsBatch = async (request: FastifyRequest, reply: Fas
           precio_unitario * cantidad + impuesto_unitario * cantidad,
         notas,
         enviado_a_cocina,
+        opciones_seleccionadas: opciones_seleccionadas || null,
       };
     });
 
