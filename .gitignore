@@ -22,3 +22,6 @@ Thumbs.db
 # Editor files
 .vscode/
 .idea/
+
+# Archivos locales / no para el repo
+docs/superpowers/
