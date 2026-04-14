@@ -24,4 +24,6 @@ Thumbs.db
 .idea/
 
 # Archivos locales / no para el repo
-docs/superpowers/
+docs/
+migrations/
+postman_*.json
