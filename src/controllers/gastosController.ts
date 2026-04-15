@@ -402,8 +402,22 @@ export const gastosController = {
         tipo_gasto,
         cantidad,
         unidad_medida,
-        inventario_id
-      } = request.body as { restaurante_id: string; fecha_gasto?: string; categoria: string; descripcion: string; monto: number; metodo_pago_id?: number; proveedor?: string; tipo_gasto?: string; cantidad?: number; unidad_medida?: string; inventario_id?: string };
+        inventario_id,
+        desglose_override,
+      } = request.body as {
+        restaurante_id: string;
+        fecha_gasto?: string;
+        categoria: string;
+        descripcion: string;
+        monto: number;
+        metodo_pago_id?: number;
+        proveedor?: string;
+        tipo_gasto?: string;
+        cantidad?: number;
+        unidad_medida?: string;
+        inventario_id?: string;
+        desglose_override?: { componente_id: string; cantidad: number }[];
+      };
 
       const sanitizedFields = sanitizeGastoFieldsByTipo({
         tipo_gasto,
@@ -429,8 +443,13 @@ export const gastosController = {
         return reply.code(400).send({ error: 'El monto debe ser mayor a 0' });
       }
 
-      // Si se vincula a inventario, la cantidad es obligatoria y > 0
-      if (sanitizedFields.inventario_id && (!sanitizedFields.cantidad || Number(sanitizedFields.cantidad) <= 0)) {
+      // Si se vincula a inventario, la cantidad es obligatoria SALVO que venga desglose_override
+      const hasDesgloseOverride = Array.isArray(desglose_override) && desglose_override.length > 0;
+      if (
+        sanitizedFields.inventario_id &&
+        !hasDesgloseOverride &&
+        (!sanitizedFields.cantidad || Number(sanitizedFields.cantidad) <= 0)
+      ) {
         return reply.code(400).send({
           error: 'Cuando se vincula a un producto de inventario, la cantidad debe ser mayor a 0'
         });
@@ -463,8 +482,8 @@ export const gastosController = {
         return reply.code(400).send({ error: error.message });
       }
 
-      // Crear movimiento automático de inventario si se vinculó a un producto
-      if (data && sanitizedFields.inventario_id && sanitizedFields.cantidad && Number(sanitizedFields.cantidad) > 0) {
+      // Crear movimientos de inventario si se vinculó a un producto
+      if (data && sanitizedFields.inventario_id) {
         try {
           const { data: invItem, error: invError } = await client
             .from('inventario')
@@ -473,43 +492,61 @@ export const gastosController = {
             .single();
 
           if (invItem && !invError && invItem.restaurante_id === restaurante_id) {
-            const cantidadNum = Number(sanitizedFields.cantidad);
+            if (hasDesgloseOverride) {
+              // Modo manual: crear un movimiento por cada pieza especificada
+              for (const pieza of desglose_override!) {
+                if (pieza.componente_id && Number(pieza.cantidad) > 0) {
+                  await client
+                    .from('movimientos_inventario')
+                    .insert({
+                      inventario_id: pieza.componente_id,
+                      tipo_movimiento: 'entrada',
+                      cantidad: Number(pieza.cantidad),
+                      motivo: `Compra por piezas - ${invItem.nombre}${proveedor ? ` (${proveedor})` : ''} - Gasto`,
+                      referencia: data.id,
+                      usuario_id: request.user_info!.id,
+                    });
+                }
+              }
+            } else if (sanitizedFields.cantidad && Number(sanitizedFields.cantidad) > 0) {
+              const cantidadNum = Number(sanitizedFields.cantidad);
 
-            // Crear movimiento de entrada
-            await client
-              .from('movimientos_inventario')
-              .insert({
-                inventario_id: sanitizedFields.inventario_id,
-                tipo_movimiento: 'entrada',
-                cantidad: cantidadNum,
-                motivo: `Compra de proveedor - Gasto${proveedor ? ` (${proveedor})` : ''}`,
-                referencia: data.id,
-                usuario_id: request.user_info!.id,
-              });
+              // Crear movimiento de entrada al producto principal
+              await client
+                .from('movimientos_inventario')
+                .insert({
+                  inventario_id: sanitizedFields.inventario_id,
+                  tipo_movimiento: 'entrada',
+                  cantidad: cantidadNum,
+                  motivo: `Compra de proveedor - Gasto${proveedor ? ` (${proveedor})` : ''}`,
+                  referencia: data.id,
+                  usuario_id: request.user_info!.id,
+                });
 
-            // Desglose automático si el producto tiene reglas
-            const { data: reglas } = await client
-              .from('inventario_desglose')
-              .select('componente_id, cantidad')
-              .eq('producto_id', sanitizedFields.inventario_id);
+              // Desglose automático si el producto tiene reglas
+              const { data: reglas } = await client
+                .from('inventario_desglose')
+                .select('componente_id, cantidad')
+                .eq('producto_id', sanitizedFields.inventario_id);
 
-            if (reglas && reglas.length > 0) {
-              for (const regla of reglas) {
-                await client
-                  .from('movimientos_inventario')
-                  .insert({
-                    inventario_id: regla.componente_id,
-                    tipo_movimiento: 'entrada',
-                    cantidad: cantidadNum * regla.cantidad,
-                    motivo: `Desglose automático de ${invItem.nombre} (×${cantidadNum}) - Gasto`,
-                    referencia: data.id,
-                    usuario_id: request.user_info!.id,
-                  });
+              if (reglas && reglas.length > 0) {
+                for (const regla of reglas) {
+                  await client
+                    .from('movimientos_inventario')
+                    .insert({
+                      inventario_id: regla.componente_id,
+                      tipo_movimiento: 'entrada',
+                      cantidad: cantidadNum * regla.cantidad,
+                      motivo: `Desglose automático de ${invItem.nombre} (×${cantidadNum}) - Gasto`,
+                      referencia: data.id,
+                      usuario_id: request.user_info!.id,
+                    });
+                }
               }
             }
           }
         } catch (invMovError) {
-          console.error('Error creating automatic inventory movement from gasto:', invMovError);
+          console.error('Error creating inventory movement from gasto:', invMovError);
         }
       }
 
