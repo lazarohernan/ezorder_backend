@@ -111,6 +111,20 @@ export const getUsuarioById = async (request: FastifyRequest, reply: FastifyRepl
       .eq("id", id)
       .maybeSingle();
 
+    const { data: restaurantesAsignados, error: restaurantesAsignadosError } = await supabaseAdmin
+      .from("usuarios_restaurantes")
+      .select("restaurante_id, restaurantes(id, nombre_restaurante)")
+      .eq("usuario_id", id);
+
+    if (restaurantesAsignadosError) {
+      console.error("Error al obtener restaurantes asignados:", restaurantesAsignadosError);
+    }
+
+    const restaurantesAsignadosFormateados = (restaurantesAsignados || []).map((row: any) => ({
+      id: row.restaurante_id,
+      nombre_restaurante: row.restaurantes?.nombre_restaurante || "",
+    }));
+
     const userWithInfo = {
       id: authUser.user.id,
       email: authUser.user.email,
@@ -120,6 +134,7 @@ export const getUsuarioById = async (request: FastifyRequest, reply: FastifyRepl
       app_metadata: authUser.user.app_metadata,
       confirmed_at: authUser.user.confirmed_at,
       user_info: userInfoError ? null : userInfo,
+      restaurantes_asignados: restaurantesAsignadosFormateados,
     };
 
     return reply.code(200).send({
@@ -288,9 +303,26 @@ export const createUsuario = async (request: FastifyRequest, reply: FastifyReply
 
 export const updateUsuario = async (request: FastifyRequest, reply: FastifyReply) => {
   const { id } = (request.params as any);
-  const { nombre_usuario, rol_id, rol_personalizado_id, restaurante_id, user_image, password, bienvenida_aceptada } =
+  const {
+    nombre_usuario,
+    rol_id,
+    rol_personalizado_id,
+    restaurante_id,
+    restaurantes_ids,
+    user_image,
+    password,
+    bienvenida_aceptada,
+  } =
     (request.body as any);
-  if (!nombre_usuario && rol_id === undefined && rol_personalizado_id === undefined && restaurante_id === undefined && user_image === undefined && bienvenida_aceptada === undefined) {
+  if (
+    !nombre_usuario &&
+    rol_id === undefined &&
+    rol_personalizado_id === undefined &&
+    restaurante_id === undefined &&
+    restaurantes_ids === undefined &&
+    user_image === undefined &&
+    bienvenida_aceptada === undefined
+  ) {
     return reply.code(400).send({
       success: false,
       message: "Se debe proporcionar al menos un campo para actualizar",
@@ -336,6 +368,10 @@ export const updateUsuario = async (request: FastifyRequest, reply: FastifyReply
       });
     }
 
+    const restaurantesIdsNormalizados: string[] | undefined = Array.isArray(restaurantes_ids)
+      ? [...new Set(restaurantes_ids.filter((rid: unknown) => typeof rid === "string" && rid.trim() !== ""))]
+      : undefined;
+
     // Validar acceso al restaurante si es rol 2 y se está asignando un restaurante específico
     if (id_rol === 2 && restaurante_id !== undefined && restaurante_id !== null) {
       const { data: userRestaurants } = await supabaseAdmin
@@ -349,6 +385,26 @@ export const updateUsuario = async (request: FastifyRequest, reply: FastifyReply
         return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este restaurante",
+        });
+      }
+    }
+
+    // Validar acceso si se envía lista de restaurantes
+    if (id_rol === 2 && restaurantesIdsNormalizados !== undefined) {
+      const { data: userRestaurants } = await supabaseAdmin
+        .from("usuarios_restaurantes")
+        .select("restaurante_id")
+        .eq("usuario_id", request.user_info.id);
+
+      const restaurantIds = userRestaurants?.map((ur: any) => ur.restaurante_id) || [];
+      const restaurantesNoPermitidos = restaurantesIdsNormalizados.filter(
+        (rid) => !restaurantIds.includes(rid),
+      );
+
+      if (restaurantesNoPermitidos.length > 0) {
+        return reply.code(403).send({
+          success: false,
+          message: "No tienes acceso a uno o más restaurantes seleccionados",
         });
       }
     }
@@ -388,6 +444,10 @@ export const updateUsuario = async (request: FastifyRequest, reply: FastifyReply
     if (rol_personalizado_id !== undefined) updateFields.rol_personalizado_id = rol_personalizado_id;
     if (restaurante_id !== undefined)
       updateFields.restaurante_id = restaurante_id;
+    if (restaurantesIdsNormalizados !== undefined && restaurante_id === undefined) {
+      updateFields.restaurante_id =
+        restaurantesIdsNormalizados.length > 0 ? restaurantesIdsNormalizados[0] : null;
+    }
     if (user_image !== undefined) updateFields.user_image = user_image;
     if (bienvenida_aceptada !== undefined) updateFields.bienvenida_aceptada = bienvenida_aceptada;
 
@@ -406,8 +466,49 @@ export const updateUsuario = async (request: FastifyRequest, reply: FastifyReply
 
     if (error) throw error;
 
-    // Sincronizar usuarios_restaurantes si cambió el restaurante_id
-    if (restaurante_id !== undefined) {
+    // Sincronizar usuarios_restaurantes con selección múltiple cuando se envía lista explícita
+    if (restaurantesIdsNormalizados !== undefined) {
+      // Eliminar asociaciones que ya no están seleccionadas
+      if (restaurantesIdsNormalizados.length > 0) {
+        const restaurantesIdsSql = restaurantesIdsNormalizados.map((rid) => `"${rid}"`).join(",");
+        const { error: urDeleteNotInError } = await supabaseAdmin
+          .from("usuarios_restaurantes")
+          .delete()
+          .eq("usuario_id", id)
+          .not("restaurante_id", "in", `(${restaurantesIdsSql})`);
+
+        if (urDeleteNotInError) {
+          console.error("Error al depurar asociaciones usuario-restaurante:", urDeleteNotInError);
+        }
+
+        // Insertar asociaciones faltantes
+        const payload = restaurantesIdsNormalizados.map((rid) => ({
+          usuario_id: id,
+          restaurante_id: rid,
+          es_propietario: false,
+          created_at: new Date(),
+        }));
+
+        const { error: urBulkUpsertError } = await supabaseAdmin
+          .from("usuarios_restaurantes")
+          .upsert(payload, { onConflict: "usuario_id,restaurante_id" });
+
+        if (urBulkUpsertError) {
+          console.error("Error al sincronizar asociaciones usuario-restaurante:", urBulkUpsertError);
+        }
+      } else {
+        const { error: urDeleteAllError } = await supabaseAdmin
+          .from("usuarios_restaurantes")
+          .delete()
+          .eq("usuario_id", id);
+
+        if (urDeleteAllError) {
+          console.error("Error al limpiar asociaciones usuario-restaurante:", urDeleteAllError);
+        }
+      }
+    }
+    // Compatibilidad: sincronización por restaurante_id único (flujo legado)
+    else if (restaurante_id !== undefined) {
       if (restaurante_id) {
         // Insertar o actualizar la asociación usuario-restaurante
         const { error: urError } = await supabaseAdmin

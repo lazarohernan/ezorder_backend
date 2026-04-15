@@ -1,6 +1,49 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
 
+const userHasPermission = async (
+  rolPersonalizadoId: number | null | undefined,
+  permission: string,
+): Promise<boolean> => {
+  if (!supabaseAdmin || !rolPersonalizadoId) return false;
+
+  const { data: userPermissions, error } = await supabaseAdmin
+    .from("rol_permisos")
+    .select("permisos!inner(nombre)")
+    .eq("rol_id", rolPersonalizadoId);
+
+  if (error) {
+    console.error("Error al validar permiso del usuario:", error);
+    return false;
+  }
+
+  const permissionNames = (userPermissions || []).map((rp: any) => rp.permisos.nombre);
+
+  if (permissionNames.includes("*")) return true;
+  if (permissionNames.includes(permission)) return true;
+
+  const [category] = permission.split(".");
+  if (permissionNames.includes(`${category}.*`)) return true;
+
+  return false;
+};
+
+const userRestaurantIds = async (userId: string): Promise<string[]> => {
+  if (!supabaseAdmin) return [];
+
+  const { data, error } = await supabaseAdmin
+    .from("usuarios_restaurantes")
+    .select("restaurante_id")
+    .eq("usuario_id", userId);
+
+  if (error) {
+    console.error("Error al obtener restaurantes del usuario:", error);
+    return [];
+  }
+
+  return data?.map((row: any) => row.restaurante_id) || [];
+};
+
 // Obtener todos los clientes
 export const getClientes = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
@@ -60,22 +103,44 @@ export const getClientes = async (request: FastifyRequest, reply: FastifyReply) 
     }
     // Usuarios normales solo ven clientes de su restaurante asignado
     else {
-      const restaurante_id = request.user_info?.restaurante_id;
+      const hasMultiRestaurantePermission = await userHasPermission(
+        request.user_info.rol_personalizado_id,
+        "pedidos.multi_restaurante",
+      );
 
-      if (!restaurante_id) {
-        return reply.code(403).send({
-          success: false,
-          message: "El usuario no tiene un restaurante asignado",
-        });
+      if (hasMultiRestaurantePermission) {
+        const restaurantIds = await userRestaurantIds(request.user_info.id);
+
+        if (restaurantIds.length === 0) {
+          data = [];
+          error = null;
+        } else {
+          const { data: userClientes, error: userError } = await client
+            .from("clientes")
+            .select("*, restaurantes(nombre_restaurante)")
+            .in("restaurante_id", restaurantIds)
+            .order("nombre_cliente", { ascending: true });
+          data = userClientes;
+          error = userError;
+        }
+      } else {
+        const restaurante_id = request.user_info?.restaurante_id;
+
+        if (!restaurante_id) {
+          return reply.code(403).send({
+            success: false,
+            message: "El usuario no tiene un restaurante asignado",
+          });
+        }
+
+        const { data: userClientes, error: userError } = await client
+          .from("clientes")
+          .select("*, restaurantes(nombre_restaurante)")
+          .eq("restaurante_id", restaurante_id)
+          .order("nombre_cliente", { ascending: true });
+        data = userClientes;
+        error = userError;
       }
-
-      const { data: userClientes, error: userError } = await client
-        .from("clientes")
-        .select("*, restaurantes(nombre_restaurante)")
-        .eq("restaurante_id", restaurante_id)
-        .order("nombre_cliente", { ascending: true });
-      data = userClientes;
-      error = userError;
     }
 
     if (error) {
@@ -135,8 +200,21 @@ export const getClientesByRestauranteId = async (
         });
       }
     } else {
-      // Usuarios normales solo pueden ver su restaurante
-      if (request.user_info.restaurante_id !== restaurante_id) {
+      // Usuarios normales: habilitar multi-restaurante solo con permiso explícito
+      const hasMultiRestaurantePermission = await userHasPermission(
+        request.user_info.rol_personalizado_id,
+        "pedidos.multi_restaurante",
+      );
+
+      if (hasMultiRestaurantePermission) {
+        const restaurantIds = await userRestaurantIds(request.user_info.id);
+        if (!restaurantIds.includes(restaurante_id)) {
+          return reply.code(403).send({
+            success: false,
+            message: "No tienes acceso a este restaurante",
+          });
+        }
+      } else if (request.user_info.restaurante_id !== restaurante_id) {
         return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este restaurante",

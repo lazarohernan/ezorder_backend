@@ -35,6 +35,54 @@ const generarSiguienteTicket = async (restaurante_id: string): Promise<number> =
   return data as number;
 };
 
+const userHasPermission = async (
+  rolPersonalizadoId: number | null | undefined,
+  permission: string,
+): Promise<boolean> => {
+  if (!supabaseAdmin || !rolPersonalizadoId) return false;
+
+  const { data: userPermissions, error } = await supabaseAdmin
+    .from("rol_permisos")
+    .select("permisos!inner(nombre)")
+    .eq("rol_id", rolPersonalizadoId);
+
+  if (error) {
+    console.error("Error al validar permiso del usuario:", error);
+    return false;
+  }
+
+  const permissionNames = (userPermissions || []).map((rp: any) => rp.permisos.nombre);
+
+  if (permissionNames.includes("*")) return true;
+  if (permissionNames.includes(permission)) return true;
+
+  const [category] = permission.split(".");
+  if (permissionNames.includes(`${category}.*`)) return true;
+
+  return false;
+};
+
+const userHasRestaurantAccess = async (
+  userId: string,
+  restauranteId: string,
+): Promise<boolean> => {
+  if (!supabaseAdmin) return false;
+
+  const { data: relation, error } = await supabaseAdmin
+    .from("usuarios_restaurantes")
+    .select("restaurante_id")
+    .eq("usuario_id", userId)
+    .eq("restaurante_id", restauranteId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Error al validar acceso a restaurante:", error);
+    return false;
+  }
+
+  return Boolean(relation);
+};
+
 // Obtener todos los pedidos
 export const getPedidos = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
@@ -391,8 +439,24 @@ export const createPedido = async (request: FastifyRequest, reply: FastifyReply)
         });
       }
     } else {
-      // Usuarios normales solo pueden crear pedidos en su restaurante
-      if (request.user_info.restaurante_id !== restaurante_id) {
+      const tienePermisoMultiRestaurante = await userHasPermission(
+        request.user_info.rol_personalizado_id,
+        "pedidos.multi_restaurante",
+      );
+
+      if (tienePermisoMultiRestaurante) {
+        const tieneAccesoRestaurante = await userHasRestaurantAccess(
+          request.user_info.id,
+          restaurante_id,
+        );
+
+        if (!tieneAccesoRestaurante) {
+          return reply.code(403).send({
+            success: false,
+            message: "No tienes acceso a este restaurante",
+          });
+        }
+      } else if (request.user_info.restaurante_id !== restaurante_id) {
         return reply.code(403).send({
           success: false,
           message: "No puedes crear pedidos para este restaurante",

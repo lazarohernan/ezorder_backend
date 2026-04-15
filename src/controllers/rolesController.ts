@@ -35,10 +35,44 @@ interface UpdateRoleDTO extends Partial<CreateRoleDTO> {
   requiere_cierre_manual?: boolean;
 }
 
+const ensureBuiltinPermissions = async () => {
+  if (!supabaseAdmin) return;
+
+  const requiredPermissions = [
+    {
+      nombre: "pedidos.multi_restaurante",
+      descripcion: "Permite gestionar pedidos en multiples restaurantes asignados",
+      categoria: "pedidos",
+      tipo: "restaurante",
+    },
+  ];
+
+  for (const permiso of requiredPermissions) {
+    const { data: existingPermission, error: checkError } = await supabaseAdmin
+      .from("permisos")
+      .select("id")
+      .eq("nombre", permiso.nombre)
+      .maybeSingle();
+
+    if (checkError) {
+      console.error("Error al verificar permiso base:", permiso.nombre, checkError);
+      continue;
+    }
+
+    if (existingPermission) continue;
+
+    const { error: insertError } = await supabaseAdmin.from("permisos").insert([permiso]);
+    if (insertError) {
+      console.error("Error al crear permiso base:", permiso.nombre, insertError);
+    }
+  }
+};
+
 // Obtener todos los permisos disponibles
 export const getPermisos = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     if (!ensureSupabaseAdmin(reply)) return;
+    await ensureBuiltinPermissions();
 
     const { data: permisos, error } = await supabaseAdmin!
       .from('permisos')
