@@ -1,5 +1,6 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
+import { userCanAccessRestaurant } from "../utils/permissionHelpers";
 
 const toDateBoundary = (
   value: string | undefined,
@@ -745,8 +746,23 @@ export const deletePedido = async (request: FastifyRequest, reply: FastifyReply)
         });
       }
     } else {
-      // Usuarios normales solo pueden eliminar pedidos de su restaurante
-      if (request.user_info.restaurante_id !== pedidoExistente.restaurante_id) {
+      // Permite eliminar si tiene pedidos.eliminar (gestión) O pedidos.crear (revert de su propio pedido)
+      const tieneAcceso =
+        (await userCanAccessRestaurant(
+          request.user_info.id,
+          request.user_info.rol_personalizado_id,
+          request.user_info.restaurante_id,
+          pedidoExistente.restaurante_id,
+          "pedidos.eliminar",
+        )) ||
+        (await userCanAccessRestaurant(
+          request.user_info.id,
+          request.user_info.rol_personalizado_id,
+          request.user_info.restaurante_id,
+          pedidoExistente.restaurante_id,
+          "pedidos.crear",
+        ));
+      if (!tieneAcceso) {
         return reply.code(403).send({
           success: false,
           message: "No tienes acceso a este pedido",

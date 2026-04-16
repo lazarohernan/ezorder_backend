@@ -56,6 +56,77 @@ const enrichCajasWithUsuarioNombre = async <T extends CajaRecord>(
   }));
 };
 
+/** Campos que solo se exponen con permiso caja.historial (propietarios y admins ya ven montos). */
+const CAMPOS_CAJA_SOLO_HISTORIAL = [
+  'monto_inicial',
+  'monto_final',
+  'total_ventas',
+  'total_ingresos',
+  'total_egresos',
+  'total_retiros',
+  'denominacion_conteo',
+  'observaciones',
+  'efectivo_declarado',
+  'ventas_pos_declaradas',
+  'ventas_transferencia_declaradas',
+  'gastos_declarados',
+  'efectivo_sistema',
+  'ventas_pos_sistema',
+  'ventas_transferencia_sistema',
+  'gastos_sistema',
+  'diferencia_efectivo',
+  'diferencia_pos',
+  'diferencia_transferencia',
+  'diferencia_gastos',
+  'diferencia_total',
+  'estado_cuadre',
+] as const;
+
+function cajaRespuestaSinMontos(caja: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...caja };
+  for (const k of CAMPOS_CAJA_SOLO_HISTORIAL) {
+    if (k in out) out[k] = null;
+  }
+  return out;
+}
+
+function coincidenciaPermisoLista(permissionNames: string[], permission: string): boolean {
+  if (permissionNames.includes('*')) return true;
+  if (permissionNames.includes(permission)) return true;
+  if (permission.includes('*')) {
+    const prefix = permission.replace('*', '');
+    return permissionNames.some((p: string) => p.startsWith(prefix));
+  }
+  const matchingWildcard = permissionNames.find((p: string) => p.endsWith('.*'));
+  if (matchingWildcard) {
+    const prefix = matchingWildcard.replace('.*', '');
+    if (permission.startsWith(prefix + '.')) return true;
+  }
+  return false;
+}
+
+async function usuarioVeMontosHistorialCaja(request: FastifyRequest): Promise<boolean> {
+  const ui = request.user_info;
+  if (!ui) return false;
+  if (ui.rol_id === 1 || ui.rol_id === 2 || ui.es_super_admin) return true;
+  const rolPersonalizadoId = ui.rol_personalizado_id;
+  if (!rolPersonalizadoId) return false;
+  const client = supabaseAdmin;
+  if (!client) return false;
+  const { data: userPermissions, error } = await client
+    .from('rol_permisos')
+    .select('permisos!inner(nombre)')
+    .eq('rol_id', rolPersonalizadoId);
+  if (error || !userPermissions?.length) return false;
+  const permissionNames = userPermissions
+    .map((rp: { permisos: { nombre: string } | { nombre: string }[] }) => {
+      const p = rp.permisos;
+      return Array.isArray(p) ? p[0]?.nombre : p?.nombre;
+    })
+    .filter((n): n is string => Boolean(n));
+  return coincidenciaPermisoLista(permissionNames, 'caja.historial');
+}
+
 export const cajaController = {
   // Obtener todas las cajas de todos los restaurantes (solo administradores)
   async getAllCajas(request: FastifyRequest, reply: FastifyReply) {
@@ -221,6 +292,26 @@ export const cajaController = {
       const { restaurante_id } = request.params as { restaurante_id: string };
       const { page = 1, limit = 10, estado, fecha_desde, fecha_hasta } = request.query as { page?: number; limit?: number; estado?: string; fecha_desde?: string; fecha_hasta?: string };
 
+      if (request.user_info) {
+        const ui = request.user_info;
+        const esAdminOGlobal =
+          ui.rol_id === 1 || ui.rol_id === 2 || ui.es_super_admin === true;
+        if (!esAdminOGlobal) {
+          if (!ui.restaurante_id) {
+            return reply.code(403).send({
+              ok: false,
+              message: 'No tienes un restaurante asignado',
+            });
+          }
+          if (ui.restaurante_id !== restaurante_id) {
+            return reply.code(403).send({
+              ok: false,
+              message: 'No tienes acceso a las cajas de este restaurante',
+            });
+          }
+        }
+      }
+
       const client = supabaseAdmin || supabase;
       let query = client
         .from('caja')
@@ -287,8 +378,15 @@ export const cajaController = {
         restaurante_nombre: (caja as any).restaurantes?.nombre_restaurante || null
       }));
 
+      const puedeMontos = await usuarioVeMontosHistorialCaja(request);
+      const dataRespuesta = puedeMontos
+        ? dataWithRestaurant
+        : dataWithRestaurant.map((caja) =>
+            cajaRespuestaSinMontos(caja as unknown as Record<string, unknown>)
+          );
+
       reply.send({
-        data: dataWithRestaurant,
+        data: dataRespuesta,
         pagination: {
           page: Number(page),
           limit: Number(limit),
@@ -1219,7 +1317,14 @@ export const cajaController = {
 
       const [dataWithNombre] = await enrichCajasWithUsuarioNombre([caja]);
 
-      reply.send({ data: dataWithNombre || null });
+      const puedeMontos = await usuarioVeMontosHistorialCaja(request);
+      const cajaOut = dataWithNombre
+        ? puedeMontos
+          ? dataWithNombre
+          : (cajaRespuestaSinMontos(dataWithNombre as unknown as Record<string, unknown>) as typeof dataWithNombre)
+        : null;
+
+      reply.send({ data: cajaOut });
     } catch (error) {
       console.error('Error getting caja by id:', error);
       throw error;

@@ -1,5 +1,6 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
+import { userCanAccessRestaurant } from "../utils/permissionHelpers";
 
 const aplicarConsumosInventarioPorItems = async (
   client: any,
@@ -807,17 +808,22 @@ export const createPedidoItemsBatch = async (request: FastifyRequest, reply: Fas
         });
       }
     } else {
-      // Usuarios normales solo pueden crear items en pedidos de su restaurante
-      const pedidosRestaurantes = pedidos.map((p: any) => p.restaurante_id);
-      const todosDelMismoRestaurante = pedidosRestaurantes.every(
-        (rid: string) => rid === request.user_info!.restaurante_id
-      );
-
-      if (!todosDelMismoRestaurante) {
-        return reply.code(403).send({
-          success: false,
-          message: "No tienes acceso a uno o más de los pedidos especificados",
-        });
+      // Usuarios con pedidos.crear pueden crear items en pedidos de sus restaurantes asignados
+      const pedidosRestaurantes = [...new Set(pedidos.map((p: any) => p.restaurante_id))] as string[];
+      for (const rid of pedidosRestaurantes) {
+        const tieneAcceso = await userCanAccessRestaurant(
+          request.user_info.id,
+          request.user_info.rol_personalizado_id,
+          request.user_info.restaurante_id,
+          rid,
+          "pedidos.crear",
+        );
+        if (!tieneAcceso) {
+          return reply.code(403).send({
+            success: false,
+            message: "No tienes acceso a uno o más de los pedidos especificados",
+          });
+        }
       }
     }
 

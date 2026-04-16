@@ -254,7 +254,7 @@ export const registerRoutes = async (app: FastifyInstance) => {
     { method: "GET", url: "/api/pedidos/:id", preHandler: [requireAuth, requirePermissions(["pedidos.ver"])], handler: getPedidoById },
     { method: "POST", url: "/api/pedidos", preHandler: [requireAuth, requirePermissions(["pedidos.crear"])], handler: createPedido },
     { method: "PUT", url: "/api/pedidos/:id", preHandler: [requireAuth, requirePermissions(["pedidos.editar"])], handler: updatePedido },
-    { method: "DELETE", url: "/api/pedidos/:id", preHandler: [requireAuth, requirePermissions(["pedidos.eliminar"])], handler: deletePedido },
+    { method: "DELETE", url: "/api/pedidos/:id", preHandler: [requireAuth, requirePermissions(["pedidos.eliminar", "pedidos.crear"])], handler: deletePedido },
 
     { method: "GET", url: "/api/pedido-items", preHandler: [requireAuth, requirePermissions(["pedidos.ver"])], handler: getPedidoItems },
     { method: "GET", url: "/api/pedido-items/pedido/:pedido_id", preHandler: [requireAuth, requirePermissions(["pedidos.ver"])], handler: getItemsByPedidoId },
@@ -289,9 +289,9 @@ export const registerRoutes = async (app: FastifyInstance) => {
     { method: "PUT", url: "/api/inventario/:id", preHandler: [requireAuth, requirePermissions(["inventario.editar"])], handler: actualizarInventario },
     { method: "DELETE", url: "/api/inventario/:id", preHandler: [requireAuth, requirePermissions(["inventario.eliminar"])], handler: eliminarInventario },
 
-    { method: "GET", url: "/api/caja/all", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.ver"]), requireSuperAdmin], handler: cajaController.getAllCajas },
-    { method: "GET", url: "/api/caja/open", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.ver"]), requireSuperAdmin], handler: cajaController.getAllCajasAbiertas },
-    { method: "GET", url: "/api/caja/restaurante/:restaurante_id", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.ver"])], handler: cajaController.getCajas },
+    { method: "GET", url: "/api/caja/all", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.historial"]), requireSuperAdmin], handler: cajaController.getAllCajas },
+    { method: "GET", url: "/api/caja/open", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.historial"]), requireSuperAdmin], handler: cajaController.getAllCajasAbiertas },
+    { method: "GET", url: "/api/caja/restaurante/:restaurante_id", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.historial", "caja.ver"])], handler: cajaController.getCajas },
     { method: "GET", url: "/api/caja/restaurante/:restaurante_id/actual", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.ver", "pedidos.crear", "pedidos.ver"])], handler: cajaController.getCajaActual },
     { method: "GET", url: "/api/caja/restaurante/:restaurante_id/resumen", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.ver"])], handler: cajaController.getResumenCaja },
     { method: "GET", url: "/api/caja/:id", preHandler: [cajaLogger, requireAuth, requirePermissions(["caja.ver"])], handler: cajaController.getCajaById },
@@ -344,10 +344,10 @@ export const registerRoutes = async (app: FastifyInstance) => {
 
     { method: "GET", url: "/api/cocina/:restaurante_id", preHandler: [requireAuth, requirePermissions(["cocina.ver"])], handler: getPedidosCocina },
 
-    { method: "GET", url: "/api/facturacion/datos-fiscales/:restaurante_id", preHandler: [requireAuth, requirePermissions(["facturacion.ver"])], handler: facturacionController.getDatosFiscales },
+    { method: "GET", url: "/api/facturacion/datos-fiscales/:restaurante_id", preHandler: [requireAuth, requirePermissions(["facturacion.ver", "pedidos.crear"])], handler: facturacionController.getDatosFiscales },
     { method: "POST", url: "/api/facturacion/datos-fiscales", preHandler: [requireAuth, requirePermissions(["facturacion.editar"])], handler: facturacionController.createDatosFiscales },
     { method: "PUT", url: "/api/facturacion/datos-fiscales/:id", preHandler: [requireAuth, requirePermissions(["facturacion.editar"])], handler: facturacionController.updateDatosFiscales },
-    { method: "POST", url: "/api/facturacion/facturas/generar", preHandler: [requireAuth, requirePermissions(["facturacion.crear"])], handler: facturacionController.generarFactura },
+    { method: "POST", url: "/api/facturacion/facturas/generar", preHandler: [requireAuth, requirePermissions(["facturacion.crear", "pedidos.crear"])], handler: facturacionController.generarFactura },
     { method: "GET", url: "/api/facturacion/facturas/detalle/:id", preHandler: [requireAuth, requirePermissions(["facturacion.ver"])], handler: facturacionController.getFacturaDetalle },
     { method: "GET", url: "/api/facturacion/facturas/:restaurante_id/hoy", preHandler: [requireAuth, requirePermissions(["facturacion.ver"])], handler: facturacionController.getFacturasHoy },
     { method: "GET", url: "/api/facturacion/facturas/:restaurante_id/resumen", preHandler: [requireAuth, requirePermissions(["facturacion.ver"])], handler: facturacionController.getResumenDia },

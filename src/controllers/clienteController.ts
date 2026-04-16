@@ -1,48 +1,6 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { supabase, supabaseAdmin } from "../supabase/supabase";
-
-const userHasPermission = async (
-  rolPersonalizadoId: number | null | undefined,
-  permission: string,
-): Promise<boolean> => {
-  if (!supabaseAdmin || !rolPersonalizadoId) return false;
-
-  const { data: userPermissions, error } = await supabaseAdmin
-    .from("rol_permisos")
-    .select("permisos!inner(nombre)")
-    .eq("rol_id", rolPersonalizadoId);
-
-  if (error) {
-    console.error("Error al validar permiso del usuario:", error);
-    return false;
-  }
-
-  const permissionNames = (userPermissions || []).map((rp: any) => rp.permisos.nombre);
-
-  if (permissionNames.includes("*")) return true;
-  if (permissionNames.includes(permission)) return true;
-
-  const [category] = permission.split(".");
-  if (permissionNames.includes(`${category}.*`)) return true;
-
-  return false;
-};
-
-const userRestaurantIds = async (userId: string): Promise<string[]> => {
-  if (!supabaseAdmin) return [];
-
-  const { data, error } = await supabaseAdmin
-    .from("usuarios_restaurantes")
-    .select("restaurante_id")
-    .eq("usuario_id", userId);
-
-  if (error) {
-    console.error("Error al obtener restaurantes del usuario:", error);
-    return [];
-  }
-
-  return data?.map((row: any) => row.restaurante_id) || [];
-};
+import { userHasPermission, userRestaurantIds } from "../utils/permissionHelpers";
 
 // Obtener todos los clientes
 export const getClientes = async (request: FastifyRequest, reply: FastifyReply) => {
@@ -214,11 +172,30 @@ export const getClientesByRestauranteId = async (
             message: "No tienes acceso a este restaurante",
           });
         }
-      } else if (request.user_info.restaurante_id !== restaurante_id) {
-        return reply.code(403).send({
-          success: false,
-          message: "No tienes acceso a este restaurante",
-        });
+      } else {
+        // Usuarios con pedidos.crear pueden buscar clientes en sus restaurantes asignados
+        const hasPedidosCrear = await userHasPermission(
+          request.user_info.rol_personalizado_id,
+          "pedidos.crear",
+        );
+
+        if (hasPedidosCrear) {
+          const restaurantIds = await userRestaurantIds(request.user_info.id);
+          const restauranteAsignado = request.user_info.restaurante_id;
+          const tieneAcceso =
+            restaurantIds.includes(restaurante_id) || restauranteAsignado === restaurante_id;
+          if (!tieneAcceso) {
+            return reply.code(403).send({
+              success: false,
+              message: "No tienes acceso a este restaurante",
+            });
+          }
+        } else if (request.user_info.restaurante_id !== restaurante_id) {
+          return reply.code(403).send({
+            success: false,
+            message: "No tienes acceso a este restaurante",
+          });
+        }
       }
     }
 
@@ -339,8 +316,25 @@ export const createCliente = async (request: FastifyRequest, reply: FastifyReply
         });
       }
     } else {
-      // Usuarios normales solo pueden crear clientes en su restaurante
-      if (request.user_info.restaurante_id !== restaurante_id) {
+      // Usuarios con pedidos.crear pueden crear clientes en sus restaurantes asignados
+      // (implícito en el flujo de creación de pedidos, sin acceso al módulo de clientes)
+      const hasPedidosCrear = await userHasPermission(
+        request.user_info.rol_personalizado_id,
+        "pedidos.crear",
+      );
+
+      if (hasPedidosCrear) {
+        const restaurantIds = await userRestaurantIds(request.user_info.id);
+        const restauranteAsignado = request.user_info.restaurante_id;
+        const tieneAcceso =
+          restaurantIds.includes(restaurante_id) || restauranteAsignado === restaurante_id;
+        if (!tieneAcceso) {
+          return reply.code(403).send({
+            success: false,
+            message: "No puedes crear clientes para este restaurante",
+          });
+        }
+      } else if (request.user_info.restaurante_id !== restaurante_id) {
         return reply.code(403).send({
           success: false,
           message: "No puedes crear clientes para este restaurante",

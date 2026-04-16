@@ -45,6 +45,13 @@ const ensureBuiltinPermissions = async () => {
       categoria: "pedidos",
       tipo: "restaurante",
     },
+    {
+      nombre: "caja.historial",
+      descripcion:
+        "Ver historial de cajas, tarjetas de resumen del día y registros de apertura/cierre",
+      categoria: "caja",
+      tipo: "restaurante",
+    },
   ];
 
   for (const permiso of requiredPermissions) {
